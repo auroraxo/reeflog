@@ -1,0 +1,18 @@
+[package]
+name = "reeflog"
+version = "0.1.0"
+edition = "2021"
+description = "Durable local mailbox for Solana events: journal, seal, cursor resume, gap reporting."
+license = "MIT"
+repository = "https://github.com/auroraxo/reeflog"
+
+[dependencies]
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "time", "signal"] }
+tokio-tungstenite = { version = "0.24", features = ["rustls-tls-webpki-roots"] }
+futures-util = "0.3"
+rusqlite = { version = "0.31", features = ["bundled"] }
+serde_json = "1"
+ureq = { version = "3.5.0", features = ["json"] }
+
+[profile.release]
+opt-level = 2
