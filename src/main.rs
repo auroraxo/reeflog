@@ -6,10 +6,12 @@
 
 mod backfill;
 mod journal;
+mod payload;
 
 use backfill::{backfill_tail, repair_holes, verify_recent, HttpFetcher, Report};
 use futures_util::{SinkExt, StreamExt};
 use journal::{EventRow, Journal};
+use payload::hydrate_payloads;
 use serde_json::{json, Value};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
@@ -259,6 +261,12 @@ async fn run_start(args: &[String]) {
     let repair_every_s: u64 = arg(args, "--repair-every").and_then(|s| s.parse().ok()).unwrap_or(30);
     let repair_pages: usize = arg(args, "--repair-pages").and_then(|s| s.parse().ok()).unwrap_or(40);
     let repair_lookback: i64 = arg(args, "--repair-lookback").and_then(|s| s.parse().ok()).unwrap_or(1800);
+    // Rows whose content is fetched at shutdown. The socket costs nothing
+    // here (its rows already carry payload); this budget is only for rows
+    // the signature walk recovered. `0` disables the pass.
+    let payload_limit: i64 = arg(args, "--payload-limit")
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(500);
 
     let mut stats = Stats::new();
     let deadline = Instant::now() + Duration::from_secs(seconds);
@@ -310,6 +318,74 @@ async fn run_start(args: &[String]) {
         None
     };
     let _ = &mut open_gap;
+
+    // Content recovery. The gap machinery above recovers *signatures*; the
+    // rows it fills carry no logs, so without this pass the rows a crash
+    // made missing are exactly the rows a consumer cannot read. Killed runs
+    // never reach the shutdown pass — the kill test SIGKILLs the daemon — so
+    // this pass is what makes the product survive its own failure mode.
+    //
+    // It runs in the BACKGROUND, beside the ingest loop, not before it: a
+    // restart after a kill is precisely the moment when delaying ingestion
+    // would widen the blind window. The socket is opened first; the rows get
+    // their content while the stream is already running.
+    // The payload worker runs for the WHOLE life of the run, not once. The
+    // periodic repair pass above keeps recovering rows while we run; a worker
+    // that only fired at startup would leave every one of those rows without
+    // content, and a killed run never reaches the shutdown pass. Measured
+    // 2026-10-28: a 120 s kill-test run recovered 267 rows during execution
+    // and the startup-only worker hydrated none of them.
+    //
+    // It runs in the BACKGROUND, beside the ingest loop: hydration must not
+    // delay ingestion, which is precisely the moment that matters after a
+    // kill. Each pass drains a bounded batch so a huge backlog cannot starve
+    // the process; the loop exits as soon as the run is over.
+    let (stop_tx, stop_rx) = std::sync::mpsc::channel::<()>();
+    let payload_handle = if payload_limit > 0 {
+        let db = db.clone();
+        let rpc = rpc_url.clone();
+        let rx = stop_rx;
+        Some(tokio::task::spawn_blocking(move || {
+            // A separate connection: the ingest loop owns the journal handle
+            // for the whole run.
+            let j2 = match Journal::open(&db) {
+                Ok(x) => x,
+                Err(e) => {
+                    eprintln!("reeflog: payload worker could not open the journal: {e}");
+                    return None;
+                }
+            };
+            let mut f = HttpFetcher::new(rpc);
+            let mut last: Option<payload::PayloadReport> = None;
+            loop {
+                // Non-blocking check: the run is over, stop hydrating.
+                if rx.try_recv().is_ok() {
+                    break;
+                }
+                match hydrate_payloads(&j2, &mut f, payload_limit) {
+                    Ok(r) => {
+                        let drained = r.pending_left == 0;
+                        last = Some(r);
+                        // Nothing left to do: idle until the run ends rather
+                        // than spinning on an empty queue.
+                        if drained {
+                            std::thread::sleep(Duration::from_millis(250));
+                            continue;
+                        }
+                    }
+                    Err(e) => {
+                        // A journal error is not a reason to stop trying; the
+                        // next pass will report it again if it persists.
+                        eprintln!("reeflog: payload worker: {e}");
+                    }
+                }
+                std::thread::sleep(Duration::from_millis(250));
+            }
+            last
+        }))
+    } else {
+        None
+    };
 
     // The periodic hole-repair scheduler. `repair_every_s` must be well under
     // `repair_lookback` in chain-progress terms, or a hole can age out of the
@@ -574,6 +650,60 @@ async fn run_start(args: &[String]) {
         json!({"skipped": true})
     };
 
+    // Content, not just signatures: rows recovered above arrived from the
+    // signature walk and carry no logs. Measured 2026-10-28 — a 60 s run
+    // recovered 13 rows and stored all 13 without payload. Without this pass
+    // the recovered rows are the ones a consumer cannot read.
+    //
+    // The background worker (started above, beside the ingest loop) gets
+    // first refusal on the rows it was already fetching; this pass covers
+    // whatever is still missing — including rows the worker never reached.
+    let payload_stop = stop_tx;
+    let hydrate = if let Some(h) = payload_handle {
+        // Tell the worker to stop, then join it: its last pass still counts.
+        let _ = payload_stop.send(());
+        match h.await {
+            Ok(Some(r)) => {
+                if r.hydrated > 0 || r.unavailable > 0 || r.invalid > 0 {
+                    eprintln!(
+                        "reeflog: payload worker filled {} row(s), {} chain-unknown, {} invalid",
+                        r.hydrated, r.unavailable, r.invalid
+                    );
+                }
+                json!({
+                    "worker": {
+                        "hydrated": r.hydrated, "unavailable": r.unavailable,
+                        "invalid": r.invalid, "failed": r.failed,
+                        "pending_left": r.pending_left, "error": r.error,
+                    }
+                })
+            }
+            Ok(None) => json!({"worker": {"error": "payload worker did not finish"}}),
+            Err(e) => json!({"worker": {"error": e.to_string()}}),
+        }
+    } else {
+        json!({"worker": {"skipped": true}})
+    };
+    let mut fetcher_payload = HttpFetcher::new(rpc_url.clone());
+    let (r, hydrate_err) = match hydrate_payloads(&j, &mut fetcher_payload, payload_limit) {
+        Ok(r) => (r, None),
+        Err(e) => {
+            eprintln!("reeflog: payload hydrate failed: {e}");
+            (Default::default(), Some(e))
+        }
+    };
+    let hydrate = json!({
+        "worker": hydrate["worker"].clone(),
+        "complete": r.complete() && hydrate_err.is_none(),
+        "considered": r.considered,
+        "hydrated": r.hydrated,
+        "unavailable": r.unavailable,
+        "invalid": r.invalid,
+        "failed": r.failed,
+        "pending_left": r.pending_left,
+        "error": hydrate_err.or(r.error),
+    });
+
     let c = j.counts().unwrap_or_else(|e| die(e));
     let summary = json!({
         "program": program,
@@ -587,15 +717,26 @@ async fn run_start(args: &[String]) {
         "repair_passes": stats.repair_passes,
         "repair_filled": stats.repair_filled,
         "final_repair": final_repair,
+        "hydrate": hydrate,
         "journal": {
             "events": c.total, "with_err": c.with_err,
             "finalized": c.finalized, "confirmed": c.confirmed,
             "error": c.errored, "missing": c.missing, "unsealed": c.unsealed,
             "gaps": c.gaps, "gaps_open": c.gaps_open,
             "backfilled": c.backfilled, "blind_window_ms": c.blind_ms,
+            "payload_pending": c.payload_pending,
+            "payload_unavailable": c.payload_unavailable,
+            "payload_invalid": c.payload_invalid,
         }
     });
     println!("{}", serde_json::to_string_pretty(&summary).unwrap());
+    if hydrate["complete"].as_bool() != Some(true) {
+        eprintln!(
+            "reeflog: payload hydrate INCOMPLETE ({} row(s) still pending) — run `reeflog hydrate`",
+            hydrate["pending_left"].as_i64().unwrap_or(0)
+        );
+        std::process::exit(3);
+    }
 }
 
 fn run_tail(args: &[String]) {
@@ -605,17 +746,33 @@ fn run_tail(args: &[String]) {
     let limit: i64 = arg(args, "--limit")
         .and_then(|s| s.parse().ok())
         .unwrap_or(1000);
+    // The payload is the point of the mailbox: a row without it is a
+    // signature, not an event. `--no-logs` keeps the old compact shape for
+    // callers that only need identities (the kill-test harness does).
+    let with_logs = !args.iter().any(|a| a == "--no-logs");
     let after: i64 = read_cursor(&cursor_path);
     let rows: Vec<EventRow> = j.events_after(after, limit).unwrap_or_else(|e| die(e));
     for r in &rows {
-        println!(
-            "{}",
-            serde_json::json!({
-                "seq": r.seq, "signature": r.signature, "slot": r.slot,
-                "err": r.err, "source": r.source, "seal": r.seal_status,
-                "first_seen": r.first_seen,
-            })
-        );
+        let mut v = json!({
+            "seq": r.seq, "signature": r.signature, "slot": r.slot,
+            "err": r.err, "source": r.source, "seal": r.seal_status,
+            "first_seen": r.first_seen,
+        });
+        if with_logs {
+            // `logs` is the event's content: the log lines as a JSON array.
+            // `null` means the journal holds the signature but not what
+            // happened — `payload_state` says whether that is still pending
+            // or the chain never knew the transaction.
+            v["logs"] = match &r.logs {
+                Some(raw) => serde_json::from_str::<Value>(raw).unwrap_or(Value::String(raw.clone())),
+                None => Value::Null,
+            };
+            v["payload_state"] = match r.payload_state.as_deref() {
+                Some(s) => Value::String(s.into()),
+                None => Value::Null,
+            };
+        }
+        println!("{}", serde_json::to_string(&v).unwrap());
     }
     if let Some(last) = rows.last() {
         write_cursor(&cursor_path, last.seq);
@@ -751,6 +908,11 @@ fn run_status(args: &[String]) {
             "error": c.errored, "missing": c.missing, "unsealed": c.unsealed,
             "gaps": c.gaps, "gaps_open": c.gaps_open,
             "backfilled": c.backfilled, "blind_window_ms": c.blind_ms,
+            // How much of the journal actually knows WHAT happened. A row
+            // without content is a signature, not an event.
+            "payload_pending": c.payload_pending,
+            "payload_unavailable": c.payload_unavailable,
+            "payload_invalid": c.payload_invalid,
             "max_seq": j.max_seq().unwrap_or(0),
             "max_slot": j.max_slot().unwrap_or(None),
             "min_slot": j.oldest_slot().unwrap_or(None),
@@ -763,6 +925,61 @@ fn run_status(args: &[String]) {
     );
 }
 
+/// Fill in the content of rows the journal holds a signature for but does not
+/// know what happened to — the rows the gap machinery recovered.
+///
+/// Measured 2026-10-28 (live, 60 s run on mainnet): the socket delivered
+/// 2,082 rows with payload; `repair` recovered 13 rows, and all 13 were
+/// stored without payload. The recovered rows are exactly the rows a
+/// consumer could not read, so a mailbox that stops there has not delivered
+/// what it promised.
+///
+/// The pass is honest about three states: `held` (content fetched), 
+/// `unavailable` (the chain does not know the transaction — forked out or
+/// pruned), and pending (still unknown). An incomplete pass exits 3, like
+/// `verify` and `repair`: a rate limit must never look like a clean pass.
+fn run_hydrate(args: &[String]) {
+    let db = PathBuf::from(arg(args, "--db").unwrap_or_else(|| "reeflog.db".into()));
+    let j = Journal::open(&db).unwrap_or_else(|e| die(e));
+    let rpc_url = arg(args, "--rpc").unwrap_or_else(|| DEFAULT_RPC.into());
+    let limit: i64 = arg(args, "--limit")
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(500);
+    let mut fetcher = HttpFetcher::new(rpc_url);
+    let r = hydrate_payloads(&j, &mut fetcher, limit).unwrap_or_else(|e| die(e));
+    let c = j.counts().unwrap_or_else(|e| die(e));
+    println!(
+        "{}",
+        serde_json::to_string_pretty(&json!({
+            "complete": r.complete(),
+            "considered": r.considered,
+            "hydrated": r.hydrated,
+            "unavailable": r.unavailable,
+            "invalid": r.invalid,
+            "failed": r.failed,
+            "pending_left": r.pending_left,
+            "error": r.error,
+            "hydrated_sample": r.hydrated_sample,
+            "unavailable_sample": r.unavailable_sample,
+            "invalid_sample": r.invalid_sample,
+            "journal": {
+                "events": c.total,
+                "payload_pending": c.payload_pending,
+                "payload_unavailable": c.payload_unavailable,
+                "payload_invalid": c.payload_invalid,
+            },
+        }))
+        .unwrap()
+    );
+    if !r.complete() {
+        eprintln!(
+            "reeflog: hydrate INCOMPLETE (error={:?}, failed={}, pending_left={}) — some rows still have no content",
+            r.error, r.failed, r.pending_left
+        );
+        std::process::exit(3);
+    }
+}
+
 fn usage() -> ! {
     eprintln!(
         "reeflog v0 — durable local mailbox for Solana events\n\n\
@@ -771,8 +988,9 @@ fn usage() -> ! {
          \x20 reeflog start --db <file> [--seconds N] [--ws URL] [--rpc URL] [--program <pubkey>]\n\
          \x20 reeflog verify --db <file> [--pages N] [--since-slot N] [--rpc URL]\n\
          \x20 reeflog repair --db <file> [--pages N] [--since-slot N] [--rpc URL]\n\
+         \x20 reeflog hydrate --db <file> [--limit N] [--rpc URL]\n\
          \x20 reeflog seal  --db <file> [--rpc URL]\n\
-         \x20 reeflog tail  --db <file> --cursor <file> [--limit N]\n\
+         \x20 reeflog tail  --db <file> --cursor <file> [--limit N] [--no-logs]\n\
          \x20 reeflog status --db <file>"
     );
     std::process::exit(64);
@@ -796,6 +1014,7 @@ fn main() {
         "seal" => run_seal(&args),
         "verify" => run_verify(&args),
         "repair" => run_repair(&args),
+        "hydrate" => run_hydrate(&args),
         "tail" => run_tail(&args),
         "status" => run_status(&args),
         _ => usage(),

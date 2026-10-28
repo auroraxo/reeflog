@@ -148,6 +148,42 @@ never be mistaken for a clean one.
 
 Consequence: a backfill written with `since=<newest signature we hold>` returns an empty window and reports no loss while filling nothing. reeflog pages backwards with `before` and stops at the boundary **slot** instead, always starting from the chain tip so no held signature is ever an anchor. This was found by measuring the endpoint, not by reading the docs, and it is recorded in `src/backfill.rs`.
 
+## Event content (payload hydration)
+
+A signature alone is not an event — a mailbox that delivers "something
+happened at slot N" without saying what happened forces every consumer back
+onto the RPC, which is the fragility reeflog exists to remove.
+
+The gap machinery (`backfill.rs`) recovers *signatures* from
+`getSignaturesForAddress`, which carries slot and error but no `logs`.
+Measured 2026-10-28 on a 60 s live run against mainnet: 13 rows filled by
+`repair`, all 13 stored with `logs IS NULL`, while all 2,082 rows the socket
+delivered held payload. That asymmetry meant the rows the journal had to
+*recover* were exactly the rows a consumer could not read.
+
+reeflog hydrates missing content (`src/payload.rs`) with `getTransaction` and
+distinguishes four states:
+
+- **`held`** — log lines stored as a JSON array. Both socket capture and
+  hydration store into this state; hydration never overwrites captured logs.
+- **`unavailable`** — the chain does not know the transaction (forked out or
+  pruned). Keeps `logs = null` and records the reason; an empty array would
+  claim "no logs", which is a different statement.
+- **`invalid`** — the endpoint refuses the key (-32602). A corrupted row,
+  recorded separately from a fork-out so an operator can tell them apart.
+  Never folded into `unavailable`.
+- **`pending`** — still unknown. Any pending row makes a pass incomplete;
+  incomplete passes exit 3 (same honesty rule as `verify` and `repair`).
+
+`reeflog tail` delivers the log array by default; `--no-logs` keeps the
+compact identity-only shape. A background worker hydrates recovered rows
+continuously, beside the ingest loop — not once at startup, because the
+periodic repair pass keeps recovering rows while the daemon runs, and a
+killed run never reaches a shutdown pass. A final pass runs at shutdown.
+Verified live: `tools/e2e-payload.mjs` checks all 13 conditions against
+mainnet, including independent byte-for-byte comparison of stored payloads
+against freshly fetched transactions.
+
 ## Two kinds of gap
 
 They need different tools, and conflating them is how a "we never lose events" claim turns out to be false:
@@ -162,11 +198,13 @@ A walk that is cut short is reported as truncated, the gap stays **open**, and t
 ```bash
 reeflog init    --db reeflog.db --program <pubkey>
 reeflog start   --db reeflog.db --seconds 60 [--repair-every 30] \
-                                      [--repair-lookback 1800] [--repair-pages 40]
+                                      [--repair-lookback 1800] [--repair-pages 40] \
+                                      [--payload-limit 500]
 reeflog seal    --db reeflog.db
 reeflog verify  --db reeflog.db --pages 400        # detect, exit 3 if unfinished
-reeflog repair  --db reeflog.db --pages 400        # fill exactly what verify found
-reeflog tail    --db reeflog.db --cursor ./c.txt   # resume from a cursor
+reeflog repair  --db reeflog.db --pages 400        # fill signatures verify found
+reeflog hydrate --db reeflog.db [--limit 500]      # fetch missing event content
+reeflog tail    --db reeflog.db --cursor ./c.txt   # deliver events (content included)
 reeflog status  --db reeflog.db
 ```
 

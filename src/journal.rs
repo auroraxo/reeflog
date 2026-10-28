@@ -9,15 +9,16 @@ use std::path::Path;
 
 pub const SCHEMA: &str = r#"
 CREATE TABLE IF NOT EXISTS events (
-    seq         INTEGER PRIMARY KEY AUTOINCREMENT,
-    signature   TEXT NOT NULL UNIQUE,
-    slot        INTEGER NOT NULL,
-    err         TEXT,
-    logs        TEXT,
-    source      TEXT NOT NULL DEFAULT 'ws',
-    first_seen  INTEGER NOT NULL,
-    seal_status TEXT,
-    seal_seen   INTEGER
+    seq           INTEGER PRIMARY KEY AUTOINCREMENT,
+    signature     TEXT NOT NULL UNIQUE,
+    slot          INTEGER NOT NULL,
+    err           TEXT,
+    logs          TEXT,
+    source        TEXT NOT NULL DEFAULT 'ws',
+    first_seen    INTEGER NOT NULL,
+    seal_status   TEXT,
+    seal_seen     INTEGER,
+    payload_state TEXT
 );
 CREATE TABLE IF NOT EXISTS gaps (
     id             INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -37,6 +38,12 @@ CREATE TABLE IF NOT EXISTS meta (
 );
 "#;
 
+/// Databases created before payload hydration existed (v0, commit adfbe60)
+/// have no `payload_state` column. The journal is a durable local file —
+/// opening an old one must upgrade it in place instead of failing or
+/// silently treating every historical row as pending.
+const MIGRATIONS: &[(&str, &str)] = &[("payload_state", "ALTER TABLE events ADD COLUMN payload_state TEXT")];
+
 pub struct Journal {
     pub db: Connection,
 }
@@ -50,6 +57,12 @@ pub struct EventRow {
     pub source: String,
     pub first_seen: i64,
     pub seal_status: Option<String>,
+    /// The event's content: the log lines as a JSON array, or None when the
+    /// journal holds the signature but not what happened.
+    pub logs: Option<String>,
+    /// Why payload is absent, when it is: 'unavailable' = the chain does not
+    /// know this transaction. None while still pending (unknown, not empty).
+    pub payload_state: Option<String>,
 }
 
 pub fn now_ms() -> i64 {
@@ -63,8 +76,23 @@ impl Journal {
     pub fn open(path: &Path) -> Result<Journal, String> {
         let db = Connection::open(path).map_err(|e| e.to_string())?;
         let _ = db.query_row("PRAGMA journal_mode=WAL", [], |r| r.get::<_, String>(0));
+        // Hydration runs on its own connection beside the ingest loop. Two
+        // writers on one WAL file will contend occasionally; without a busy
+        // timeout the loser surfaces as a spurious "database is locked"
+        // failure instead of waiting a few milliseconds.
+        db.execute_batch("PRAGMA busy_timeout=5000;").ok();
         db.execute_batch("PRAGMA synchronous=NORMAL;").ok();
         db.execute_batch(SCHEMA).map_err(|e| e.to_string())?;
+        for (column, ddl) in MIGRATIONS {
+            let present: bool = db
+                .prepare("SELECT COUNT(*) FROM pragma_table_info('events') WHERE name=?1")
+                .and_then(|mut s| s.query_row(params![column], |r| r.get::<_, i64>(0)))
+                .unwrap_or(0)
+                > 0;
+            if !present {
+                db.execute_batch(ddl).map_err(|e| e.to_string())?;
+            }
+        }
         Ok(Journal { db })
     }
 
@@ -111,9 +139,20 @@ impl Journal {
         }
         self.db
             .execute(
-                "INSERT INTO events(signature,slot,err,logs,source,first_seen)
-                 VALUES(?1,?2,?3,?4,?5,?6)",
-                params![signature, slot, err, logs, source, now_ms()],
+                "INSERT INTO events(signature,slot,err,logs,source,first_seen,payload_state)
+                 VALUES(?1,?2,?3,?4,?5,?6,?7)",
+                params![
+                    signature,
+                    slot,
+                    err,
+                    logs,
+                    source,
+                    now_ms(),
+                    // Payload that came with the event is held from the
+                    // moment it is written; a row inserted without content
+                    // (signature walk) stays NULL = pending, not empty.
+                    if logs.is_some() { Some("held") } else { None }
+                ],
             )
             .map_err(|e| e.to_string())?;
         Ok((self.db.last_insert_rowid(), true))
@@ -273,7 +312,8 @@ impl Journal {
         let mut stmt = self
             .db
             .prepare(
-                "SELECT seq, signature, slot, err, source, first_seen, seal_status
+                "SELECT seq, signature, slot, err, source, first_seen, seal_status,
+                        logs, payload_state
                  FROM events WHERE seq > ?1 ORDER BY seq LIMIT ?2",
             )
             .map_err(|e| e.to_string())?;
@@ -287,6 +327,8 @@ impl Journal {
                     source: r.get(4)?,
                     first_seen: r.get(5)?,
                     seal_status: r.get(6)?,
+                    logs: r.get(7)?,
+                    payload_state: r.get(8)?,
                 })
             })
             .map_err(|e| e.to_string())?;
@@ -295,6 +337,79 @@ impl Journal {
             out.push(row.map_err(|e| e.to_string())?);
         }
         Ok(out)
+    }
+
+    /// Rows whose content is still unknown: no payload and no recorded
+    /// outcome. Ordered by `seq` so hydration follows delivery order.
+    pub fn events_missing_payload(&self, limit: i64) -> Result<Vec<(i64, String)>, String> {
+        let mut stmt = self
+            .db
+            .prepare(
+                "SELECT seq, signature FROM events
+                 WHERE logs IS NULL AND payload_state IS NULL
+                 ORDER BY seq LIMIT ?1",
+            )
+            .map_err(|e| e.to_string())?;
+        let rows = stmt
+            .query_map(params![limit], |r| Ok((r.get(0)?, r.get(1)?)))
+            .map_err(|e| e.to_string())?;
+        let mut out = Vec::new();
+        for row in rows {
+            out.push(row.map_err(|e| e.to_string())?);
+        }
+        Ok(out)
+    }
+
+    pub fn payload_pending_count(&self) -> Result<i64, String> {
+        self.db
+            .query_row(
+                "SELECT COUNT(*) FROM events WHERE logs IS NULL AND payload_state IS NULL",
+                [],
+                |r| r.get(0),
+            )
+            .map_err(|e| e.to_string())
+    }
+
+    /// Store the payload of a row that does not have one yet. Returns whether
+    /// this call actually wrote — a row the socket already delivered is left
+    /// untouched, so a hydration pass can never overwrite captured content.
+    pub fn set_payload(&self, signature: &str, logs: &str) -> Result<bool, String> {
+        let n = self
+            .db
+            .execute(
+                "UPDATE events SET logs=?2, payload_state='held'
+                 WHERE signature=?1 AND logs IS NULL",
+                params![signature, logs],
+            )
+            .map_err(|e| e.to_string())?;
+        Ok(n > 0)
+    }
+
+    /// Record that the chain does not know this transaction. Payload stays
+    /// NULL: "no transaction" and "no logs" are different claims.
+    pub fn mark_payload_unavailable(&self, signature: &str) -> Result<(), String> {
+        self.db
+            .execute(
+                "UPDATE events SET payload_state='unavailable'
+                 WHERE signature=?1 AND logs IS NULL AND payload_state IS NULL",
+                params![signature],
+            )
+            .map_err(|e| e.to_string())?;
+        Ok(())
+    }
+
+    /// Record that the endpoint refuses this key as not-a-signature. Kept
+    /// separate from `unavailable`: a fork-out is chain history, an invalid
+    /// key is a corrupted row — an operator must be able to tell them apart.
+    pub fn mark_payload_invalid(&self, signature: &str) -> Result<(), String> {
+        self.db
+            .execute(
+                "UPDATE events SET payload_state='invalid'
+                 WHERE signature=?1 AND logs IS NULL AND payload_state IS NULL",
+                params![signature],
+            )
+            .map_err(|e| e.to_string())?;
+        Ok(())
     }
 
     /// Signatures still awaiting a seal decision (never sealed, or parked at
@@ -402,6 +517,30 @@ impl Journal {
                 |r| r.get(0),
             )
             .map_err(|e| e.to_string())?;
+        let payload_pending: i64 = self
+            .db
+            .query_row(
+                "SELECT COUNT(*) FROM events WHERE logs IS NULL AND payload_state IS NULL",
+                [],
+                |r| r.get(0),
+            )
+            .map_err(|e| e.to_string())?;
+        let payload_unavailable: i64 = self
+            .db
+            .query_row(
+                "SELECT COUNT(*) FROM events WHERE payload_state='unavailable'",
+                [],
+                |r| r.get(0),
+            )
+            .map_err(|e| e.to_string())?;
+        let payload_invalid: i64 = self
+            .db
+            .query_row(
+                "SELECT COUNT(*) FROM events WHERE payload_state='invalid'",
+                [],
+                |r| r.get(0),
+            )
+            .map_err(|e| e.to_string())?;
         let blind_ms: i64 = self
             .db
             .query_row(
@@ -424,6 +563,9 @@ impl Journal {
             gaps_open,
             backfilled,
             blind_ms,
+            payload_pending,
+            payload_unavailable,
+            payload_invalid,
         })
     }
 }
@@ -441,6 +583,12 @@ pub struct Counts {
     pub gaps_open: i64,
     pub backfilled: i64,
     pub blind_ms: i64,
+    /// Rows with neither content nor a recorded reason: still unknown.
+    pub payload_pending: i64,
+    /// Rows the chain does not know (forked out or pruned).
+    pub payload_unavailable: i64,
+    /// Rows whose key the endpoint refuses: a corrupted row.
+    pub payload_invalid: i64,
 }
 
 #[cfg(test)]
@@ -552,5 +700,67 @@ mod tests {
             Some("older".to_string()),
             "seq order is insertion order and does differ"
         );
+    }
+
+    #[test]
+    fn payload_write_never_overwrites_captured_content() {
+        let j = tmp("payload-ow");
+        j.append("sig", 10, None, Some(r#"["socket content"]"#), "ws")
+            .unwrap();
+        assert!(
+            !j.set_payload("sig", r#"["hydrated content"]"#).unwrap(),
+            "a socket-delivered payload must not be replaced"
+        );
+        let rows = j.events_after(0, 10).unwrap();
+        assert_eq!(rows[0].logs.as_deref(), Some(r#"["socket content"]"#));
+    }
+
+    #[test]
+    fn payload_states_distinguish_pending_from_unavailable_from_held() {
+        let j = tmp("payload-states");
+        j.append("held", 10, None, Some(r#"["x"]"#), "ws").unwrap();
+        j.append("pending", 11, None, None, "repair").unwrap();
+        j.append("gone", 12, None, None, "repair").unwrap();
+        assert_eq!(j.payload_pending_count().unwrap(), 2);
+
+        j.mark_payload_unavailable("gone").unwrap();
+        assert_eq!(
+            j.payload_pending_count().unwrap(),
+            1,
+            "an unavailable row is known, no longer pending"
+        );
+
+        assert!(j.set_payload("pending", r#"["y"]"#).unwrap());
+        assert_eq!(j.payload_pending_count().unwrap(), 0);
+
+        let missing = j.events_missing_payload(10).unwrap();
+        assert!(missing.is_empty(), "nothing is left to hydrate");
+
+        let rows = j.events_after(0, 10).unwrap();
+        let gone = rows.iter().find(|r| r.signature == "gone").unwrap();
+        assert!(gone.logs.is_none(), "unavailable must not claim an empty log");
+        assert_eq!(gone.payload_state.as_deref(), Some("unavailable"));
+        let pending = rows.iter().find(|r| r.signature == "pending").unwrap();
+        assert_eq!(pending.payload_state.as_deref(), Some("held"));
+
+        let c = j.counts().unwrap();
+        assert_eq!(c.payload_pending, 0);
+        assert_eq!(c.payload_unavailable, 1);
+    }
+
+    #[test]
+    fn events_missing_payload_follows_delivery_order_and_honours_limit() {
+        let j = tmp("payload-order");
+        j.append("a", 10, None, None, "repair").unwrap();
+        j.append("b", 9, None, None, "repair").unwrap(); // older chain slot, later insert
+        j.append("c", 11, None, Some(r#"["x"]"#), "ws").unwrap();
+        let rows = j.events_missing_payload(10).unwrap();
+        assert_eq!(
+            rows.iter().map(|(_, s)| s.as_str()).collect::<Vec<_>>(),
+            vec!["a", "b"],
+            "delivery order (seq), not chain order"
+        );
+        let rows = j.events_missing_payload(1).unwrap();
+        assert_eq!(rows.len(), 1);
     }
 }

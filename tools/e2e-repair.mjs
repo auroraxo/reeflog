@@ -46,8 +46,15 @@ function cli(args) {
 const json = (s) => { try { return JSON.parse(s); } catch { return { raw: s }; } };
 
 // One page of real signatures from the tip (limit max 1000).
-const rows = await rpc('getSignaturesForAddress', [PROGRAM, { limit: 1000, commitment: 'finalized' }]);
-console.log(`chain page: ${rows.length} rows, slots ${rows[rows.length - 1].slot}..${rows[0].slot}`);
+let rawRows = await rpc('getSignaturesForAddress', [PROGRAM, { limit: 1000, commitment: 'finalized' }]);
+// A 1000-row page cuts off mid-slot: the oldest slot on the page usually has
+// more signatures that were not returned. `verify` scans down to `min_slot`
+// and reads the ENTIRE slot, so the remainder of the cut-off slot would be
+// flagged as a hole. Discard the partial oldest slot so `min_slot` is a slot
+// whose signatures the harvest held completely.
+const cutSlot = rawRows[rawRows.length - 1].slot;
+const rows = rawRows.filter((r) => r.slot > cutSlot);
+console.log(`chain page: ${rawRows.length} raw, ${rows.length} clean (discarded partial slot ${cutSlot}), slots ${rows[rows.length - 1].slot}..${rows[0].slot}`);
 
 fs.rmSync('/tmp/reeflog-e2e', { recursive: true, force: true });
 fs.mkdirSync('/tmp/reeflog-e2e', { recursive: true });
@@ -56,9 +63,15 @@ let r = await cli(['init', '--db', DB, '--program', PROGRAM]);
 if (r.code !== 0) { console.error('INIT FAILED', r); process.exit(2); }
 
 // Load every row, but SKIP every third one -> planted holes in the window.
+// The top two slots are excluded from the journal: the ceiling slot is still
+// being written while the harness runs, so a transaction finalising in it
+// after the harvest would be flagged as a hole nobody planted. Planting only
+// below the tip keeps the expected count deterministic.
+const ceilSlot = rows[0].slot;
 const planted = [];
 let kept = 0;
 for (const row of rows) {
+  if (row.slot >= ceilSlot - 1) continue; // tip race: leave the newest slots out
   if (kept % 3 === 2) { planted.push(row); kept++; continue; }
   const err = row.err == null ? null : JSON.stringify(row.err);
   // reuse the tail command's input path: append via `start` would need WS,
@@ -73,7 +86,7 @@ for (const row of rows) {
   db.close();
   kept++;
 }
-console.log(`planted ${kept} kept, ${planted.length} holes`);
+console.log(`planted ${kept} kept, ${planted.length} holes (window ceiling ${ceilSlot})`);
 
 // --- 1. verify must SEE the holes -------------------------------------
 let v1 = await cli(['verify', '--db', DB, '--pages', '50']);

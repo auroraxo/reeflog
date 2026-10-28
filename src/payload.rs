@@ -1,0 +1,395 @@
+//! Payload hydration: an event is a signature plus what happened.
+//!
+//! The gap machinery (see `backfill.rs`) recovers *signatures* — a repaired
+//! or backfilled row arrives from `getSignaturesForAddress`, which carries a
+//! slot and an error but no `logs`. Measured 2026-10-28 on a live 60 s run
+//! against mainnet: 13 rows filled by `repair`, all 13 stored with
+//! `logs IS NULL`, while all 2,082 rows the socket delivered held payload.
+//!
+//! That asymmetry is a product defect, not a footnote: the rows the journal
+//! had to *recover* are exactly the rows a consumer cannot read. A mailbox
+//! that delivers "something happened at slot N" without saying what happened
+//! forces the consumer back onto the RPC, which is the fragility reeflog
+//! exists to remove.
+//!
+//! This module fetches the missing payload with `getTransaction` and records
+//! the outcome honestly:
+//!
+//! Four states, kept apart because they make different promises.
+//!
+//! `held` — the chain returned `meta.logMessages`, stored as JSON.
+//!
+//! `unavailable` — the chain does not know the transaction (forked out or
+//! pruned). Measured 2026-10-28: a well-formed signature that is not on
+//! chain answers `result: null` with no error; the row keeps `logs IS NULL`
+//! and says why. An empty array would claim "no logs" for a transaction
+//! that no longer exists, which is a different statement.
+//!
+//! `invalid` — the endpoint refuses the key itself (-32602 Invalid param:
+//! not a decodable signature). No transaction can ever exist under it, so it
+//! is a known outcome too — but a *different* one from a fork-out: it
+//! signals a corrupted row, and folding it into `unavailable` would hide
+//! that. Never counted as a failure either, or one corrupted row would make
+//! every pass exit 3 forever.
+//!
+//! `pending` — `logs IS NULL` and no outcome recorded. Unknown, not
+//! known-empty. Pending rows are what make a hydration pass incomplete, and
+//! incomplete passes exit non-zero (same honesty rule as `verify` and
+//! `repair`).
+
+use crate::journal::Journal;
+use crate::backfill::Fetcher;
+use serde_json::{json, Value};
+
+#[derive(Debug, Default, Clone)]
+pub struct PayloadReport {
+    /// Rows whose payload was still unknown when this pass started.
+    pub considered: i64,
+    /// Rows that received their payload from the chain.
+    pub hydrated: i64,
+    /// Rows the chain does not know (forked out or pruned).
+    pub unavailable: i64,
+    /// Rows whose key the endpoint refuses as not-a-signature: a corrupted
+    /// row, distinct from a fork-out.
+    pub invalid: i64,
+    /// Rows the RPC failed on. A failure leaves the row pending, never held.
+    pub failed: i64,
+    /// Rows still pending after this pass (its `--limit` was reached).
+    pub pending_left: i64,
+    pub error: Option<String>,
+    pub hydrated_sample: Vec<String>,
+    pub unavailable_sample: Vec<String>,
+    pub invalid_sample: Vec<String>,
+}
+
+impl PayloadReport {
+    /// Complete means: every row has a known outcome, nothing RPC-failed,
+    /// and the pass was not cut short by its limit. A known-empty result
+    /// (`unavailable`) is a *recorded* outcome and does not make the pass
+    /// incomplete — the journal knows, which is the point.
+    pub fn complete(&self) -> bool {
+        self.error.is_none() && self.failed == 0 && self.pending_left == 0
+    }
+}
+
+/// Fetch payloads for rows whose content is still unknown, up to `limit`.
+/// Ordered by `seq` (delivery order) so the consumer's earliest rows are
+/// filled first — a cursor consumer reads from the front of the journal.
+pub fn hydrate_payloads<F: Fetcher>(
+    j: &Journal,
+    f: &mut F,
+    limit: i64,
+) -> Result<PayloadReport, String> {
+    let mut r = PayloadReport::default();
+    let rows = j.events_missing_payload(limit + 1)?; // +1: detect "more remain"
+    if rows.is_empty() {
+        return Ok(r);
+    }
+    let take = limit.max(0).min(rows.len() as i64) as usize;
+    let batch = &rows[..take];
+    r.considered = batch.len() as i64;
+
+    for (seq, signature) in batch {
+        let _ = seq;
+        let result = match f.call(
+            "getTransaction",
+            json!([
+                signature,
+                {"encoding": "json", "maxSupportedTransactionVersion": 1, "commitment": "finalized"}
+            ]),
+        ) {
+            Ok(v) => v,
+            Err(e) => {
+                if is_refused_key(&e) {
+                    // The endpoint says this is not a decodable signature at
+                    // all. Nothing can ever be fetched for it, so it is a
+                    // recorded outcome — but `invalid`, not `unavailable`:
+                    // a fork-out and a corrupted row must not look alike.
+                    j.mark_payload_invalid(signature)?;
+                    r.invalid += 1;
+                    if r.invalid_sample.len() < 5 {
+                        r.invalid_sample.push(signature.clone());
+                    }
+                    continue;
+                }
+                // The RPC failed: the row stays pending and this pass is
+                // incomplete. Recording a failure as an outcome would turn a
+                // rate limit into a permanent hole.
+                r.failed += 1;
+                r.error = Some(e);
+                break;
+            }
+        };
+        if result.is_null() {
+            // Chain does not know this transaction: confirmed-then-forked-out
+            // or pruned past history. This is the same class of transaction
+            // that poisoned the old verify anchor (see backfill.rs).
+            j.mark_payload_unavailable(signature)?;
+            r.unavailable += 1;
+            if r.unavailable_sample.len() < 5 {
+                r.unavailable_sample.push(signature.clone());
+            }
+            continue;
+        }
+        let logs = result
+            .pointer("/meta/logMessages")
+            .cloned()
+            .unwrap_or(Value::Null);
+        let stored = match &logs {
+            Value::Array(_) => serde_json::to_string(&logs).map_err(|e| e.to_string())?,
+            // The transaction exists but carries no log array: record it as
+            // unavailable rather than writing `[]`, for the same reason as
+            // above — "no logs" and "no transaction" are different claims.
+            _ => {
+                j.mark_payload_unavailable(signature)?;
+                r.unavailable += 1;
+                if r.unavailable_sample.len() < 5 {
+                    r.unavailable_sample.push(signature.clone());
+                }
+                continue;
+            }
+        };
+        // `set_payload` only writes rows still missing payload, so a row the
+        // socket already delivered is never overwritten.
+        if j.set_payload(signature, &stored)? {
+            r.hydrated += 1;
+            if r.hydrated_sample.len() < 5 {
+                r.hydrated_sample.push(signature.clone());
+            }
+        }
+    }
+
+    r.pending_left = j.payload_pending_count()?;
+    Ok(r)
+}
+
+/// `HttpFetcher` formats a JSON-RPC error as
+/// `getTransaction: rpc error {"code":-32602,"message":"Invalid param: Invalid"}`.
+/// An endpoint that refuses the *key* will never answer for it, whatever it
+/// costs in retries, so treating it as a transport failure would leave one
+/// corrupted row making every pass — and every `start` that hydrates at
+/// shutdown — exit 3 forever. Only -32602 is classified this way: a rate
+/// limit stays a failure, and a request-shape bug on our side must never be
+/// silently recorded as "the chain does not know it".
+fn is_refused_key(err: &str) -> bool {
+    err.contains("code\":-32602") || err.contains("code\": -32602")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::journal::Journal;
+
+    struct FakeTxRpc {
+        /// signature -> logMessages, or None for "chain does not know it".
+        known: std::collections::HashMap<String, Option<Vec<String>>>,
+        fail_after: Option<usize>,
+        calls: usize,
+        /// Errors for specific signatures, e.g. the endpoint refusing a key.
+        errors: std::collections::HashMap<String, String>,
+    }
+
+    impl Fetcher for FakeTxRpc {
+        fn call(&mut self, method: &str, params: Value) -> Result<Value, String> {
+            assert_eq!(method, "getTransaction");
+            let sig = params[0].as_str().unwrap().to_string();
+            if let Some(e) = self.errors.get(&sig) {
+                return Err(e.clone());
+            }
+            if let Some(n) = self.fail_after {
+                if self.calls >= n {
+                    return Err("getTransaction: http 429 rate limited".into());
+                }
+            }
+            self.calls += 1;
+            match self.known.get(&sig) {
+                None => Ok(Value::Null),
+                Some(None) => Ok(Value::Null),
+                Some(Some(logs)) => Ok(json!({"meta": {"logMessages": logs}})),
+            }
+        }
+    }
+
+    fn tmp(tag: &str) -> Journal {
+        use std::sync::atomic::{AtomicU64, Ordering};
+        static N: AtomicU64 = AtomicU64::new(0);
+        let n = N.fetch_add(1, Ordering::SeqCst);
+        let p = std::env::temp_dir().join(format!(
+            "reeflog-payload-{}-{}-{}.db",
+            std::process::id(),
+            tag,
+            n
+        ));
+        let _ = std::fs::remove_file(&p);
+        Journal::open(&p).expect("open journal")
+    }
+
+    #[test]
+    fn hydration_fills_only_rows_missing_payload() {
+        let j = tmp("fill");
+        // Socket row: payload already held.
+        j.append("sigWs", 10, None, Some(r#"["Program log: hi"]"#), "ws")
+            .unwrap();
+        // Repair row: signature only — the shape `repair_holes` writes.
+        j.append("sigRepair", 11, None, None, "repair").unwrap();
+        assert_eq!(j.payload_pending_count().unwrap(), 1);
+
+        let mut rpc = FakeTxRpc {
+            known: std::collections::HashMap::from([(
+                "sigRepair".to_string(),
+                Some(vec!["Program log: recovered".to_string()]),
+            )]),
+            fail_after: None,
+            calls: 0,
+            errors: std::collections::HashMap::new(),
+        };
+        let r = hydrate_payloads(&j, &mut rpc, 10).unwrap();
+        assert_eq!(r.hydrated, 1);
+        assert_eq!(r.unavailable, 0);
+        assert!(r.complete(), "a full pass must be complete");
+        assert_eq!(j.payload_pending_count().unwrap(), 0);
+
+        let rows = j.events_after(0, 10).unwrap();
+        let ws = rows.iter().find(|x| x.signature == "sigWs").unwrap();
+        assert_eq!(
+            ws.logs.as_deref(),
+            Some(r#"["Program log: hi"]"#),
+            "an already-held payload must not be overwritten"
+        );
+        let rep = rows.iter().find(|x| x.signature == "sigRepair").unwrap();
+        assert_eq!(
+            rep.logs.as_deref(),
+            Some(r#"["Program log: recovered"]"#),
+            "a repaired row must gain its payload"
+        );
+        assert_eq!(rpc.calls, 1, "held rows must not cost an RPC call");
+    }
+
+    #[test]
+    fn an_unknown_transaction_is_recorded_as_unavailable_not_empty() {
+        let j = tmp("unavail");
+        j.append("forked", 10, None, None, "repair").unwrap();
+        let mut rpc = FakeTxRpc {
+            known: std::collections::HashMap::new(), // chain knows neither
+            fail_after: None,
+            calls: 0,
+            errors: std::collections::HashMap::new(),
+        };
+        let r = hydrate_payloads(&j, &mut rpc, 10).unwrap();
+        assert_eq!(r.unavailable, 1);
+        assert_eq!(r.hydrated, 0);
+        assert!(r.complete(), "a recorded outcome is a known outcome");
+        assert_eq!(j.payload_pending_count().unwrap(), 0);
+
+        let rows = j.events_after(0, 10).unwrap();
+        assert!(
+            rows[0].logs.is_none(),
+            "a transaction the chain does not know must not claim `[]`"
+        );
+        assert_eq!(rows[0].payload_state.as_deref(), Some("unavailable"));
+    }
+
+    #[test]
+    fn an_rpc_failure_leaves_the_row_pending_and_the_pass_incomplete() {
+        let j = tmp("fail");
+        j.append("sig1", 10, None, None, "repair").unwrap();
+        let mut rpc = FakeTxRpc {
+            known: std::collections::HashMap::new(),
+            fail_after: Some(0), // fails on the first call
+            calls: 0,
+            errors: std::collections::HashMap::new(),
+        };
+        let r = hydrate_payloads(&j, &mut rpc, 10).unwrap();
+        assert_eq!(r.failed, 1);
+        assert!(!r.complete(), "a rate limit must never look like a clean pass");
+        assert_eq!(j.payload_pending_count().unwrap(), 1, "the row stays pending");
+        let rows = j.events_after(0, 10).unwrap();
+        assert_eq!(
+            rows[0].payload_state.as_deref(),
+            None,
+            "a failure records no outcome"
+        );
+    }
+
+    #[test]
+    fn hitting_the_limit_reports_the_rows_left_behind() {
+        let j = tmp("limit");
+        j.append("a", 10, None, None, "repair").unwrap();
+        j.append("b", 11, None, None, "repair").unwrap();
+        let mut rpc = FakeTxRpc {
+            known: std::collections::HashMap::new(),
+            fail_after: None,
+            calls: 0,
+            errors: std::collections::HashMap::new(),
+        };
+        let r = hydrate_payloads(&j, &mut rpc, 1).unwrap();
+        assert_eq!(r.considered, 1);
+        assert_eq!(r.unavailable, 1);
+        assert_eq!(r.pending_left, 1, "the untouched row must still be pending");
+        assert!(!r.complete(), "a cut-short pass is not a clean pass");
+    }
+
+    #[test]
+    fn a_journal_with_nothing_to_do_is_complete_and_costs_nothing() {
+        let j = tmp("idle");
+        j.append("sigWs", 10, None, Some(r#"["x"]"#), "ws").unwrap();
+        let mut rpc = FakeTxRpc {
+            known: std::collections::HashMap::new(),
+            fail_after: Some(0),
+            calls: 0,
+            errors: std::collections::HashMap::new(),
+        };
+        let r = hydrate_payloads(&j, &mut rpc, 10).unwrap();
+        assert!(r.complete());
+        assert_eq!(r.considered, 0);
+        assert_eq!(rpc.calls, 0, "held payload must not trigger RPC");
+    }
+
+    #[test]
+    fn a_key_the_endpoint_refuses_is_invalid_not_unavailable_and_not_a_failure() {
+        // Measured 2026-10-28: a signature that is not decodable answers
+        // -32602 "Invalid param: Invalid". Treating that as a transport
+        // failure would leave one corrupted row making every pass exit 3
+        // forever; treating it as a fork-out would hide a corrupted row.
+        let j = tmp("invalid");
+        j.append("garbage", 10, None, None, "repair").unwrap();
+        let mut rpc = FakeTxRpc {
+            known: std::collections::HashMap::new(),
+            fail_after: None,
+            calls: 0,
+            errors: std::collections::HashMap::from([(
+                "garbage".to_string(),
+                "getTransaction: rpc error {\"code\":-32602,\"message\":\"Invalid param: Invalid\"}"
+                    .to_string(),
+            )]),
+        };
+        let r = hydrate_payloads(&j, &mut rpc, 10).unwrap();
+        assert_eq!(r.invalid, 1);
+        assert_eq!(r.unavailable, 0, "a corrupted key is not a fork-out");
+        assert_eq!(r.failed, 0, "a refused key is not a transport failure");
+        assert!(r.complete(), "a recorded outcome is a known outcome");
+        assert_eq!(j.payload_pending_count().unwrap(), 0);
+
+        let rows = j.events_after(0, 10).unwrap();
+        assert!(rows[0].logs.is_none());
+        assert_eq!(rows[0].payload_state.as_deref(), Some("invalid"));
+        assert_eq!(j.counts().unwrap().payload_invalid, 1);
+    }
+
+    #[test]
+    fn a_rate_limit_is_still_a_failure_and_never_an_outcome() {
+        let j = tmp("ratelimit");
+        j.append("sig1", 10, None, None, "repair").unwrap();
+        let mut rpc = FakeTxRpc {
+            known: std::collections::HashMap::new(),
+            fail_after: Some(0),
+            calls: 0,
+            errors: std::collections::HashMap::new(),
+        };
+        let r = hydrate_payloads(&j, &mut rpc, 10).unwrap();
+        assert_eq!(r.failed, 1);
+        assert_eq!(r.invalid, 0, "a rate limit is not a refused key");
+        assert!(!r.complete());
+        assert_eq!(j.payload_pending_count().unwrap(), 1);
+    }
+}
