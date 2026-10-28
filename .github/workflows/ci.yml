@@ -20,3 +20,5 @@ jobs:
         run: cargo test --release --locked
       - name: Clippy
         run: cargo clippy --release --locked -- -D warnings
+      - name: Decoder self-test (offline)
+        run: node tools/test-decoder.mjs

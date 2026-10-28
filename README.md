@@ -184,6 +184,66 @@ Verified live: `tools/e2e-payload.mjs` checks all 13 conditions against
 mainnet, including independent byte-for-byte comparison of stored payloads
 against freshly fetched transactions.
 
+## First external consumer: a fill watcher
+
+Until this section existed, every claim was checked by reeflog's own
+harness. `tools/fill-watcher.mjs` is a consumer in the sense a bot cares
+about: it reads `reeflog tail --cursor` and turns rows into **fills** —
+signature, slot, direction, `amount_in`, `out_amount`, pool reserves — and it
+does that from local bytes, with no RPC call of its own.
+
+The decode is not guessed. Raydium AMM v4 emits `ray_log:` as a
+bincode-serialized struct (`SwapBaseInLog` / `SwapBaseOutLog` in
+`raydium-amm/program/src/log.rs`), so the field order is the program's own.
+The wire layout was then verified against the chain: for every sampled swap,
+`pool_coin + amount_in` equals the pool's coin-vault balance after the swap
+and `pool_pc − out_amount` equals its pc-vault balance, both read from the
+transaction's pre/post token balances. A line the decoder cannot read is
+reported as `undecodable`, never guessed at.
+
+`tools/e2e-fillwatch.mjs` runs this watcher against the alternative — the
+classic `getSignaturesForAddress` + `getTransaction` poller — over the **same
+window on the same endpoint**, and fails if:
+
+1. `hydrate` leaves any row unreadable (`pending` must be 0, exit 0);
+2. any fill the poller decoded **inside the daemon's slot window** is
+   missing from reeflog's stream;
+3. a fill both consumers saw decodes to **different** amounts (a payload that
+   exists but disagrees with the chain is not delivery);
+4. the watcher's own decoder drops a held leg;
+5. the local decode phase makes any RPC call.
+
+The comparison is **slot-aligned**, and the reason is worth stating: a naive
+page fetch reaches back ~1000 signatures into history, while the daemon's
+window starts when its WebSocket subscription delivers its first event. The
+first run of this harness compared the raw sets and reported 21 "missing"
+fills — every sampled one sat in a slot *before* the journal's first slot,
+i.e. before the daemon had connected. That is not a loss, and treating it as
+one would be exactly the kind of plausible-wrong-number this project refuses
+to publish. Fills outside the window are now counted and reported
+separately, never as losses.
+
+Measured 2026-10-28, 60 s live window on mainnet, Raydium AMM v4:
+
+| Measurement | reeflog | naive poller |
+|---|---|---|
+| fills decoded | **155** | 12 |
+| RPC calls for that content | **0** | 44 (4 signature pages + 40 transactions) |
+| in-window fills missing from reeflog | **0** of 7 | — |
+| fills decoding to identical amounts | **7 / 7** | — |
+| rows drained | 474 rows in 316 ms | — |
+
+The naive consumer is budgeted on purpose: the public endpoint answers
+roughly one `getTransaction` per second under load, so a poller that wants
+content pays for it — every call above is counted, not estimated. reeflog
+paid for its content once, at ingest, and the watcher then reads bytes it
+already had.
+
+`tools/test-decoder.mjs` is the offline half: three real mainnet fixtures
+with every field asserted, the 57-byte rule enforced, a non-swap log type
+refused, and a row without a swap proven not to become a fill. It runs in CI
+and needs no network.
+
 ## Two kinds of gap
 
 They need different tools, and conflating them is how a "we never lose events" claim turns out to be false:
@@ -234,7 +294,7 @@ Still open: reorg handling beyond marking an entry as reverted, Yellowstone as a
 
 ## Next qualification
 
-1. Replace my RFQ fill polling and Whirlpool watcher glue as user zero.
+1. Put my own RFQ fill polling and Whirlpool watcher on `reeflog tail`. The fill watcher above is the prototype of it — it proves the mailbox yields fills cheaper and without loss — but the production glue still polls, so user zero is earned, not assumed.
 2. Reorg handling: detect a finalized event that reverts and mark it reverted.
 3. Archive gap-fill for holes deeper than the RPC window.
 4. Yellowstone source and webhook fan-out.
