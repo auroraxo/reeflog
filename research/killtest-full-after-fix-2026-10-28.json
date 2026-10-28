@@ -1,0 +1,203 @@
+{
+  "label": "full-after-fix",
+  "program": "675kPX9MHTjS2zt1qfr1NYHuzeLXfQM9H24wFSUt1Mp8",
+  "startedAt": "2026-10-28T10:59:36.660Z",
+  "config": {
+    "TOTAL_S": 600,
+    "KILL_EVERY_S": 60,
+    "DOWNTIME_S": 4,
+    "GRACE_S": 20,
+    "rpc": "https://api.mainnet-beta.solana.com",
+    "ws": "wss://api.mainnet-beta.solana.com",
+    "bin": "/home/aurora/github_repos/reeflog/target/release/reeflog"
+  },
+  "kills": [
+    {
+      "at": "2026-10-28T11:00:41.092Z",
+      "downtimeS": 4
+    },
+    {
+      "at": "2026-10-28T11:01:45.177Z",
+      "downtimeS": 4
+    },
+    {
+      "at": "2026-10-28T11:02:49.219Z",
+      "downtimeS": 4
+    }
+  ],
+  "slot0": 462451344,
+  "slotEnd": 462454155,
+  "endedAt": "2026-10-28T11:10:01.925Z",
+  "killsPerformed": 9,
+  "integrity": {
+    "status": {
+      "backfilled": 380,
+      "blind_window_ms": 2924,
+      "confirmed": 0,
+      "error": 0,
+      "events": 5635,
+      "finalized": 0,
+      "gaps": 19,
+      "gaps_open": 0,
+      "max_seq": 5635,
+      "max_slot": 462454239,
+      "min_slot": 462451327,
+      "missing": 0,
+      "newest_signature": "2XY2K6L2gEDTAFqtVXPoyxhBvK9qHv2Ph9DJjWdAtCdyDSsmPWNoPnNhtqHrY36fo5cc8u3PoTEnWcUips5RWKTL",
+      "oldest_signature": "3qjrNLujzr9eW6z1GtL4g52Z6ixTNRkxgShpG9J9WbTigAmE2eM4MxiW1ZnVGiNPMEuTvTZyPE13acK6Gn8HMSB8",
+      "program": "675kPX9MHTjS2zt1qfr1NYHuzeLXfQM9H24wFSUt1Mp8",
+      "unsealed": 5635,
+      "with_err": 1496
+    },
+    "verify": {
+      "complete": true,
+      "error": null,
+      "journal_events": 5635,
+      "missing_count": 1,
+      "missing_sample": [
+        "3MbS7MxGxnPP9wCkAwGBMWaiHjM319xPKmmtAD69XUbBXHKqLeGXW9ePpaDneUYnAZXo4eVw38kKFdMi4LFRVu96"
+      ],
+      "pages": 6,
+      "program": "675kPX9MHTjS2zt1qfr1NYHuzeLXfQM9H24wFSUt1Mp8",
+      "scanned_from_slot": 462454345,
+      "scanned_signatures": 5635,
+      "since_slot": null,
+      "truncated": false
+    },
+    "verifyExit": 0,
+    "repair": {
+      "complete": true,
+      "error": null,
+      "filled": 1,
+      "found_missing": 1,
+      "missing_sample": [
+        "3MbS7MxGxnPP9wCkAwGBMWaiHjM319xPKmmtAD69XUbBXHKqLeGXW9ePpaDneUYnAZXo4eVw38kKFdMi4LFRVu96"
+      ],
+      "pages": 6,
+      "scanned_from_slot": 462454351,
+      "since_slot": null,
+      "truncated": false
+    },
+    "repairExit": 0,
+    "verifyAfterRepair": {
+      "complete": true,
+      "error": null,
+      "journal_events": 5636,
+      "missing_count": 0,
+      "missing_sample": [],
+      "pages": 7,
+      "program": "675kPX9MHTjS2zt1qfr1NYHuzeLXfQM9H24wFSUt1Mp8",
+      "scanned_from_slot": 462454416,
+      "scanned_signatures": 5635,
+      "since_slot": null,
+      "truncated": false
+    },
+    "verifyAfterRepairExit": 0,
+    "tailFirstRunLines": 5636,
+    "tailSecondRunLines": 0,
+    "sqlite": {
+      "rows": 5636,
+      "distinct_sigs": 5636,
+      "max_seq": 5636
+    }
+  },
+  "truth": {
+    "count": 5374,
+    "pages": 6,
+    "slot0": 462451344,
+    "slotEnd": 462454155,
+    "deliverable": 5374
+  },
+  "missing": {
+    "reeflog": {
+      "total": 0,
+      "realLosses": 0,
+      "residual": 0,
+      "residualInvoked": 0,
+      "residualReferencedOnly": 0,
+      "residualUnavailable": 0
+    },
+    "naiveKilled": {
+      "total": 455,
+      "realLosses": 455,
+      "residual": 0,
+      "residualInvoked": 0,
+      "residualReferencedOnly": 0,
+      "residualUnavailable": 0
+    },
+    "naiveLive": {
+      "total": 4,
+      "realLosses": 4,
+      "residual": 0,
+      "residualInvoked": 0,
+      "residualReferencedOnly": 0,
+      "residualUnavailable": 0
+    }
+  },
+  "consumerSeen": {
+    "reeflog": 5636,
+    "naiveKilled": 5169,
+    "naiveLive": 5593
+  },
+  "honesty": {
+    "verifyReportedMissing": 1,
+    "verifyClaimedComplete": true,
+    "verifyExit": 0,
+    "repairFilled": 1,
+    "repairFoundMissing": 1,
+    "verifyAfterRepairMissing": 0,
+    "verifyAfterRepairComplete": true,
+    "verifyAfterRepairExit": 0,
+    "independentRealLosses": 0,
+    "incompleteScanExitsZero": false,
+    "detectorBlindToRealGaps": false
+  },
+  "checks": [
+    {
+      "name": "reeflog_loses_no_deliverable_event",
+      "pass": true,
+      "detail": "real_losses=0 residual_invoked=0 residual_referenced_only=0 (deliverable_truth=5374/5374)"
+    },
+    {
+      "name": "dedup_exactly_once",
+      "pass": true,
+      "detail": "rows=5636 distinct=5636"
+    },
+    {
+      "name": "cursor_no_replay",
+      "pass": true,
+      "detail": "first=5636 second=0"
+    },
+    {
+      "name": "holes_are_reported_not_swallowed",
+      "pass": true,
+      "detail": "verify_missing=1 independent_real_losses=0"
+    },
+    {
+      "name": "incomplete_verify_never_exits_zero",
+      "pass": true,
+      "detail": "complete=true truncated=false error=none exit=0"
+    },
+    {
+      "name": "repair_fills_and_proves_clean",
+      "pass": true,
+      "detail": "before_missing=1 repair_filled=1 after_missing=0 after_complete=true after_exit=0"
+    },
+    {
+      "name": "reeflog_delivers_everything_after_repair",
+      "pass": true,
+      "detail": "post_repair real_losses=0 residual_invoked=0"
+    },
+    {
+      "name": "killed_control_loses_deliverable_events",
+      "pass": true,
+      "detail": "naive-killed real losses=455 of 5374 across 9 kill windows"
+    },
+    {
+      "name": "live_control_is_clean",
+      "pass": false,
+      "detail": "naive-live real losses=4 of 5374 (informational: shows the kill is the cause)"
+    }
+  ],
+  "verdict": "contract_survived"
+}

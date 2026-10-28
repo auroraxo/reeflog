@@ -43,8 +43,9 @@ Checked live on 2026-10-27 against `api.mainnet-beta.solana.com`, program `whirL
 | Unit tests | 23 / 23 |
 
 Kill test (600 s on Raydium AMM v4, SIGKILL every 60 s): see *The kill test*
-below — the first run **falsified** the delivery claim; the fixes below are
-verified against a second run of the same harness.
+below — the first run **falsified** the delivery claim; the fixes are now
+re-verified in the **same 600 s configuration** that falsified it
+(`full-after-fix`, verdict `contract_survived`).
 
 ## The kill test
 
@@ -57,10 +58,13 @@ consumers against the same program for 600 s:
   control that separates "the kill caused it" from "the endpoint drops events
   anyway".
 
-It then fetches the chain's own signature list for the window independently,
-classifies every signature the journal lacks by calling `getTransaction`, and
-refuses to accept a hole that did not actually invoke the program
-(`referenced-only`) as a loss.
+It then fetches the chain's own signature list for the window independently
+and holds it against every consumer's seen-set: a truth signature that *some*
+consumer received on the log stream is deliverable, so missing it is a real
+loss; a signature nobody on the stream received is classified with
+`getTransaction` instead of assumed — only a transaction that actually
+invokes the program (`invoked`) can count as a loss, never a
+`referenced-only` one.
 
 Run `sync` (2026-10-28, same harness, 120 s / 4 kills on Raydium AMM v4)
 re-tested the claim and it **survived**: every check passed, verdict
@@ -77,6 +81,23 @@ re-tested the claim and it **survived**: every check passed, verdict
 | dedup | 1,215 rows = 1,215 distinct signatures |
 | cursor resume | second iteration: 0 rows (no replay) |
 | incomplete scan | never exits 0 |
+
+Run `full-after-fix` (2026-10-28, 600 s / 9 kills on Raydium AMM v4 — the
+exact configuration that falsified the claim, re-run against the fixed
+binary) **survived**: verdict `contract_survived`, exit 0, every product check
+passed. This is the confirmation run the falsification owed.
+
+| Check | Result |
+|---|---|
+| reeflog real losses | **0** of 5,374 deliverable events |
+| naive-killed (control) real losses | **455** across 9 kill windows |
+| naive-live (control, never killed) real losses | **4** — the public WS drops events without any kill |
+| verify before repair | 1 missing, `complete: true`, exit 0 |
+| repair | `found_missing: 1`, `filled: 1`, `complete: true` |
+| verify after repair | `missing_count: 0`, `complete: true`, exit 0 |
+| dedup | 5,636 rows = 5,636 distinct signatures |
+| cursor resume | second iteration: 0 rows (no replay) |
+| live repair during the run | 19 gaps reported, `gaps_open: 0`, 380 backfilled |
 
 Run `full` (2026-10-28, the earlier 600 s run) **falsified** the same claim
 and is kept here because it is what exposed the defects:
@@ -154,6 +175,11 @@ journal with planted holes and fails if any step misreports; it passed on
 2026-10-28 with 333 planted holes: verify saw 333, repair filled 333, the
 second verify returned `missing_count: 0, complete: true`, and a deliberately
 truncated scan exited 3.
+
+The raw report of the confirmation kill test is committed at
+`research/killtest-full-after-fix-2026-10-28.json` (compact form: the
+per-signature loss samples are truncated, every number and every check verdict
+is the harness's own).
 
 ## Free and paid
 
