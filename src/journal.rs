@@ -32,6 +32,21 @@ CREATE TABLE IF NOT EXISTS gaps (
     until_slot     INTEGER,
     backfill_count INTEGER NOT NULL DEFAULT 0
 );
+-- A reorg is its own record, not a flag on the event: a consumer must be able
+-- to learn that an event it already read was reverted, and an event that was
+-- merely never finalized must never look like a revert. Two sources are
+-- recorded because a revert is only ever claimed when two independent sources
+-- refuse the transaction — one source saying "unknown" is a rate limit, not a
+-- fact.
+CREATE TABLE IF NOT EXISTS reorgs (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    signature     TEXT NOT NULL UNIQUE,
+    slot          INTEGER NOT NULL,
+    detected_at   INTEGER NOT NULL,
+    status_source TEXT NOT NULL,
+    tx_source     TEXT NOT NULL,
+    detail        TEXT NOT NULL DEFAULT ''
+);
 CREATE TABLE IF NOT EXISTS meta (
     key   TEXT PRIMARY KEY,
     value TEXT NOT NULL
@@ -63,6 +78,19 @@ pub struct EventRow {
     /// Why payload is absent, when it is: 'unavailable' = the chain does not
     /// know this transaction. None while still pending (unknown, not empty).
     pub payload_state: Option<String>,
+}
+
+/// A recorded reorg: an event the chain no longer knows.
+#[derive(Debug, Clone)]
+pub struct ReorgRow {
+    pub id: i64,
+    pub signature: String,
+    pub slot: i64,
+    pub detected_at: i64,
+    /// Which two independent sources refused the transaction.
+    pub status_source: String,
+    pub tx_source: String,
+    pub detail: String,
 }
 
 pub fn now_ms() -> i64 {
@@ -444,6 +472,111 @@ impl Journal {
         Ok(())
     }
 
+    /// Mark an event as reverted by the chain, recording which two independent
+    /// sources refused it. Returns true when this is the first reorg record
+    /// for the signature, so a re-run never double-counts a revert.
+    pub fn mark_reverted(
+        &self,
+        signature: &str,
+        slot: i64,
+        status_source: &str,
+        tx_source: &str,
+        detail: &str,
+    ) -> Result<bool, String> {
+        let inserted = self
+            .db
+            .execute(
+                "INSERT OR IGNORE INTO reorgs(signature,slot,detected_at,status_source,tx_source,detail)
+                 VALUES(?1,?2,?3,?4,?5,?6)",
+                params![signature, slot, now_ms(), status_source, tx_source, detail],
+            )
+            .map_err(|e| e.to_string())?;
+        if inserted == 0 {
+            return Ok(false);
+        }
+        // The event keeps its own identity and history: only the seal verdict
+        // changes, so `tail` still delivers the same seq exactly once.
+        self.db
+            .execute(
+                "UPDATE events SET seal_status='reverted', seal_seen=?2 WHERE signature=?1",
+                params![signature, now_ms()],
+            )
+            .map_err(|e| e.to_string())?;
+        Ok(true)
+    }
+
+    /// Slots whose events a reorg check may still find reverted: only rows the
+    /// chain already confirmed or finalized, because an unsealed row has never
+    /// been promised to a consumer as final. Newest first — a fork can only
+    /// unmake an event near the tip.
+    pub fn sealed_for_reorg_check(&self, limit: i64) -> Result<Vec<(String, i64)>, String> {
+        let mut stmt = self
+            .db
+            .prepare(
+                "SELECT signature, slot FROM events
+                 WHERE seal_status IN ('confirmed','finalized')
+                   AND signature NOT IN (SELECT signature FROM reorgs)
+                 ORDER BY seq DESC LIMIT ?1",
+            )
+            .map_err(|e| e.to_string())?;
+        let rows = stmt
+            .query_map(params![limit], |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?)))
+            .map_err(|e| e.to_string())?;
+        let mut out = Vec::new();
+        for row in rows {
+            out.push(row.map_err(|e| e.to_string())?);
+        }
+        Ok(out)
+    }
+
+    /// Recorded reorgs after the consumer's cursor, in detection order.
+    pub fn reorgs_after(&self, after_id: i64, limit: i64) -> Result<Vec<ReorgRow>, String> {
+        let mut stmt = self
+            .db
+            .prepare(
+                "SELECT id, signature, slot, detected_at, status_source, tx_source, detail
+                 FROM reorgs WHERE id > ?1 ORDER BY id LIMIT ?2",
+            )
+            .map_err(|e| e.to_string())?;
+        let rows = stmt
+            .query_map(params![after_id, limit], |r| {
+                Ok(ReorgRow {
+                    id: r.get(0)?,
+                    signature: r.get(1)?,
+                    slot: r.get(2)?,
+                    detected_at: r.get(3)?,
+                    status_source: r.get(4)?,
+                    tx_source: r.get(5)?,
+                    detail: r.get(6)?,
+                })
+            })
+            .map_err(|e| e.to_string())?;
+        let mut out = Vec::new();
+        for row in rows {
+            out.push(row.map_err(|e| e.to_string())?);
+        }
+        Ok(out)
+    }
+
+    pub fn reorg_count(&self) -> Result<i64, String> {
+        self.db
+            .query_row("SELECT COUNT(*) FROM reorgs", [], |r| r.get(0))
+            .map_err(|e| e.to_string())
+    }
+
+    /// Read the seal status of a single signature (for assertions).
+    #[allow(dead_code)]
+    pub fn seal_status_of(&self, signature: &str) -> Result<Option<String>, String> {
+        self.db
+            .query_row(
+                "SELECT seal_status FROM events WHERE signature=?1",
+                params![signature],
+                |r| r.get(0),
+            )
+            .optional()
+            .map_err(|e| e.to_string())
+    }
+
     pub fn counts(&self) -> Result<Counts, String> {
         let total: i64 = self
             .db
@@ -493,6 +626,17 @@ impl Journal {
             .db
             .query_row(
                 "SELECT COUNT(*) FROM events WHERE seal_status IS NULL",
+                [],
+                |r| r.get(0),
+            )
+            .map_err(|e| e.to_string())?;
+        // Sealed as final, then refused by the chain: a delivered event that
+        // no longer stands. Counted separately from `missing` (never on chain
+        // to begin with) so a consumer can tell a retraction from a hole.
+        let reverted: i64 = self
+            .db
+            .query_row(
+                "SELECT COUNT(*) FROM events WHERE seal_status='reverted'",
                 [],
                 |r| r.get(0),
             )
@@ -559,6 +703,7 @@ impl Journal {
             missing,
             errored,
             unsealed,
+            reverted,
             gaps,
             gaps_open,
             backfilled,
@@ -579,6 +724,8 @@ pub struct Counts {
     pub missing: i64,
     pub errored: i64,
     pub unsealed: i64,
+    /// Events sealed as final that the chain no longer knows.
+    pub reverted: i64,
     pub gaps: i64,
     pub gaps_open: i64,
     pub backfilled: i64,

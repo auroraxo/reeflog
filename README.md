@@ -244,6 +244,68 @@ with every field asserted, the 57-byte rule enforced, a non-swap log type
 refused, and a row without a swap proven not to become a fill. It runs in CI
 and needs no network.
 
+## Reorgs: a retraction a consumer can actually receive
+
+A mailbox that delivers an event and then loses it is only half a mailbox.
+The other half is saying *that event no longer stands* — and saying it in a
+way a consumer can act on.
+
+reeflog marks a reorg only when **two independent sources refuse the same
+transaction**. That rule exists because of what a single source can do:
+
+- `getSignatureStatuses` answers `null` for a signature it cannot answer for,
+  and a transport hiccup looks exactly like a fork-out;
+- a rate limit looks like silence;
+- an endpoint that refuses the *key* (-32602) says nothing at all about the
+  chain — that is a corrupted row, not a retracted event.
+
+So the states stay apart, the way `hydrate` keeps `unavailable`, `invalid` and
+`pending` apart:
+
+| Both sources | Verdict | What happens |
+|---|---|---|
+| at least one serves the transaction | known | nothing changes |
+| both refuse it | **reverted** | recorded in `reorgs`, event's seal becomes `reverted` |
+| one refuses the key | invalid | no chain verdict, the pass stays complete |
+| one fails | undecided | the pass exits 3 — a failure is not a verdict |
+
+```bash
+reeflog reorg check --db reeflog.db --limit 200   # detect + record
+reeflog reorg tail  --db reeflog.db --cursor ./reorgs.txt
+```
+
+Reorgs get **their own channel and their own cursor**, because a consumer
+that already read an event cannot learn about its retraction from the event
+stream: the event keeps its `seq` and is delivered exactly once. `tail`
+reports the event's *current* seal, `reorg tail` reports the retraction
+itself. A consumer that only reads events learns that a row now reads
+`reverted`; one that reads the reorg channel learns it at the moment it
+happened. Neither is optional if a consumer is to undo a fill.
+
+`tools/e2e-reorg.mjs` proves both directions against live mainnet, because
+the dangerous direction is the false positive — a detector that retracts a
+live transaction is worse than no detector, since a consumer would undo a
+real fill. Measured 2026-10-28:
+
+- **negative:** 194 real finalized transactions → **0 reverts**;
+- **positive:** a well-formed signature the chain does not know → detected,
+  recorded, delivered exactly once on the reorg channel, and the second read
+  delivered nothing (strict cursor);
+- **honesty:** an unreachable endpoint → exit 3, `complete: false`, **0
+  reverts** — a transport failure never becomes a fact about the chain.
+
+The check is batched: one `getSignatureStatuses` call covers 200 rows, and
+`getTransaction` is spent only on rows the first source already refused. On a
+healthy chain a pass costs one call.
+
+The same two-source rule now also guards `seal`: a `null` from the status
+endpoint no longer writes `missing` on its own. Before this, one silent
+source could turn a transaction the chain still knows into a recorded
+"missing" — the same false statement a reorg marker must never publish.
+`missing` now means *both* sources refuse the transaction; if the second
+source cannot answer either, the row stays pending and the pass reports
+`undecided`.
+
 ## Two kinds of gap
 
 They need different tools, and conflating them is how a "we never lose events" claim turns out to be false:
@@ -290,11 +352,17 @@ Checked on 2026-10-23: Solana client errors already name the failure modes, incl
 
 reeflog does not recover account bytes from before an event. That is a different problem. Public WebSocket endpoints are also rate-limited, so provider independence has to be real rather than assumed.
 
-Still open: reorg handling beyond marking an entry as reverted, Yellowstone as a second transport, webhook fan-out, and a real consumer other than my own RFQ fill polling and Whirlpool watcher.
+Still open: Yellowstone as a second transport, webhook fan-out, and a real
+consumer other than my own RFQ fill polling and Whirlpool watcher. Reorg
+handling now marks a retracted event and delivers the retraction, but the
+check only looks at sealed rows near the tip and does not yet watch the chain
+for a fork proactively.
 
 ## Next qualification
 
 1. Put my own RFQ fill polling and Whirlpool watcher on `reeflog tail`. The fill watcher above is the prototype of it — it proves the mailbox yields fills cheaper and without loss — but the production glue still polls, so user zero is earned, not assumed.
-2. Reorg handling: detect a finalized event that reverts and mark it reverted.
-3. Archive gap-fill for holes deeper than the RPC window.
-4. Yellowstone source and webhook fan-out.
+2. Archive gap-fill for holes deeper than the RPC window.
+3. Yellowstone source and webhook fan-out.
+4. Run the reorg check on a schedule and fan reorgs out to the consumers that
+   already acted on the event — the retraction has to reach the fill watcher,
+   not just the journal.

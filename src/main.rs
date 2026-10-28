@@ -7,11 +7,13 @@
 mod backfill;
 mod journal;
 mod payload;
+mod reorg;
 
 use backfill::{backfill_tail, repair_holes, verify_recent, HttpFetcher, Report};
 use futures_util::{SinkExt, StreamExt};
 use journal::{EventRow, Journal};
 use payload::hydrate_payloads;
+use reorg::check_sealed;
 use serde_json::{json, Value};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
@@ -42,28 +44,8 @@ fn require(args: &[String], key: &str) -> String {
 }
 
 // ---------------------------------------------------------------------------
-// HTTP JSON-RPC (blocking; called while the WS connection is down or closed)
+// Pipeline helpers
 // ---------------------------------------------------------------------------
-
-fn rpc(url: &str, method: &str, params: Value) -> Result<Value, String> {
-    let body = json!({"jsonrpc":"2.0","id":1,"method":method,"params":params}).to_string();
-    let mut resp = ureq::post(url)
-        .header("content-type", "application/json")
-        .send(body)
-        .map_err(|e| format!("{method}: {e}"))?;
-    let v: Value = resp
-        .body_mut()
-        .read_to_string()
-        .ok()
-        .and_then(|s| serde_json::from_str(&s).ok())
-        .ok_or_else(|| format!("{method}: bad rpc response"))?;
-    if let Some(err) = v.get("error") {
-        if !err.is_null() {
-            return Err(format!("{method}: rpc error {err}"));
-        }
-    }
-    Ok(v.get("result").cloned().unwrap_or(Value::Null))
-}
 
 /// Backfill signatures the journal missed since its oldest held signature.
 /// Returns how many *new* events were appended (dedup is the journal's job).
@@ -153,14 +135,22 @@ fn bump(v: &mut Value, key: &str) {
 /// Promote pending events using getSignatureStatuses.
 /// finalized → 'finalized'; confirmed → 'confirmed' (stays pending for the
 /// next seal); err → 'error'; not found even with history → 'missing'.
-fn seal(j: &Journal, rpc_url: &str) -> Result<Value, String> {
+///
+/// A null from the status endpoint is NOT enough to write 'missing'. Measured
+/// 2026-10-28 against api.mainnet-beta.solana.com: the endpoint answers null
+/// for signatures it cannot answer for — and a transport hiccup looks exactly
+/// like a fork-out. So a null is confirmed with a second, independent source
+/// (`getTransaction`) before the row is declared missing; if that second
+/// source cannot answer either, the row stays pending and the pass is
+/// incomplete. 'missing' means "the chain does not know this", never "we
+/// could not find out".
+fn seal<F: backfill::Fetcher>(j: &Journal, f: &mut F) -> Result<Value, String> {
     let pending = j.unsealed(150)?;
-    let mut promoted = json!({"finalized":0,"confirmed":0,"error":0,"missing":0});
+    let mut promoted = json!({"finalized":0,"confirmed":0,"error":0,"missing":0,"undecided":0});
     if pending.is_empty() {
         return Ok(promoted);
     }
-    let result = rpc(
-        rpc_url,
+    let result = f.call(
         "getSignatureStatuses",
         json!([pending.clone(), {"searchTransactionHistory": true}]),
     )?;
@@ -171,8 +161,30 @@ fn seal(j: &Journal, rpc_url: &str) -> Result<Value, String> {
         .unwrap_or_default();
     for (sig, st) in pending.iter().zip(values.iter()) {
         if st.is_null() {
-            j.seal(sig, "missing", None)?;
-            bump(&mut promoted, "missing");
+            // Second source: only a refusal from BOTH proves the chain does
+            // not know the transaction.
+            let tx = f.call(
+                "getTransaction",
+                json!([sig, {"encoding": "json", "maxSupportedTransactionVersion": 1, "commitment": "finalized"}]),
+            );
+            match tx {
+                // The chain serves it: the status endpoint simply could not
+                // answer. Leave the row pending — it is not missing.
+                Ok(v) if !v.is_null() => {
+                    bump(&mut promoted, "undecided");
+                    continue;
+                }
+                // The chain does not know it: a genuine fork-out.
+                Ok(_) => {
+                    j.seal(sig, "missing", None)?;
+                    bump(&mut promoted, "missing");
+                }
+                // The second source failed too: no verdict at all. A rate
+                // limit must never be recorded as a fact about the chain.
+                Err(_) => {
+                    bump(&mut promoted, "undecided");
+                }
+            }
             continue;
         }
         let err = st.get("err");
@@ -630,7 +642,8 @@ async fn run_start(args: &[String]) {
     }
 
     // Final seal pass so the summary reflects the durable state.
-    let promoted = seal(&j, &rpc_url).unwrap_or_else(|e| {
+    let mut seal_fetcher = HttpFetcher::new(rpc_url.clone());
+    let promoted = seal(&j, &mut seal_fetcher).unwrap_or_else(|e| {
         eprintln!("reeflog: seal failed at shutdown: {e}");
         json!({"error": e})
     });
@@ -722,6 +735,7 @@ async fn run_start(args: &[String]) {
             "events": c.total, "with_err": c.with_err,
             "finalized": c.finalized, "confirmed": c.confirmed,
             "error": c.errored, "missing": c.missing, "unsealed": c.unsealed,
+            "reverted": c.reverted,
             "gaps": c.gaps, "gaps_open": c.gaps_open,
             "backfilled": c.backfilled, "blind_window_ms": c.blind_ms,
             "payload_pending": c.payload_pending,
@@ -886,13 +900,103 @@ fn run_seal(args: &[String]) {
     let db = PathBuf::from(arg(args, "--db").unwrap_or_else(|| "reeflog.db".into()));
     let j = Journal::open(&db).unwrap_or_else(|e| die(e));
     let rpc_url = arg(args, "--rpc").unwrap_or_else(|| DEFAULT_RPC.into());
-    let promoted = seal(&j, &rpc_url).unwrap_or_else(|e| die(e));
+    let mut fetcher = HttpFetcher::new(rpc_url);
+    let promoted = seal(&j, &mut fetcher).unwrap_or_else(|e| die(e));
     let c = j.counts().unwrap_or_else(|e| die(e));
     println!("{}", serde_json::to_string_pretty(&json!({
         "seal_pass": promoted,
         "events": c.total, "finalized": c.finalized, "confirmed": c.confirmed,
         "error": c.errored, "missing": c.missing, "unsealed": c.unsealed,
+        "reverted": c.reverted,
     })).unwrap());
+}
+
+/// Re-check sealed events against two independent sources and record the
+/// ones the chain no longer knows.
+///
+/// The two-source rule is the whole point: `getSignatureStatuses` alone can
+/// answer null while `getTransaction` still serves the transaction, and a
+/// rate limit looks like silence. A revert is recorded only when both
+/// sources refuse; anything else is reported as what it is, and an unfinished
+/// pass exits 3 like `verify` and `hydrate` do.
+fn run_reorg_check(args: &[String]) {
+    let db = PathBuf::from(arg(args, "--db").unwrap_or_else(|| "reeflog.db".into()));
+    let j = Journal::open(&db).unwrap_or_else(|e| die(e));
+    let rpc_url = arg(args, "--rpc").unwrap_or_else(|| DEFAULT_RPC.into());
+    let limit: i64 = arg(args, "--limit")
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(200);
+    let mut fetcher = HttpFetcher::new(rpc_url);
+    let r = check_sealed(&j, &mut fetcher, limit).unwrap_or_else(|e| die(e));
+    let c = j.counts().unwrap_or_else(|e| die(e));
+    println!(
+        "{}",
+        serde_json::to_string_pretty(&json!({
+            "complete": r.complete(),
+            "considered": r.considered,
+            "intact": r.intact,
+            "reverted": r.reverted,
+            "invalid": r.invalid,
+            "incomplete": r.incomplete,
+            "more": r.more,
+            "error": r.error,
+            "reverted_sample": r.reverted_sample,
+            "journal": {
+                "events": c.total,
+                "reverted": c.reverted,
+                "reorg_records": j.reorg_count().unwrap_or(0),
+            },
+        }))
+        .unwrap()
+    );
+    if !r.complete() {
+        eprintln!(
+            "reeflog: reorg check INCOMPLETE (error={:?}, undecided={}) — a transport failure is not a verdict",
+            r.error, r.incomplete
+        );
+        std::process::exit(3);
+    }
+}
+
+/// Deliver recorded reorgs to a consumer.
+///
+/// Reorgs live in their own channel with their own cursor, because a
+/// consumer that already read an event cannot learn about its retraction from
+/// the event stream: the event keeps its seq and is delivered exactly once.
+/// `tail` reports the event's current seal, and `reorg tail` reports the
+/// retraction itself.
+fn run_reorg_tail(args: &[String]) {
+    let db = PathBuf::from(arg(args, "--db").unwrap_or_else(|| "reeflog.db".into()));
+    let j = Journal::open(&db).unwrap_or_else(|e| die(e));
+    let cursor_path = PathBuf::from(require(args, "--cursor"));
+    let limit: i64 = arg(args, "--limit")
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(1000);
+    let after: i64 = read_cursor(&cursor_path);
+    let rows = j.reorgs_after(after, limit).unwrap_or_else(|e| die(e));
+    for r in &rows {
+        println!(
+            "{}",
+            serde_json::to_string(&json!({
+                "reorg_id": r.id,
+                "signature": r.signature,
+                "slot": r.slot,
+                "detected_at": r.detected_at,
+                "status_source": r.status_source,
+                "tx_source": r.tx_source,
+                "detail": r.detail,
+            }))
+            .unwrap()
+        );
+    }
+    if let Some(last) = rows.last() {
+        write_cursor(&cursor_path, last.id);
+    }
+    eprintln!(
+        "reeflog: {} reorg(s) after cursor {after} → cursor now {}",
+        rows.len(),
+        read_cursor(&cursor_path)
+    );
 }
 
 fn run_status(args: &[String]) {
@@ -906,6 +1010,7 @@ fn run_status(args: &[String]) {
             "events": c.total, "with_err": c.with_err,
             "finalized": c.finalized, "confirmed": c.confirmed,
             "error": c.errored, "missing": c.missing, "unsealed": c.unsealed,
+            "reverted": c.reverted,
             "gaps": c.gaps, "gaps_open": c.gaps_open,
             "backfilled": c.backfilled, "blind_window_ms": c.blind_ms,
             // How much of the journal actually knows WHAT happened. A row
@@ -991,9 +1096,92 @@ fn usage() -> ! {
          \x20 reeflog hydrate --db <file> [--limit N] [--rpc URL]\n\
          \x20 reeflog seal  --db <file> [--rpc URL]\n\
          \x20 reeflog tail  --db <file> --cursor <file> [--limit N] [--no-logs]\n\
+         \x20 reeflog reorg check --db <file> [--limit N] [--rpc URL]\n\
+         \x20 reeflog reorg tail  --db <file> --cursor <file> [--limit N]\n\
          \x20 reeflog status --db <file>"
     );
     std::process::exit(64);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::journal::Journal;
+    use std::collections::HashMap;
+
+    #[derive(Default)]
+    struct FakeChain {
+        status: HashMap<String, Option<String>>,
+        tx: HashMap<String, Option<Value>>,
+    }
+
+    impl backfill::Fetcher for FakeChain {
+        fn call(&mut self, method: &str, params: Value) -> Result<Value, String> {
+            match method {
+                "getSignatureStatuses" => {
+                    let sigs: Vec<String> = params[0]
+                        .as_array()
+                        .unwrap()
+                        .iter()
+                        .map(|v| v.as_str().unwrap().to_string())
+                        .collect();
+                    let out: Vec<Value> = sigs
+                        .iter()
+                        .map(|s| match self.status.get(s) {
+                            Some(Some(st)) => json!({"confirmationStatus": st}),
+                            _ => Value::Null,
+                        })
+                        .collect();
+                    Ok(json!({"context":{"slot":1},"value":out}))
+                }
+                "getTransaction" => {
+                    let sig = params[0].as_str().unwrap();
+                    match self.tx.get(sig) {
+                        Some(Some(v)) => Ok(v.clone()),
+                        Some(None) => Ok(Value::Null),
+                        None => Err("connection refused".into()),
+                    }
+                }
+                other => panic!("unexpected method {other}"),
+            }
+        }
+    }
+
+    fn tmp(tag: &str) -> Journal {
+        use std::sync::atomic::{AtomicU64, Ordering};
+        static N: AtomicU64 = AtomicU64::new(0);
+        let n = N.fetch_add(1, Ordering::SeqCst);
+        let p = std::env::temp_dir().join(format!("reeflog-seal-{tag}-{n}.db"));
+        let _ = std::fs::remove_file(&p);
+        Journal::open(&p).expect("open journal")
+    }
+
+    #[test]
+    fn seal_requires_two_sources_before_declaring_missing() {
+        let j = tmp("seal2src");
+        j.append("sigFinal", 10, None, None, "ws").unwrap();
+        j.append("sigTrap", 11, None, None, "ws").unwrap();
+        j.append("sigGone", 12, None, None, "ws").unwrap();
+
+        let mut chain = FakeChain::default();
+        chain.status.insert("sigFinal".into(), Some("finalized".into()));
+        // sigTrap: status source says null, but getTransaction still has it.
+        chain.status.insert("sigTrap".into(), None);
+        chain.tx.insert("sigTrap".into(), Some(json!({"slot": 11})));
+        // sigGone: both sources refuse.
+        chain.status.insert("sigGone".into(), None);
+        chain.tx.insert("sigGone".into(), None);
+
+        let r = seal(&j, &mut chain).unwrap();
+        assert_eq!(r["finalized"], 1);
+        assert_eq!(r["missing"], 1, "only the double refusal is missing");
+        assert_eq!(r["undecided"], 1, "the trap row stayed pending");
+
+        let c = j.counts().unwrap();
+        assert_eq!(c.finalized, 1);
+        assert_eq!(c.missing, 1);
+        assert_eq!(c.unsealed, 1, "sigTrap is still unsealed for the next pass");
+    }
 }
 
 fn main() {
@@ -1017,6 +1205,14 @@ fn main() {
         "hydrate" => run_hydrate(&args),
         "tail" => run_tail(&args),
         "status" => run_status(&args),
+        "reorg" => {
+            let sub = args.get(1).map(|s| s.as_str()).unwrap_or("");
+            match sub {
+                "check" => run_reorg_check(&args),
+                "tail" => run_reorg_tail(&args),
+                _ => usage(),
+            }
+        }
         _ => usage(),
     }
 }
