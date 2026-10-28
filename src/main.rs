@@ -7,7 +7,7 @@
 mod backfill;
 mod journal;
 
-use backfill::{backfill_tail, verify_recent, HttpFetcher, Report};
+use backfill::{backfill_tail, repair_holes, verify_recent, HttpFetcher, Report};
 use futures_util::{SinkExt, StreamExt};
 use journal::{EventRow, Journal};
 use serde_json::{json, Value};
@@ -17,6 +17,10 @@ use tokio_tungstenite::tungstenite::Message;
 
 const DEFAULT_WS: &str = "wss://api.mainnet-beta.solana.com";
 const DEFAULT_RPC: &str = "https://api.mainnet-beta.solana.com";
+/// getSignaturesForAddress accepts at most 1000 signatures per page. Using
+/// the maximum halves the round trips a scan needs, which matters on a
+/// public endpoint that rate-limits mid-walk.
+const PAGE_SIZE: usize = 1000;
 const RECONNECT_BACKOFF_MS: u64 = 1500;
 
 fn die(msg: impl std::fmt::Display) -> ! {
@@ -62,13 +66,80 @@ fn rpc(url: &str, method: &str, params: Value) -> Result<Value, String> {
 /// Backfill signatures the journal missed since its oldest held signature.
 /// Returns how many *new* events were appended (dedup is the journal's job).
 fn backfill_gap(j: &Journal, fetcher: &mut HttpFetcher, program: &str) -> Result<Report, String> {
-    backfill_tail(j, fetcher, program, 20, 500)
+    backfill_tail(j, fetcher, program, 40, PAGE_SIZE)
 }
 
-/// Detect deep holes: scan recent chain history and report signatures the
-/// journal is missing. Detection, not repair — public endpoints rate-limit.
-fn verify_gap(j: &Journal, fetcher: &mut HttpFetcher, program: &str) -> Result<Report, String> {
-    verify_recent(j, fetcher, program, 20, 500)
+/// Detect deep holes: scan chain history over the journal's claimed window
+/// (optionally raised to `since_slot`) and report signatures it is missing.
+fn verify_gap(
+    j: &Journal,
+    fetcher: &mut HttpFetcher,
+    program: &str,
+    pages: usize,
+    since_slot: Option<i64>,
+) -> Result<Report, String> {
+    verify_recent(j, fetcher, program, pages, PAGE_SIZE, since_slot)
+}
+
+/// One bounded repair pass. Records what it did as a gap (opened, then
+/// closed with the number of rows it filled) so `status` keeps reporting the
+/// episode instead of the rewrite happening invisibly. An incomplete pass
+/// leaves the gap open with an explicit marker.
+fn repair_pass(j: &Journal, rpc_url: &str, program: &str, pages: usize, since_slot: Option<i64>) -> Value {
+    let mut fetcher = HttpFetcher {
+        url: rpc_url.to_string(),
+    };
+    let r = match repair_holes(j, &mut fetcher, program, pages, PAGE_SIZE, since_slot) {
+        Ok(r) => r,
+        Err(e) => {
+            return json!({"complete": false, "error": e, "found_missing": 0, "filled": 0});
+        }
+    };
+    if !r.missing.is_empty() {
+        // Repeated passes finding the SAME hole must accumulate on one row:
+        // a 30s cadence would otherwise insert thousands of duplicates.
+        let g = match j.gap_find_open("hole") {
+            Ok(Some(id)) => id,
+            _ => j
+                .gap_open(
+                    "hole",
+                    j.max_seq().unwrap_or(0),
+                    j.max_slot().unwrap_or(None),
+                    j.newest_signature().unwrap_or(None).as_deref(),
+                    &format!(
+                        "repair pass found {} signature(s) missing from the journal (scanned {} signatures over {} pages, truncated={}, error={})",
+                        r.missing.len(),
+                        r.found,
+                        r.pages,
+                        r.truncated,
+                        r.error.clone().unwrap_or_else(|| "none".into())
+                    ),
+                )
+                .unwrap_or(-1),
+        };
+        if g >= 0 {
+            if r.complete() && r.filled == r.missing.len() as i64 {
+                let _ = j.gap_close(
+                    g,
+                    j.max_slot().unwrap_or(None),
+                    r.filled,
+                    &format!("; repaired {} row(s), journal re-check clean", r.filled),
+                );
+            } else {
+                let _ = j.gap_update_detail(g, "; REPAIR INCOMPLETE — GAP STILL OPEN");
+            }
+        }
+    }    json!({
+        "complete": r.complete(),
+        "error": r.error,
+        "truncated": r.truncated,
+        "pages": r.pages,
+        "scanned_from_slot": r.scanned_from_slot,
+        "since_slot": since_slot,
+        "found_missing": r.missing.len(),
+        "filled": r.filled,
+        "missing_sample": r.missing.iter().take(5).cloned().collect::<Vec<_>>(),
+    })
 }
 
 fn bump(v: &mut Value, key: &str) {
@@ -136,6 +207,22 @@ struct Stats {
     backfill_new: i64,
     disconnects: i64,
     reconnects: i64,
+    repair_filled: i64,
+    repair_passes: i64,
+}
+
+impl Stats {
+    fn new() -> Self {
+        Stats {
+            ws_new: 0,
+            ws_dupes: 0,
+            backfill_new: 0,
+            disconnects: 0,
+            reconnects: 0,
+            repair_filled: 0,
+            repair_passes: 0,
+        }
+    }
 }
 
 async fn run_start(args: &[String]) {
@@ -162,14 +249,18 @@ async fn run_start(args: &[String]) {
     let seconds: u64 = arg(args, "--seconds")
         .and_then(|s| s.parse().ok())
         .unwrap_or(60);
+    // Periodic hole repair. The tail backfill only reaches forward from the
+    // newest held slot; events the WS dropped while we were connected sit
+    // BEHIND that frontier and are unreachable that way. Measured in the kill
+    // test: even the naive-live control (never killed) lost 158 of 11,275
+    // deliverable events, so a connected socket alone is not a guarantee.
+    // The repair pass polices a recent rolling window and fills what the
+    // socket dropped.
+    let repair_every_s: u64 = arg(args, "--repair-every").and_then(|s| s.parse().ok()).unwrap_or(30);
+    let repair_pages: usize = arg(args, "--repair-pages").and_then(|s| s.parse().ok()).unwrap_or(40);
+    let repair_lookback: i64 = arg(args, "--repair-lookback").and_then(|s| s.parse().ok()).unwrap_or(1800);
 
-    let mut stats = Stats {
-        ws_new: 0,
-        ws_dupes: 0,
-        backfill_new: 0,
-        disconnects: 0,
-        reconnects: 0,
-    };
+    let mut stats = Stats::new();
     let deadline = Instant::now() + Duration::from_secs(seconds);
 
     // Gap 1: anything since this journal's last event (previous run or crash).
@@ -221,6 +312,27 @@ async fn run_start(args: &[String]) {
         None
     };
     let _ = &mut open_gap;
+
+    // The periodic hole-repair scheduler. `repair_every_s` must be well under
+    // `repair_lookback` in chain-progress terms, or a hole can age out of the
+    // rolling window between two passes and never be filled: at ~10 slots/s
+    // a 3600-slot window gives a hole ~6 minutes of life and passes run every
+    // 30s, so each hole gets ~12 chances.
+    let mut next_repair = Instant::now() + Duration::from_secs(repair_every_s.max(1));
+    // Runs one bounded repair pass over the recent rolling window.
+    // Kept as a closure-free block so the journal is never borrowed twice.
+    macro_rules! repair_tick {
+        () => {{
+            next_repair = Instant::now() + Duration::from_secs(repair_every_s.max(1));
+            let since = j.max_slot().unwrap_or(None).map(|s| s - repair_lookback);
+            let summary = repair_pass(&j, &rpc_url, &program, repair_pages, since);
+            stats.repair_passes += 1;
+            stats.repair_filled += summary["filled"].as_i64().unwrap_or(0);
+            if summary["found_missing"].as_i64().unwrap_or(0) > 0 || summary["complete"].as_bool() != Some(true) {
+                eprintln!("reeflog: repair pass {summary}");
+            }
+        }};
+    }
 
     let mut first_connect = true;
     loop {
@@ -325,9 +437,23 @@ async fn run_start(args: &[String]) {
         }
 
         let mut broke = false;
+        let mut last_frame = Instant::now();
         while Instant::now() < deadline {
-            let msg = match tokio::time::timeout(Duration::from_secs(600), ws.next()).await {
-                Ok(Some(Ok(m))) => m,
+            // Poll the socket in short slices so a repair pass can run even
+            // when the stream is quiet: a hole dropped by the socket looks
+            // exactly like a healthy connection with nothing to say.
+            let frame = tokio::time::timeout(Duration::from_secs(5), ws.next()).await;
+            if Instant::now() >= next_repair {
+                repair_tick!();
+            }
+            if Instant::now() >= deadline {
+                break;
+            }
+            let msg = match frame {
+                Ok(Some(Ok(m))) => {
+                    last_frame = Instant::now();
+                    m
+                }
                 Ok(Some(Err(e))) => {
                     stats.disconnects += 1;
                     open_gap = Some(
@@ -359,20 +485,23 @@ async fn run_start(args: &[String]) {
                     break;
                 }
                 Err(_) => {
-                    // 10 minutes of silence: we call it, we report it.
-                    stats.disconnects += 1;
-                    open_gap = Some(
-                        j.gap_open(
-                            "idle",
-                            j.max_seq().unwrap_or(0),
-                            j.max_slot().unwrap_or(None),
-                            j.last_signature().unwrap_or(None).as_deref(),
-                            "no ws frame for 600s",
-                        )
-                        .unwrap_or_else(|e| die(e)),
-                    );
-                    broke = true;
-                    break;
+                    // 600s without a frame: we call it, we report it.
+                    if last_frame.elapsed().as_secs() >= 600 {
+                        stats.disconnects += 1;
+                        open_gap = Some(
+                            j.gap_open(
+                                "idle",
+                                j.max_seq().unwrap_or(0),
+                                j.max_slot().unwrap_or(None),
+                                j.last_signature().unwrap_or(None).as_deref(),
+                                "no ws frame for 600s",
+                            )
+                            .unwrap_or_else(|e| die(e)),
+                        );
+                        broke = true;
+                        break;
+                    }
+                    continue; // quiet socket: just a poll timeout
                 }
             };
             if Instant::now() >= deadline {
@@ -434,6 +563,19 @@ async fn run_start(args: &[String]) {
     if let Some(g) = open_gap {
         j.gap_update_detail(g, "; run ended before the stream came back").ok();
     }
+    // Final repair pass before the summary: the last window of the run may
+    // still hold holes the socket dropped. Without it the journal would end
+    // the run with known holes and no record of them.
+    let final_repair = if repair_every_s > 0 {
+        let since = j.max_slot().unwrap_or(None).map(|s| s - repair_lookback);
+        let s = repair_pass(&j, &rpc_url, &program, repair_pages, since);
+        stats.repair_passes += 1;
+        stats.repair_filled += s["filled"].as_i64().unwrap_or(0);
+        s
+    } else {
+        json!({"skipped": true})
+    };
+
     let c = j.counts().unwrap_or_else(|e| die(e));
     let summary = json!({
         "program": program,
@@ -444,6 +586,9 @@ async fn run_start(args: &[String]) {
         "disconnects": stats.disconnects,
         "reconnects": stats.reconnects,
         "seal_pass": promoted,
+        "repair_passes": stats.repair_passes,
+        "repair_filled": stats.repair_filled,
+        "final_repair": final_repair,
         "journal": {
             "events": c.total, "with_err": c.with_err,
             "finalized": c.finalized, "confirmed": c.confirmed,
@@ -508,8 +653,12 @@ fn run_verify(args: &[String]) {
         .flatten()
         .unwrap_or_else(|| require(args, "--program"));
     let rpc_url = arg(args, "--rpc").unwrap_or_else(|| DEFAULT_RPC.into());
+    let pages: usize = arg(args, "--pages")
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(40);
+    let since_slot: Option<i64> = arg(args, "--since-slot").and_then(|s| s.parse().ok());
     let mut fetcher = HttpFetcher { url: rpc_url };
-    let r = verify_gap(&j, &mut fetcher, &program).unwrap_or_else(|e| die(e));
+    let r = verify_gap(&j, &mut fetcher, &program, pages, since_slot).unwrap_or_else(|e| die(e));
     // A hole is a hole: record it so status keeps reporting it.
     if !r.missing.is_empty() {
         let _ = j.gap_open(
@@ -523,19 +672,58 @@ fn run_verify(args: &[String]) {
             ),
         );
     }
+    // An incomplete scan proves NOTHING. It used to be reported as
+    // `missing_count: 0` — the exact lie the kill test caught. Say so loudly
+    // and exit non-zero so a caller cannot mistake silence for health.
+    let complete = r.complete();
     println!(
         "{}",
         serde_json::to_string_pretty(&json!({
             "program": program,
+            "complete": complete,
             "scanned_signatures": r.found,
             "pages": r.pages,
             "truncated": r.truncated,
+            "error": r.error,
+            "scanned_from_slot": r.scanned_from_slot,
+            "since_slot": since_slot,
             "missing_count": r.missing.len(),
             "missing_sample": r.missing.iter().take(5).cloned().collect::<Vec<_>>(),
             "journal_events": j.counts().unwrap_or_else(|e| die(e)).total,
         }))
         .unwrap()
     );
+    if !complete {
+        eprintln!(
+            "reeflog: verify INCOMPLETE (error={:?}, truncated={}, pages={}) — the scan proves nothing about the journal's completeness",
+            r.error, r.truncated, r.pages
+        );
+        std::process::exit(3);
+    }
+}
+
+/// Fill holes the journal has: scan the claimed window and write back every
+/// signature the journal is missing. Bounded, idempotent, and honest about
+/// what it could not cover.
+fn run_repair(args: &[String]) {
+    let db = PathBuf::from(arg(args, "--db").unwrap_or_else(|| "reeflog.db".into()));
+    let j = Journal::open(&db).unwrap_or_else(|e| die(e));
+    let program = j
+        .meta_get("program")
+        .ok()
+        .flatten()
+        .unwrap_or_else(|| require(args, "--program"));
+    let rpc_url = arg(args, "--rpc").unwrap_or_else(|| DEFAULT_RPC.into());
+    let pages: usize = arg(args, "--pages")
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(40);
+    let since_slot: Option<i64> = arg(args, "--since-slot").and_then(|s| s.parse().ok());
+    let summary = repair_pass(&j, &rpc_url, &program, pages, since_slot);
+    println!("{}", serde_json::to_string_pretty(&summary).unwrap());
+    if summary["complete"].as_bool() != Some(true) {
+        eprintln!("reeflog: repair pass INCOMPLETE — the journal may still hold holes");
+        std::process::exit(3);
+    }
 }
 
 fn run_seal(args: &[String]) {
@@ -577,7 +765,8 @@ fn usage() -> ! {
          USAGE:\n\
          \x20 reeflog init  --db <file> --program <pubkey>\n\
          \x20 reeflog start --db <file> [--seconds N] [--ws URL] [--rpc URL] [--program <pubkey>]\n\
-         \x20 reeflog verify --db <file> [--pages N] [--rpc URL]\n\
+         \x20 reeflog verify --db <file> [--pages N] [--since-slot N] [--rpc URL]\n\
+         \x20 reeflog repair --db <file> [--pages N] [--since-slot N] [--rpc URL]\n\
          \x20 reeflog seal  --db <file> [--rpc URL]\n\
          \x20 reeflog tail  --db <file> --cursor <file> [--limit N]\n\
          \x20 reeflog status --db <file>"
@@ -602,6 +791,7 @@ fn main() {
         }
         "seal" => run_seal(&args),
         "verify" => run_verify(&args),
+        "repair" => run_repair(&args),
         "tail" => run_tail(&args),
         "status" => run_status(&args),
         _ => usage(),

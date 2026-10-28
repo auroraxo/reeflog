@@ -40,7 +40,57 @@ Checked live on 2026-10-27 against `api.mainnet-beta.solana.com`, program `whirL
 | Tail gap after a restart | 9 / 9 deleted events refilled |
 | Middle hole detection | 17 missing reported = 15 deleted + 2 baseline, exactly |
 | Cursor resume | no replay, monotone advance, no overlap |
-| Unit tests | 17 / 17 |
+| Unit tests | 23 / 23 |
+
+Kill test (600 s on Raydium AMM v4, SIGKILL every 60 s): see *The kill test*
+below — the first run **falsified** the delivery claim; the fixes below are
+verified against a second run of the same harness.
+
+## The kill test
+
+`tools/killtest.mjs` is a falsifying harness, not a demo. It runs three
+consumers against the same program for 600 s:
+
+- **reeflog** — SIGKILLed every 60 s, restarted after 4 s of downtime.
+- **naive-killed** — a bare `logsSubscribe` consumer, killed the same way.
+- **naive-live** — a bare `logsSubscribe` consumer, **never killed**: the
+  control that separates "the kill caused it" from "the endpoint drops events
+  anyway".
+
+It then fetches the chain's own signature list for the window independently,
+classifies every signature the journal lacks by calling `getTransaction`, and
+refuses to accept a hole that did not actually invoke the program
+(`referenced-only`) as a loss.
+
+Run `full` (2026-10-28) **falsified** the claim:
+
+| Check | Result |
+|---|---|
+| reeflog lost deliverable events | **32 real losses** of 11,275 deliverable |
+| naive-live lost deliverable events | 158 — the public WS drops events even with no kill |
+| `reeflog verify` | reported `missing_count: 0`, `truncated: true`, **exit 0** |
+
+Two defects, both measured against the RPC and fixed:
+
+1. **Phantom anchor.** The journal's newest held signature was a
+   confirmed-then-forked-out transaction. `getSignatureStatuses` returns
+   `null` for it, and `before=<it>` makes `getSignaturesForAddress` answer
+   `-32020 Transaction not found` for the whole walk. verify therefore read
+   **zero pages** and printed `missing_count: 0` — a hole detector that goes
+   blind exactly when holes exist. Every walk now starts at the chain tip and
+   pages only with signatures the chain itself returned; the tail stop is on
+   the boundary **slot**, not the boundary signature.
+2. **Nothing repaired mid-window holes.** The tail backfill only reaches
+   forward from the newest held slot. Events the socket dropped *while
+   connected* sit behind that frontier — all 32 losses did — and nothing ever
+   filled them. `start` now runs a bounded repair pass over a rolling window
+   (default every 30 s, 1800 slots back) and once more at shutdown.
+
+Both are covered by regression tests, and the honesty rule is explicit:
+`Report::complete()` requires no error, no truncation, at least one page read,
+**and** measured coverage of the claimed window (first row at or above the
+ceiling, last row at or below the floor). An unfinished scan exits 3 and can
+never be mistaken for a clean one.
 
 ## RPC semantics, measured
 
@@ -52,17 +102,41 @@ Checked live on 2026-10-27 against `api.mainnet-beta.solana.com`, program `whirL
 | `until=<sig>` | returns signatures **newer** than the anchor |
 | `since=<sig>` | behaves like `until` — **newer** |
 | `before` + `until` together | rejected with `-32020 Transaction not found` for an inverted window |
+| `before=<phantom>` | `-32020 Transaction not found` — a held signature can be a transaction the address index no longer knows |
+| `until=<phantom>` | same `-32020`; neither parameter tolerates a phantom anchor |
+| `since=<slot>` | silently **ignored** by the public endpoint (a typo'd parameter returns the same rows), so a slot-bounded walk cannot be expressed at all |
+| `getSignatureStatuses` | returns `null` for a phantom, a status for a real signature — the reliable way to tell them apart |
+| throughput | 19 of 40 consecutive `limit=1000` pages answered HTTP 429, ~0.63 pages/s sustained |
 
-Consequence: a backfill written with `since=<newest signature we hold>` returns an empty window and reports no loss while filling nothing. reeflog pages backwards with `before` and stops at the boundary signature instead. This was found by measuring the endpoint, not by reading the docs, and it is recorded in `src/backfill.rs`.
+Consequence: a backfill written with `since=<newest signature we hold>` returns an empty window and reports no loss while filling nothing. reeflog pages backwards with `before` and stops at the boundary **slot** instead, always starting from the chain tip so no held signature is ever an anchor. This was found by measuring the endpoint, not by reading the docs, and it is recorded in `src/backfill.rs`.
 
 ## Two kinds of gap
 
 They need different tools, and conflating them is how a "we never lose events" claim turns out to be false:
 
-- **Tail gap** — events after the newest signature the journal holds (crash, disconnect, restart). Fixed by walking back from the chain tip with `before` until the boundary. Bounded and cheap. reeflog closes this automatically on `start`.
-- **Deep hole** — events missing from the middle of the journal's history. Filling it costs one RPC page per 500 signatures, and public endpoints rate-limit (observed: HTTP 429 after ~10 pages). v0 **detects and reports** deep holes rather than pretending to repair them. `reeflog verify` lists exactly which signatures are missing.
+- **Tail gap** — events after the newest signature the journal holds (crash, disconnect, restart). Fixed by walking back from the chain tip with `before` until the boundary **slot**. Bounded and cheap. reeflog closes this automatically on `start`.
+- **Deep hole** — events missing from the middle of the journal's history. Filling it costs one RPC page per 1000 signatures (the endpoint's maximum), and public endpoints rate-limit: measured 2026-10-28, 19 of 40 consecutive `getSignaturesForAddress` calls answered HTTP 429 at ~0.63 pages/s. `start` therefore repairs a **rolling window** rather than all of history, and `reeflog repair --pages N` does a bounded pass on demand over whatever window you ask for (`--since-slot` raises the floor).
 
-A walk that is cut short is reported as truncated and the gap stays **open**. A partially filled gap is never presented as filled.
+A walk that is cut short is reported as truncated, the gap stays **open**, and the command exits non-zero. A partially filled gap is never presented as filled, and a scan that read nothing cannot report `missing_count: 0` as if it had checked.
+
+## Repeated use
+
+```bash
+reeflog init    --db reeflog.db --program <pubkey>
+reeflog start   --db reeflog.db --seconds 60 [--repair-every 30] \
+                                      [--repair-lookback 1800] [--repair-pages 40]
+reeflog seal    --db reeflog.db
+reeflog verify  --db reeflog.db --pages 400        # detect, exit 3 if unfinished
+reeflog repair  --db reeflog.db --pages 400        # fill exactly what verify found
+reeflog tail    --db reeflog.db --cursor ./c.txt   # resume from a cursor
+reeflog status  --db reeflog.db
+```
+
+`tools/e2e-repair.mjs` runs detect → repair → prove against live mainnet on a
+journal with planted holes and fails if any step misreports; it passed on
+2026-10-28 with 333 planted holes: verify saw 333, repair filled 333, the
+second verify returned `missing_count: 0, complete: true`, and a deliberately
+truncated scan exited 3.
 
 ## Free and paid
 

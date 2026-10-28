@@ -147,6 +147,11 @@ impl Journal {
     /// Ordered by SLOT, not by `seq`: `seq` is insertion order, and a
     /// backfill inserts *older* events after newer ones, so `seq` order is
     /// not chain order. Slot is the chain's own ordering.
+    ///
+    /// CAUTION (measured 2026-10-28): this signature may be a phantom the
+    /// address index does not know (confirmed then forked out). Never pass it
+    /// to `getSignaturesForAddress` as `before` — the endpoint answers -32020
+    /// for the whole walk. See the anchor rule in `backfill.rs`.
     pub fn newest_signature(&self) -> Result<Option<String>, String> {
         self.db
             .query_row(
@@ -158,12 +163,43 @@ impl Journal {
             .map_err(|e| e.to_string())
     }
 
+    /// Newest held signatures as anchor CANDIDATES for a backwards walk,
+    /// newest first. The walk must try them in order and fall back to a
+    /// chain-tip start when every candidate is rejected (-32020): any single
+    /// held signature can be a phantom, but it is very unlikely that all of
+    /// them are.
+    pub fn anchor_candidates(&self, limit: i64) -> Result<Vec<String>, String> {
+        let mut stmt = self.db.prepare(
+            "SELECT signature FROM events ORDER BY slot DESC, seq DESC LIMIT ?1",
+        )
+        .map_err(|e| e.to_string())?;
+        let rows = stmt
+            .query_map(params![limit], |r| r.get::<_, String>(0))
+            .map_err(|e| e.to_string())?;
+        let mut out = Vec::new();
+        for row in rows {
+            out.push(row.map_err(|e| e.to_string())?);
+        }
+        Ok(out)
+    }
+
     /// The OLDEST signature we hold, ordered by chain order (slot).
-    pub fn oldest_signature(&self) -> Result<Option<String>, String> {
-        self.db
+    pub fn oldest_signature(&self) -> Result<Option<String>, String> {        self.db
             .query_row(
                 "SELECT signature FROM events ORDER BY slot ASC, seq ASC LIMIT 1",
                 [],
+                |r| r.get(0),
+            )
+            .optional()
+            .map_err(|e| e.to_string())
+    }
+
+    /// The slot of a signature we hold, if we hold it.
+    pub fn slot_of(&self, signature: &str) -> Result<Option<i64>, String> {
+        self.db
+            .query_row(
+                "SELECT slot FROM events WHERE signature=?1",
+                params![signature],
                 |r| r.get(0),
             )
             .optional()
@@ -237,14 +273,31 @@ impl Journal {
     }
 
     /// A gap that never saw another event stays open — honest state.
-    pub fn gap_update_detail(&self, gap_id: i64, suffix: &str) -> Result<(), String> {
-        self.db
+    pub fn gap_update_detail(&self, gap_id: i64, suffix: &str) -> Result<(), String> {        self.db
             .execute(
                 "UPDATE gaps SET detail = detail || ?2 WHERE id=?1",
                 params![gap_id, suffix],
             )
             .map_err(|e| e.to_string())?;
         Ok(())
+    }
+
+    /// The oldest open gap of this kind, if any. Repeated repair passes that
+    /// keep finding the SAME hole must accumulate detail on one row instead
+    /// of inserting a new row every pass — a long run would otherwise flood
+    /// `gaps` with thousands of duplicates of the same episode.
+    pub fn gap_find_open(&self, kind: &str) -> Result<Option<i64>, String> {
+        let mut stmt = self
+            .db
+            .prepare("SELECT id FROM gaps WHERE kind=?1 AND resolved_at IS NULL ORDER BY id LIMIT 1")
+            .map_err(|e| e.to_string())?;
+        let mut rows = stmt
+            .query_map(params![kind], |r| r.get::<_, i64>(0))
+            .map_err(|e| e.to_string())?;
+        match rows.next() {
+            Some(id) => Ok(Some(id.map_err(|e| e.to_string())?)),
+            None => Ok(None),
+        }
     }
 
     pub fn events_after(&self, after_seq: i64, limit: i64) -> Result<Vec<EventRow>, String> {
