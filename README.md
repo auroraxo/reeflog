@@ -287,7 +287,9 @@ the dangerous direction is the false positive — a detector that retracts a
 live transaction is worse than no detector, since a consumer would undo a
 real fill. Measured 2026-10-28:
 
-- **negative:** 194 real finalized transactions → **0 reverts**;
+- **negative:** real finalized transactions harvested from mainnet → **0
+  reverts**, twice: 179 in the first run and 189 in the confirming run (the
+  count moves with the harvest, the verdict does not);
 - **positive:** a well-formed signature the chain does not know → detected,
   recorded, delivered exactly once on the reorg channel, and the second read
   delivered nothing (strict cursor);
