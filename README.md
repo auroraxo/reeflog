@@ -274,6 +274,19 @@ reeflog reorg check --db reeflog.db --limit 200   # detect + record
 reeflog reorg tail  --db reeflog.db --cursor ./reorgs.txt
 ```
 
+**The check runs by itself.** `reeflog start` seals pending events and
+re-checks them on a schedule (`--seal-every`, default 15 s; `--reorg-every`,
+default 60 s), and once more at shutdown. A retraction that only exists when
+an operator remembers to run a command is not a product: the consumer who
+acted on a fill at 14:02 has to find out at 14:02, not at 18:00. The daemon's
+window is bounded in **slots** (`--reorg-lookback`, default 300 behind the
+tip), because the chain — not the journal — decides how far a fork can reach.
+
+The daemon's summary reports what the reorg work actually did
+(`reorg_passes`, `reorg_considered`, `reorg_reverted`,
+`reorg_incomplete_passes`), so "0 reverts" can be told apart from "the check
+never ran" — the difference between evidence and silence.
+
 Reorgs get **their own channel and their own cursor**, because a consumer
 that already read an event cannot learn about its retraction from the event
 stream: the event keeps its `seq` and is delivered exactly once. `tail`
@@ -307,6 +320,35 @@ source could turn a transaction the chain still knows into a recorded
 `missing` now means *both* sources refuse the transaction; if the second
 source cannot answer either, the row stays pending and the pass reports
 `undecided`.
+
+## Undoing a fill: the retraction reaches the consumer
+
+Detecting a revert is only half the job. The other half is the question a
+consumer actually has to answer: **which of my actions must be undone?**
+
+`tools/fill-watcher.mjs` now keeps a ledger of the fills it read, and
+`watchRetractions()` joins the reorg channel against that ledger:
+
+- a retraction for a signature the consumer **acted on** comes back marked
+  `undoable`, carrying the original fill's data — so the consumer reverses
+  precisely what it did, amounts included;
+- a retraction for a signature it **never read** comes back marked
+  `undoable: false` — reported, never silently dropped, and never turned into
+  an unfill of some *other* fill;
+- the retracted fill leaves the open ledger and enters the undone ledger, so
+  the same reversal is never applied twice.
+
+The ledger is written BigInt-safe: the amount fields are u64 and exceed
+`Number` range, and a ledger that quietly loses digits would make every later
+comparison meaningless. (The watcher's own CLI used to crash on its first
+printed fill for exactly that reason — `JSON.stringify` has no answer for a
+BigInt.)
+
+`tools/e2e-retraction.mjs` proves the whole path against live mainnet: the
+daemon's own check finds the revert, the retraction arrives on its own
+channel, the ledger join marks it undoable and carries the original fill,
+an unrelated retraction is reported but not unfilled, and a second read
+delivers nothing.
 
 ## Two kinds of gap
 
@@ -356,15 +398,17 @@ reeflog does not recover account bytes from before an event. That is a different
 
 Still open: Yellowstone as a second transport, webhook fan-out, and a real
 consumer other than my own RFQ fill polling and Whirlpool watcher. Reorg
-handling now marks a retracted event and delivers the retraction, but the
-check only looks at sealed rows near the tip and does not yet watch the chain
-for a fork proactively.
+handling marks a retracted event, delivers the retraction, runs the check
+inside the daemon, and joins retractions against the fill watcher's ledger —
+but the check still looks only at sealed rows near the tip, and a real fork
+on mainnet has not been observed end to end.
 
 ## Next qualification
 
-1. Put my own RFQ fill polling and Whirlpool watcher on `reeflog tail`. The fill watcher above is the prototype of it — it proves the mailbox yields fills cheaper and without loss — but the production glue still polls, so user zero is earned, not assumed.
+1. Put my own RFQ fill polling and Whirlpool watcher on `reeflog tail`. The fill watcher above is the prototype of it — it proves the mailbox yields fills cheaper and without loss, and it now also proves it can be un-done — but the production glue still polls, so user zero is earned, not assumed.
 2. Archive gap-fill for holes deeper than the RPC window.
 3. Yellowstone source and webhook fan-out.
-4. Run the reorg check on a schedule and fan reorgs out to the consumers that
-   already acted on the event — the retraction has to reach the fill watcher,
-   not just the journal.
+4. Observe a real mainnet fork end to end: the detector has only ever been
+   proven against a planted, well-formed signature the chain does not know.
+   The daemon's loop makes that plausible to catch, but only a real fork
+   proves it.

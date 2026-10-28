@@ -132,20 +132,100 @@ function cli(args) {
   });
 }
 
-export async function watch({ db, cursor, bin = './target/release/reeflog', limit = 1000, onFill }) {
+// ---------------------------------------------------------------------------
+// The ledger: what this consumer has already acted on.
+//
+// Why it exists: a retraction is only meaningful against a fill someone read.
+// reeflog's reorg channel can deliver a retraction for a signature this
+// watcher never decoded (another consumer's event, a row it never delivered).
+// Joining the retraction against a local ledger is the only way to answer
+// "which of MY fills must be undone" — and to answer honestly when the answer
+// is "none of them".
+//
+// BigInt-safe: u64 amounts exceed Number range, and a ledger that silently
+// loses digits would make every later comparison meaningless.
+const bigintReplacer = (_k, v) => (typeof v === 'bigint' ? v.toString() : v);
+
+export function loadLedger(file) {
+  try {
+    const raw = JSON.parse(fs.readFileSync(file, 'utf8'));
+    return { fills: raw.fills || {}, retracted: raw.retracted || {} };
+  } catch {
+    return { fills: {}, retracted: {} };
+  }
+}
+
+// NB: the parameter must not be named `path` — it would shadow the imported
+// `path` module inside this file and break `path.dirname`.
+export function saveLedger(file, ledger) {
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, JSON.stringify(ledger, bigintReplacer, 2));
+}
+
+export async function watch({ db, cursor, bin = './target/release/reeflog', limit = 1000, onFill, ledgerPath }) {
   const t = await cli([bin, 'tail', '--db', db, '--cursor', cursor, '--limit', String(limit)]);
   const lines = t.out.split('\n').filter(Boolean);
   const fills = [];
+  const ledger = ledgerPath ? loadLedger(ledgerPath) : null;
   for (const line of lines) {
     let row;
     try { row = JSON.parse(line); } catch { continue; }
     const f = fillFromRow(row);
-    if (f) { fills.push(f); if (onFill) onFill(f); }
+    if (f) {
+      fills.push(f);
+      if (ledger) ledger.fills[f.signature] = { ...f, seq: row.seq, read_at: Date.now() };
+      if (onFill) onFill(f);
+    }
   }
+  if (ledger && fills.length) saveLedger(ledgerPath, ledger);
   return { rows: lines.length, fills, stderr: t.err, exit: t.code };
 }
 
-// CLI: node tools/fill-watcher.mjs --db reeflog.db --cursor c.txt
+// Read the retraction channel and join it against the ledger.
+//
+// Two outcomes, kept apart on purpose:
+//   undoable  — this consumer read that fill; it must be reversed, and the
+//               reversal carries the fill's own data so the consumer can undo
+//               exactly what it did (amounts included).
+//   unknown   — the chain no longer knows this signature, but this consumer
+//               never acted on it. Reported, never silently dropped, and
+//               never turned into an unfill of some other fill.
+//
+// The cursor is strict: a second read delivers nothing, so an undo is never
+// applied twice.
+export async function watchRetractions({
+  db,
+  cursor,
+  bin = './target/release/reeflog',
+  limit = 1000,
+  ledgerPath,
+  onRetract,
+}) {
+  const t = await cli([bin, 'reorg', 'tail', '--db', db, '--cursor', cursor, '--limit', String(limit)]);
+  const lines = t.out.split('\n').filter(Boolean);
+  const ledger = ledgerPath ? loadLedger(ledgerPath) : null;
+  const retractions = [];
+  for (const line of lines) {
+    let row;
+    try { row = JSON.parse(line); } catch { continue; }
+    const fill = ledger ? ledger.fills[row.signature] : undefined;
+    const rec = {
+      ...row,
+      undoable: !!fill,
+      fill: fill ?? null,
+    };
+    retractions.push(rec);
+    if (ledger && fill) {
+      delete ledger.fills[row.signature];
+      ledger.retracted[row.signature] = { ...row, undone_at: Date.now() };
+    }
+    if (onRetract) onRetract(rec);
+  }
+  if (ledger && retractions.length) saveLedger(ledgerPath, ledger);
+  return { rows: lines.length, retractions, stderr: t.err, exit: t.code };
+}
+
+// CLI: node tools/fill-watcher.mjs --db reeflog.db --cursor c.txt [--ledger l.json] [--reorg-cursor r.txt]
 if (process.argv[1] && process.argv[1].endsWith('fill-watcher.mjs')) {
   const arg = (k, d) => {
     const i = process.argv.indexOf(k);
@@ -153,8 +233,32 @@ if (process.argv[1] && process.argv[1].endsWith('fill-watcher.mjs')) {
   };
   const db = arg('--db', 'reeflog.db');
   const cursor = arg('--cursor', path.join('/tmp', 'fill-watcher-cursor.txt'));
-  const r = await watch({ db, cursor, limit: Number(arg('--limit', '1000')) });
-  console.log(JSON.stringify({ rows: r.rows, fills: r.fills.length }, null, 2));
-  for (const f of r.fills.slice(0, 5)) console.log(JSON.stringify(f));
+  const bin = arg('--bin', './target/release/reeflog');
+  const ledgerPath = arg('--ledger', null);
+  const r = await watch({ db, cursor, bin, ledgerPath, limit: Number(arg('--limit', '1000')) });
+  const rc = arg('--reorg-cursor', null);
+  const retr = rc
+    ? await watchRetractions({
+        db,
+        cursor: rc,
+        bin,
+        ledgerPath,
+        limit: Number(arg('--reorg-limit', '1000')),
+      })
+    : null;
+  const ledger = ledgerPath ? loadLedger(ledgerPath) : null;
+  console.log(JSON.stringify({
+    rows: r.rows,
+    fills: r.fills.length,
+    retractions: retr ? retr.retractions.length : null,
+    undoable: retr ? retr.retractions.filter((x) => x.undoable).length : null,
+    open_fills: ledger ? Object.keys(ledger.fills).length : null,
+    undone_fills: ledger ? Object.keys(ledger.retracted).length : null,
+  }, null, 2));
+  // BigInt-safe: the previous CLI used a bare JSON.stringify, which threw on
+  // the very first fill it printed (u64 amounts are BigInt).
+  for (const f of r.fills.slice(0, 5)) console.log(JSON.stringify(f, bigintReplacer));
+  for (const x of retr ? retr.retractions : []) console.log(JSON.stringify(x, bigintReplacer));
   if (r.stderr) console.error(r.stderr.trim());
 }
+

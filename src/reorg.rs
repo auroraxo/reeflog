@@ -164,8 +164,36 @@ impl ReorgReport {
 /// on a healthy chain that is zero extra calls per pass.
 pub fn check_sealed<F: Fetcher>(j: &Journal, f: &mut F, limit: i64) -> Result<ReorgReport, String> {
     let rows = candidates(j, limit)?;
+    let more = rows.len() as i64 >= limit && limit > 0;
+    check_rows(j, f, rows, more)
+}
+
+/// The same check, bounded by a slot window instead of a row count.
+///
+/// This is the form the running daemon uses: it re-examines only the rows a
+/// fork can still reach (near the tip), which keeps one pass at one batched
+/// status call while the daemon ingests. Row count alone would either stop
+/// reaching new events on a busy program or walk ancient, already-final rows
+/// on a quiet one.
+pub fn check_sealed_window<F: Fetcher>(
+    j: &Journal,
+    f: &mut F,
+    limit: i64,
+    min_slot: i64,
+) -> Result<ReorgReport, String> {
+    let rows = j.sealed_in_slot_window(min_slot, limit)?;
+    let more = rows.len() as i64 >= limit && limit > 0;
+    check_rows(j, f, rows, more)
+}
+
+fn check_rows<F: Fetcher>(
+    j: &Journal,
+    f: &mut F,
+    rows: Vec<(String, i64)>,
+    more: bool,
+) -> Result<ReorgReport, String> {
     let mut r = ReorgReport {
-        more: rows.len() as i64 >= limit && limit > 0,
+        more,
         ..Default::default()
     };
     if rows.is_empty() {
@@ -480,5 +508,55 @@ mod tests {
         let r = check_sealed(&j, &mut chain, 100).unwrap();
         assert_eq!(r.considered, 0, "an unsealed row was never promised final");
         assert_eq!(r.reverted, 0);
+    }
+
+    #[test]
+    fn the_slot_window_bounds_which_rows_are_checked() {
+        let j = tmp("window");
+        // Two sealed rows near the tip (slot 100, 101), one deep in history
+        // (slot 5). Only the window is the daemon's exposure.
+        for (sig, slot) in [("sigOld", 5i64), ("sigNear", 100), ("sigTip", 101)] {
+            j.append(sig, slot, None, None, "ws").unwrap();
+            j.seal(sig, "finalized", None).unwrap();
+        }
+        // The chain forgets BOTH near rows; the old one too. The window must
+        // never see the old one — it is outside the exposure, and finding it
+        // would be a claim the daemon never makes.
+        let mut chain = FakeChain::default()
+            .set("sigOld", "refused", "refused")
+            .set("sigNear", "refused", "refused")
+            .set("sigTip", "refused", "refused");
+
+        let r = check_sealed_window(&j, &mut chain, 100, 90).unwrap();
+        assert_eq!(r.considered, 2, "only rows inside the slot window");
+        assert_eq!(r.reverted, 2);
+        assert_eq!(
+            j.seal_status_of("sigOld").unwrap().as_deref(),
+            Some("finalized"),
+            "a row outside the window is left untouched"
+        );
+        // And a run of the CLI-shaped check (no window) still sees all three:
+        // the window is an extra bound, not a change of what "sealed" means.
+        let full = check_sealed(&j, &mut chain, 100).unwrap();
+        assert_eq!(full.considered, 1, "the reverted pair left the candidate set");
+    }
+
+    #[test]
+    fn a_window_check_is_idempotent_across_repeated_passes() {
+        let j = tmp("window-repeat");
+        j.append("sigW", 42, None, None, "ws").unwrap();
+        j.seal("sigW", "finalized", None).unwrap();
+        let mut chain = FakeChain::default().set("sigW", "known", "known");
+
+        let a = check_sealed_window(&j, &mut chain, 100, 1).unwrap();
+        let b = check_sealed_window(&j, &mut chain, 100, 1).unwrap();
+        assert_eq!((a.considered, a.reverted), (1, 0));
+        assert_eq!((b.considered, b.reverted), (1, 0), "an intact row stays checkable");
+        assert_eq!(chain.calls.get("status"), Some(&2), "one batched call per pass");
+        assert_eq!(
+            chain.calls.get("tx").copied().unwrap_or(0),
+            0,
+            "a served row costs no second opinion"
+        );
     }
 }

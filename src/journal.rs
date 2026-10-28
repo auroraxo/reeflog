@@ -529,6 +529,40 @@ impl Journal {
         Ok(out)
     }
 
+    /// Sealed events inside a slot window around the tip: the rows a fork can
+    /// still unmake, and therefore the rows a consumer could still have acted
+    /// on.
+    ///
+    /// The window is measured in slots, not in rows, because the chain — not
+    /// the journal — decides how long a fork can reach. A transaction that is
+    /// deep in history is final in the only sense that matters; a transaction
+    /// a few slots behind the tip can still be unmade. Rows already recorded
+    /// as reorgs are excluded, so a re-run never re-reports one.
+    pub fn sealed_in_slot_window(
+        &self,
+        min_slot: i64,
+        limit: i64,
+    ) -> Result<Vec<(String, i64)>, String> {
+        let mut stmt = self
+            .db
+            .prepare(
+                "SELECT signature, slot FROM events
+                 WHERE seal_status IN ('confirmed','finalized')
+                   AND slot >= ?1
+                   AND signature NOT IN (SELECT signature FROM reorgs)
+                 ORDER BY seq DESC LIMIT ?2",
+            )
+            .map_err(|e| e.to_string())?;
+        let rows = stmt
+            .query_map(params![min_slot, limit], |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?)))
+            .map_err(|e| e.to_string())?;
+        let mut out = Vec::new();
+        for row in rows {
+            out.push(row.map_err(|e| e.to_string())?);
+        }
+        Ok(out)
+    }
+
     /// Recorded reorgs after the consumer's cursor, in detection order.
     pub fn reorgs_after(&self, after_id: i64, limit: i64) -> Result<Vec<ReorgRow>, String> {
         let mut stmt = self

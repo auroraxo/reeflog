@@ -13,7 +13,7 @@ use backfill::{backfill_tail, repair_holes, verify_recent, HttpFetcher, Report};
 use futures_util::{SinkExt, StreamExt};
 use journal::{EventRow, Journal};
 use payload::hydrate_payloads;
-use reorg::check_sealed;
+use reorg::{check_sealed, check_sealed_window};
 use serde_json::{json, Value};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
@@ -211,6 +211,83 @@ fn seal<F: backfill::Fetcher>(j: &Journal, f: &mut F) -> Result<Value, String> {
     Ok(promoted)
 }
 
+/// Batched re-check of recently sealed events against the two independent
+/// sources, from inside the running daemon.
+///
+/// Why it lives here: a retraction that only exists when an operator remembers
+/// to run `reeflog reorg check` is not a product — the consumer who acted on a
+/// fill at 14:02 finds out at 18:00, if ever. The check is the same one the
+/// CLI runs (`check_sealed`), with the same two-source rule, so it cannot
+/// invent a revert: on a healthy chain the whole pass costs one batched
+/// `getSignatureStatuses` call, because rows the status source serves need no
+/// second opinion.
+///
+/// It is bounded on purpose: `--reorg-limit` rows per pass, newest first, and
+/// only rows inside `--reorg-lookback` slots behind the tip — the rows a fork
+/// can still unmake, and therefore the rows a consumer could still have acted
+/// on. Rate limits are not verdicts here either — an incomplete pass is
+/// reported and counted, never folded into "no reorgs".
+fn reorg_tick(j: &Journal, rpc_url: &str, limit: i64, lookback_slots: i64) -> Value {
+    let min_slot = j.max_slot().unwrap_or(None).map(|s| s - lookback_slots).unwrap_or(0);
+    let mut fetcher = HttpFetcher::new(rpc_url.to_string());
+    match check_sealed_window(j, &mut fetcher, limit, min_slot) {
+        Ok(r) => json!({
+            "complete": r.complete(),
+            "min_slot": min_slot,
+            "considered": r.considered,
+            "intact": r.intact,
+            "reverted": r.reverted,
+            "invalid": r.invalid,
+            "incomplete": r.incomplete,
+            "more": r.more,
+            "error": r.error,
+            "reverted_sample": r.reverted_sample,
+        }),
+        Err(e) => json!({"complete": false, "error": e}),
+    }
+}
+
+/// Seal a bounded batch of pending events. Exposed for the periodic seal tick
+/// inside `start`: without it the daemon would deliver events it has never
+/// promised as final, and the reorg check would have no sealed rows to look at.
+///
+/// The batch is drained, not just taken once: a busy program produces events
+/// faster than one batch of 150 rows covers, and a seal tick that only ever
+/// sealed the first 150 pending rows would fall behind the stream forever.
+/// The drain is bounded so a single tick cannot run unbounded against a
+/// rate-limited endpoint.
+fn seal_tick(j: &Journal, rpc_url: &str) -> Value {
+    let mut fetcher = HttpFetcher::new(rpc_url.to_string());
+    let mut total = json!({"finalized":0,"confirmed":0,"error":0,"missing":0,"undecided":0});
+    let mut batches = 0;
+    loop {
+        let before = j.unsealed(150).map(|v| v.len()).unwrap_or(0);
+        if before == 0 || batches >= 20 {
+            break;
+        }
+        match seal(j, &mut fetcher) {
+            Ok(v) => {
+                for k in ["finalized", "confirmed", "error", "missing", "undecided"] {
+                    let n = total[k].as_i64().unwrap_or(0) + v[k].as_i64().unwrap_or(0);
+                    total[k] = Value::from(n);
+                }
+            }
+            Err(e) => {
+                total["error"] = Value::String(e.to_string());
+                break;
+            }
+        }
+        batches += 1;
+        // Nothing changed: the batch was refused or already sealed. Stop
+        // instead of spinning on the same rows.
+        let after = j.unsealed(150).map(|v| v.len()).unwrap_or(0);
+        if after >= before {
+            break;
+        }
+    }
+    total
+}
+
 // ---------------------------------------------------------------------------
 // WebSocket ingest
 // ---------------------------------------------------------------------------
@@ -223,6 +300,13 @@ struct Stats {
     reconnects: i64,
     repair_filled: i64,
     repair_passes: i64,
+    seal_passes: i64,
+    seal_promoted: i64,
+    reorg_passes: i64,
+    reorg_considered: i64,
+    reorg_reverted: i64,
+    reorg_incomplete: i64,
+    reorg_truncated: i64,
 }
 
 impl Stats {
@@ -235,6 +319,13 @@ impl Stats {
             reconnects: 0,
             repair_filled: 0,
             repair_passes: 0,
+            seal_passes: 0,
+            seal_promoted: 0,
+            reorg_passes: 0,
+            reorg_considered: 0,
+            reorg_reverted: 0,
+            reorg_incomplete: 0,
+            reorg_truncated: 0,
         }
     }
 }
@@ -279,6 +370,24 @@ async fn run_start(args: &[String]) {
     let payload_limit: i64 = arg(args, "--payload-limit")
         .and_then(|s| s.parse().ok())
         .unwrap_or(500);
+
+    // The seal + reorg scheduler. These two passes are what turn a stream of
+    // events into a *promise* a consumer can act on: `seal` promotes confirmed
+    // to finalized, and the reorg check withdraws that promise again if the
+    // chain forgets the transaction. Both ran only as manual CLI commands
+    // until now, which meant the mailbox could deliver an event and never
+    // tell the consumer that it was taken back.
+    //
+    // Cadence: the reorg check follows the repair pass (`--reorg-every`,
+    // default 60 s) because it needs sealed rows, and a row only becomes
+    // sealed when the seal pass has seen it. The reorg window
+    // (`--reorg-lookback`, default 300 slots) bounds the exposure: a fork can
+    // only unmake an event near the tip, and the rows behind it are the
+    // consumer's problem only in the sense that they are already final.
+    let seal_every_s: u64 = arg(args, "--seal-every").and_then(|s| s.parse().ok()).unwrap_or(15);
+    let reorg_every_s: u64 = arg(args, "--reorg-every").and_then(|s| s.parse().ok()).unwrap_or(60);
+    let reorg_limit: i64 = arg(args, "--reorg-limit").and_then(|s| s.parse().ok()).unwrap_or(200);
+    let reorg_lookback: i64 = arg(args, "--reorg-lookback").and_then(|s| s.parse().ok()).unwrap_or(300);
 
     let mut stats = Stats::new();
     let deadline = Instant::now() + Duration::from_secs(seconds);
@@ -420,6 +529,43 @@ async fn run_start(args: &[String]) {
         }};
     }
 
+    // The seal + reorg scheduler. Sealing first, then checking: a reorg check
+    // over unsealed rows would prove nothing, because an unsealed row was
+    // never promised as final.
+    let mut next_seal = Instant::now() + Duration::from_secs(seal_every_s.max(1));
+    let mut next_reorg = Instant::now() + Duration::from_secs(reorg_every_s.max(1));
+    macro_rules! seal_tick_now {
+        () => {{
+            next_seal = Instant::now() + Duration::from_secs(seal_every_s.max(1));
+            let promoted = seal_tick(&j, &rpc_url);
+            stats.seal_passes += 1;
+            for k in ["finalized", "confirmed", "error", "missing"] {
+                stats.seal_promoted += promoted[k].as_i64().unwrap_or(0);
+            }
+        }};
+    }
+    macro_rules! reorg_tick_now {
+        () => {{
+            next_reorg = Instant::now() + Duration::from_secs(reorg_every_s.max(1));
+            let report = reorg_tick(&j, &rpc_url, reorg_limit, reorg_lookback);
+            stats.reorg_passes += 1;
+            stats.reorg_considered += report["considered"].as_i64().unwrap_or(0);
+            stats.reorg_reverted += report["reverted"].as_i64().unwrap_or(0);
+            stats.reorg_incomplete += report["incomplete"].as_i64().unwrap_or(0);
+            if report["complete"].as_bool() != Some(true) {
+                stats.reorg_truncated += 1;
+                eprintln!(
+                    "reeflog: reorg check INCOMPLETE {report} — a transport failure is not a verdict"
+                );
+            } else if report["reverted"].as_i64().unwrap_or(0) > 0 {
+                eprintln!(
+                    "reeflog: {} event(s) REVERTED — the chain no longer knows them; consumers read them from `reeflog reorg tail`",
+                    report["reverted"].as_i64().unwrap_or(0)
+                );
+            }
+        }};
+    }
+
     let mut first_connect = true;
     loop {
         if Instant::now() >= deadline {
@@ -531,6 +677,12 @@ async fn run_start(args: &[String]) {
             let frame = tokio::time::timeout(Duration::from_secs(5), ws.next()).await;
             if Instant::now() >= next_repair {
                 repair_tick!();
+            }
+            if Instant::now() >= next_seal {
+                seal_tick_now!();
+            }
+            if Instant::now() >= next_reorg {
+                reorg_tick_now!();
             }
             if Instant::now() >= deadline {
                 break;
@@ -647,6 +799,25 @@ async fn run_start(args: &[String]) {
         eprintln!("reeflog: seal failed at shutdown: {e}");
         json!({"error": e})
     });
+    // Final reorg check. Without it the daemon could end its run with a
+    // retraction it had already seen but never recorded — the consumer would
+    // act on a fill the chain no longer knows.
+    let final_reorg = if reorg_every_s > 0 {
+        let r = reorg_tick(&j, &rpc_url, reorg_limit, reorg_lookback);
+        stats.reorg_passes += 1;
+        stats.reorg_considered += r["considered"].as_i64().unwrap_or(0);
+        stats.reorg_reverted += r["reverted"].as_i64().unwrap_or(0);
+        stats.reorg_incomplete += r["incomplete"].as_i64().unwrap_or(0);
+        if r["reverted"].as_i64().unwrap_or(0) > 0 {
+            eprintln!(
+                "reeflog: {} event(s) REVERTED at shutdown — read them from `reeflog reorg tail`",
+                r["reverted"].as_i64().unwrap_or(0)
+            );
+        }
+        r
+    } else {
+        json!({"skipped": true})
+    };
     if let Some(g) = open_gap {
         j.gap_update_detail(g, "; run ended before the stream came back").ok();
     }
@@ -727,6 +898,14 @@ async fn run_start(args: &[String]) {
         "disconnects": stats.disconnects,
         "reconnects": stats.reconnects,
         "seal_pass": promoted,
+        "seal_passes": stats.seal_passes,
+        "seal_promoted": stats.seal_promoted,
+        "reorg_passes": stats.reorg_passes,
+        "reorg_considered": stats.reorg_considered,
+        "reorg_reverted": stats.reorg_reverted,
+        "reorg_incomplete": stats.reorg_incomplete,
+        "reorg_incomplete_passes": stats.reorg_truncated,
+        "final_reorg": final_reorg,
         "repair_passes": stats.repair_passes,
         "repair_filled": stats.repair_filled,
         "final_repair": final_repair,
@@ -1091,6 +1270,7 @@ fn usage() -> ! {
          USAGE:\n\
          \x20 reeflog init  --db <file> --program <pubkey>\n\
          \x20 reeflog start --db <file> [--seconds N] [--ws URL] [--rpc URL] [--program <pubkey>]\n\
+         \x20              [--seal-every N] [--reorg-every N] [--reorg-limit N] [--reorg-lookback N]\n\
          \x20 reeflog verify --db <file> [--pages N] [--since-slot N] [--rpc URL]\n\
          \x20 reeflog repair --db <file> [--pages N] [--since-slot N] [--rpc URL]\n\
          \x20 reeflog hydrate --db <file> [--limit N] [--rpc URL]\n\
