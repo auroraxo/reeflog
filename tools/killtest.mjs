@@ -340,8 +340,10 @@ const cliStatus = await cli(['status', '--db', REEFLOG_DB]);
 const cliVerify = await cli(['verify', '--db', REEFLOG_DB, '--pages', '400']);
 const cliRepair = await cli(['repair', '--db', REEFLOG_DB, '--pages', '400']);
 const cliVerify2 = await cli(['verify', '--db', REEFLOG_DB, '--pages', '400']);
-const cliTail1 = await cli(['tail', '--db', REEFLOG_DB, '--cursor', path.join(OUT, 'c.txt'), '--limit', '500000']);
-const cliTail2 = await cli(['tail', '--db', REEFLOG_DB, '--cursor', path.join(OUT, 'c.txt'), '--limit', '500000']);
+// The harness needs identities only; the payload-bearing form of `tail` is
+// exercised by tools/e2e-payload.mjs.
+const cliTail1 = await cli(['tail', '--db', REEFLOG_DB, '--cursor', path.join(OUT, 'c.txt'), '--limit', '500000', '--no-logs']);
+const cliTail2 = await cli(['tail', '--db', REEFLOG_DB, '--cursor', path.join(OUT, 'c.txt'), '--limit', '500000', '--no-logs']);
 let sql = null;
 let reeflogSigs = new Set();
 {
