@@ -264,9 +264,7 @@ async fn run_start(args: &[String]) {
     let deadline = Instant::now() + Duration::from_secs(seconds);
 
     // Gap 1: anything since this journal's last event (previous run or crash).
-    let mut fetcher = HttpFetcher {
-        url: rpc_url.clone(),
-    };
+    let mut fetcher = HttpFetcher::new(rpc_url.clone());
     let mut open_gap = if j.max_seq().unwrap_or(0) > 0 {
         let g = j
             .gap_open(
@@ -614,7 +612,8 @@ fn run_tail(args: &[String]) {
             "{}",
             serde_json::json!({
                 "seq": r.seq, "signature": r.signature, "slot": r.slot,
-                "err": r.err, "source": r.source, "seal": r.seal_status
+                "err": r.err, "source": r.source, "seal": r.seal_status,
+                "first_seen": r.first_seen,
             })
         );
     }
@@ -754,6 +753,11 @@ fn run_status(args: &[String]) {
             "backfilled": c.backfilled, "blind_window_ms": c.blind_ms,
             "max_seq": j.max_seq().unwrap_or(0),
             "max_slot": j.max_slot().unwrap_or(None),
+            "min_slot": j.oldest_slot().unwrap_or(None),
+            // The exact signatures that bound the window verify scans, so an
+            // operator can pin which two chain positions the claim spans.
+            "oldest_signature": j.oldest_signature().unwrap_or(None),
+            "newest_signature": j.newest_signature().unwrap_or(None),
         }))
         .unwrap()
     );

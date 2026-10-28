@@ -163,43 +163,12 @@ impl Journal {
             .map_err(|e| e.to_string())
     }
 
-    /// Newest held signatures as anchor CANDIDATES for a backwards walk,
-    /// newest first. The walk must try them in order and fall back to a
-    /// chain-tip start when every candidate is rejected (-32020): any single
-    /// held signature can be a phantom, but it is very unlikely that all of
-    /// them are.
-    pub fn anchor_candidates(&self, limit: i64) -> Result<Vec<String>, String> {
-        let mut stmt = self.db.prepare(
-            "SELECT signature FROM events ORDER BY slot DESC, seq DESC LIMIT ?1",
-        )
-        .map_err(|e| e.to_string())?;
-        let rows = stmt
-            .query_map(params![limit], |r| r.get::<_, String>(0))
-            .map_err(|e| e.to_string())?;
-        let mut out = Vec::new();
-        for row in rows {
-            out.push(row.map_err(|e| e.to_string())?);
-        }
-        Ok(out)
-    }
-
     /// The OLDEST signature we hold, ordered by chain order (slot).
-    pub fn oldest_signature(&self) -> Result<Option<String>, String> {        self.db
+    pub fn oldest_signature(&self) -> Result<Option<String>, String> {
+        self.db
             .query_row(
                 "SELECT signature FROM events ORDER BY slot ASC, seq ASC LIMIT 1",
                 [],
-                |r| r.get(0),
-            )
-            .optional()
-            .map_err(|e| e.to_string())
-    }
-
-    /// The slot of a signature we hold, if we hold it.
-    pub fn slot_of(&self, signature: &str) -> Result<Option<i64>, String> {
-        self.db
-            .query_row(
-                "SELECT slot FROM events WHERE signature=?1",
-                params![signature],
                 |r| r.get(0),
             )
             .optional()

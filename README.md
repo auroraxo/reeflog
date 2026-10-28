@@ -62,7 +62,24 @@ classifies every signature the journal lacks by calling `getTransaction`, and
 refuses to accept a hole that did not actually invoke the program
 (`referenced-only`) as a loss.
 
-Run `full` (2026-10-28) **falsified** the claim:
+Run `sync` (2026-10-28, same harness, 120 s / 4 kills on Raydium AMM v4)
+re-tested the claim and it **survived**: every check passed, verdict
+`contract_survived` (exit 0).
+
+| Check | Result |
+|---|---|
+| reeflog real losses | **0** of 1,112 deliverable events |
+| naive-killed (control) real losses | **169** — the kill alone loses events |
+| naive-live (control, never killed) real losses | **3** — the public WS drops events without any kill |
+| verify before repair | 14 missing, `complete: true`, exit 0 |
+| repair | `found_missing: 14`, `filled: 14`, `complete: true` |
+| verify after repair | `missing_count: 0`, `complete: true`, exit 0 |
+| dedup | 1,215 rows = 1,215 distinct signatures |
+| cursor resume | second iteration: 0 rows (no replay) |
+| incomplete scan | never exits 0 |
+
+Run `full` (2026-10-28, the earlier 600 s run) **falsified** the same claim
+and is kept here because it is what exposed the defects:
 
 | Check | Result |
 |---|---|
