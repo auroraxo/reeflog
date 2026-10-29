@@ -1,0 +1,337 @@
+{
+  "at": "2026-10-29T11:06:34.315Z",
+  "rpc": "http://127.0.0.1:18999",
+  "program": "11111111111111111111111111111111",
+  "checks": [
+    {
+      "name": "validator_starts",
+      "pass": true,
+      "detail": "local agave chain answering on http://127.0.0.1:18999"
+    },
+    {
+      "name": "payer_funded",
+      "pass": true,
+      "detail": "10 SOL (10 SOL)"
+    },
+    {
+      "name": "journal_initialized",
+      "pass": true,
+      "detail": "initialized /tmp/reeflog-fork-e2e/reeflog.db for program 11111111111111111111111111111111"
+    },
+    {
+      "name": "survivor_transaction_sent",
+      "pass": true,
+      "detail": "4YFfRceeCxWaVVWq7rMvYVjBX3Jcme2MnyX4dFiQzJUhP2qeCR6NcS2DemTQLaq6EWaLHKcSKGUty8LZyXQqxV8G"
+    },
+    {
+      "name": "survivor_transaction_reaches_finalized",
+      "pass": true,
+      "detail": "slot=43"
+    },
+    {
+      "name": "finalized_root_past_the_survivor_slot",
+      "pass": true,
+      "detail": "root=45 tx_slot=43"
+    },
+    {
+      "name": "both_sources_serve_the_survivor_before_the_fork",
+      "pass": true,
+      "detail": "served"
+    },
+    {
+      "name": "survivor_transaction_succeeded_on_chain",
+      "pass": true,
+      "detail": "meta.err=null"
+    },
+    {
+      "name": "survivor_arrived_over_the_socket_and_was_sealed_finalized",
+      "pass": true,
+      "detail": "seq=1 source=ws seal=finalized"
+    },
+    {
+      "name": "daemon_phase_1_completed_cleanly",
+      "pass": true,
+      "detail": "ws_new=1 seal_passes=5 reorg_passes=6 reorg_reverted=0 exit=0"
+    },
+    {
+      "name": "ledger_snapshot_taken_after_the_survivor",
+      "pass": true,
+      "detail": "rocksdb copied at root=45 (survivor slot 43 is inside the snapshot)"
+    },
+    {
+      "name": "validator_resumes_after_snapshot",
+      "pass": true,
+      "detail": "healthy"
+    },
+    {
+      "name": "funding_survived_the_ledger_snapshot",
+      "pass": true,
+      "detail": "8.999995 SOL after resume"
+    },
+    {
+      "name": "forked_transaction_sent",
+      "pass": true,
+      "detail": "2TVuaQKs9LcBrnPW4q5UKtM1b7dQhJpg1FGYucvaJtfru7SSmVAAL22cYVz6gBHFjnu58KpqZq6VdwsVpP2N6A1C"
+    },
+    {
+      "name": "forked_transaction_reaches_finalized",
+      "pass": true,
+      "detail": "slot=102"
+    },
+    {
+      "name": "finalized_root_past_the_forked_slot",
+      "pass": true,
+      "detail": "root=104 tx_slot=102"
+    },
+    {
+      "name": "recorded_the_block_at_the_forked_slot_before_the_fork",
+      "pass": true,
+      "detail": "cp5fp8uXhDkM9NYDFoTUKTP5aJBkR3j2HGX4LMS2uP3 (slot 102)"
+    },
+    {
+      "name": "both_sources_serve_the_forked_tx_before_the_fork",
+      "pass": true,
+      "detail": "getTransaction=served getSignatureStatuses=served"
+    },
+    {
+      "name": "forked_event_arrived_over_the_socket_and_was_sealed_finalized",
+      "pass": true,
+      "detail": "seq=2 source=ws seal=finalized"
+    },
+    {
+      "name": "the_forked_event_arrived_over_the_socket",
+      "pass": true,
+      "detail": "source=ws"
+    },
+    {
+      "name": "journal_holds_both_real_transactions",
+      "pass": true,
+      "detail": "A=seq=1 source=ws seal=finalized B=seq=2 source=ws seal=finalized"
+    },
+    {
+      "name": "journal_promised_both_as_final",
+      "pass": true,
+      "detail": "events=2 finalized=2 reverted=0"
+    },
+    {
+      "name": "control_no_false_positive_while_the_chain_is_intact",
+      "pass": true,
+      "detail": "reverted=0 considered=2 intact=2 complete=true exit=0"
+    },
+    {
+      "name": "control_daemon_found_no_reverts_while_the_chain_was_intact",
+      "pass": true,
+      "detail": "reorg_reverted=0 considered=17 passes=9 incomplete=0 exit=0"
+    },
+    {
+      "name": "validator_restarts_on_the_rolled_back_ledger",
+      "pass": true,
+      "detail": "healthy after rollback"
+    },
+    {
+      "name": "chain_re_produced_the_slots_past_the_fork",
+      "pass": true,
+      "detail": "finalized root now 103 (forked slot was 102)"
+    },
+    {
+      "name": "status_source_refuses_after_the_fork",
+      "pass": true,
+      "detail": "getSignatureStatuses=refused (value[0]=null)"
+    },
+    {
+      "name": "transaction_source_refuses_after_the_fork",
+      "pass": true,
+      "detail": "getTransaction=refused (result=null)"
+    },
+    {
+      "name": "the_pre_rollback_transaction_is_still_served",
+      "pass": true,
+      "detail": "survived the rollback (control)"
+    },
+    {
+      "name": "the_survivor_kept_the_same_block_across_the_fork",
+      "pass": true,
+      "detail": "before=H9rQFcpSLqPa79dYfLixWek4zZ175WNzGfh17GjkwUzg after=H9rQFcpSLqPa79dYfLixWek4zZ175WNzGfh17GjkwUzg"
+    },
+    {
+      "name": "the_forked_slot_has_a_different_block_now",
+      "pass": true,
+      "detail": "slot=102 before=cp5fp8uXhDkM9NYDFoTUKTP5aJBkR3j2HGX4LMS2uP3 after=GpidxRJqvoGEpBEcVtVBzBgLinfCbCKDeawtGkJQjLGG (GpidxRJqvoGEpBEcVtVBzBgLinfCbCKDeawtGkJQjLGG)"
+    },
+    {
+      "name": "the_signature_walk_no_longer_returns_the_forked_signature",
+      "pass": true,
+      "detail": "listed=2 contains_forked=false"
+    },
+    {
+      "name": "the_signature_walk_still_returns_the_survivor",
+      "pass": true,
+      "detail": "contains_survivor=true"
+    },
+    {
+      "name": "the_running_daemon_detects_the_real_fork",
+      "pass": true,
+      "detail": "reeflog: 1 event(s) REVERTED — the chain no longer knows them; consumers read them from `reeflog reorg tail`"
+    },
+    {
+      "name": "a_new_transaction_finalizes_on_the_forked_chain",
+      "pass": true,
+      "detail": "slot=153"
+    },
+    {
+      "name": "the_new_transaction_is_in_the_journal_sealed_finalized",
+      "pass": true,
+      "detail": "seq=3 source=ws seal=finalized"
+    },
+    {
+      "name": "the_daemons_own_reorg_pass_reports_exactly_the_real_fork",
+      "pass": true,
+      "detail": "reorg_reverted=1 considered=26 passes=13 incomplete=0 exit=0"
+    },
+    {
+      "name": "the_journal_holds_all_three_real_transactions_with_the_right_verdicts",
+      "pass": true,
+      "detail": "A=finalized B=reverted C=finalized"
+    },
+    {
+      "name": "exactly_one_reorg_is_recorded_in_the_end",
+      "pass": true,
+      "detail": "reverted=1 events=3"
+    },
+    {
+      "name": "the_reorg_record_names_the_real_forked_signature",
+      "pass": true,
+      "detail": "2TVuaQKs9LcBrnPW4q5UKtM1b7dQhJpg1FGYucvaJtfru7SSmVAAL22cYVz6gBHFjnu58KpqZq6VdwsVpP2N6A1C status=refused tx=refused"
+    },
+    {
+      "name": "control_after_the_fork_the_survivor_is_intact_and_nothing_is_re_reported",
+      "pass": true,
+      "detail": "reverted=0 intact=2 considered=2 reorg_records=1 complete=true exit=0"
+    },
+    {
+      "name": "retraction_delivered_once",
+      "pass": true,
+      "detail": "rows=1"
+    },
+    {
+      "name": "the_retraction_names_the_real_signature",
+      "pass": true,
+      "detail": "2TVuaQKs9LcBrnPW4q5UKtM1b7dQhJpg1FGYucvaJtfru7SSmVAAL22cYVz6gBHFjnu58KpqZq6VdwsVpP2N6A1C"
+    },
+    {
+      "name": "second_read_delivers_nothing",
+      "pass": true,
+      "detail": "rows=0"
+    },
+    {
+      "name": "consumer_sees_the_retraction",
+      "pass": true,
+      "detail": "retractions=1 exit=0"
+    },
+    {
+      "name": "the_retraction_is_undoable_for_this_consumer",
+      "pass": true,
+      "detail": "\"2TVuaQKs9LcBrnPW4q5UKtM1b7dQhJpg1FGYucvaJtfru7SSmVAAL22cYVz6gBHFjnu58KpqZq6VdwsVpP2N6A1C\""
+    },
+    {
+      "name": "the_acted_event_is_undone_and_remembered_as_retracted",
+      "pass": true,
+      "detail": "fills=0 retracted=1"
+    }
+  ],
+  "facts": {
+    "program": "11111111111111111111111111111111",
+    "survivor_transaction": "4YFfRceeCxWaVVWq7rMvYVjBX3Jcme2MnyX4dFiQzJUhP2qeCR6NcS2DemTQLaq6EWaLHKcSKGUty8LZyXQqxV8G",
+    "survivor_slot": 43,
+    "survivor_block_before": "H9rQFcpSLqPa79dYfLixWek4zZ175WNzGfh17GjkwUzg",
+    "survivor_block_after": "H9rQFcpSLqPa79dYfLixWek4zZ175WNzGfh17GjkwUzg",
+    "forked_transaction": "2TVuaQKs9LcBrnPW4q5UKtM1b7dQhJpg1FGYucvaJtfru7SSmVAAL22cYVz6gBHFjnu58KpqZq6VdwsVpP2N6A1C",
+    "forked_slot": 102,
+    "forked_block_before": "cp5fp8uXhDkM9NYDFoTUKTP5aJBkR3j2HGX4LMS2uP3",
+    "forked_block_after": "GpidxRJqvoGEpBEcVtVBzBgLinfCbCKDeawtGkJQjLGG",
+    "new_transaction_after_fork": "4iurH11SstrHqP8NDRcGn8XaP5GJxvKabn1gvXfUYeHhfDU8UubjyW2sYPjzhmvJpmFXxeNHf4t7SYEo5hMhPyte",
+    "finalized_root_before_fork": 104,
+    "finalized_root_after_fork": 103,
+    "daemon_phase_1": {
+      "ws_new": 1,
+      "seal_passes": 5,
+      "reorg_reverted": 0,
+      "exit": 0
+    },
+    "daemon_phase_2": {
+      "ws_new": 1,
+      "seal_passes": 8,
+      "reorg_passes": 9,
+      "reorg_reverted": 0,
+      "exit": 0
+    },
+    "daemon_final": {
+      "ws_new": 1,
+      "seal_passes": 12,
+      "reorg_passes": 13,
+      "reorg_considered": 26,
+      "reorg_reverted": 1,
+      "reorg_incomplete": 0,
+      "exit": 0
+    },
+    "reorg_check_intact_chain": {
+      "complete": true,
+      "considered": 2,
+      "error": null,
+      "incomplete": 0,
+      "intact": 2,
+      "invalid": 0,
+      "journal": {
+        "events": 2,
+        "reorg_records": 0,
+        "reverted": 0
+      },
+      "more": false,
+      "reverted": 0,
+      "reverted_sample": []
+    },
+    "reorg_check_after_fork": {
+      "complete": true,
+      "considered": 2,
+      "error": null,
+      "incomplete": 0,
+      "intact": 2,
+      "invalid": 0,
+      "journal": {
+        "events": 3,
+        "reorg_records": 1,
+        "reverted": 1
+      },
+      "more": false,
+      "reverted": 0,
+      "reverted_sample": []
+    },
+    "journal_status": {
+      "backfilled": 0,
+      "blind_window_ms": 25,
+      "confirmed": 0,
+      "error": 0,
+      "events": 3,
+      "finalized": 2,
+      "gaps": 2,
+      "gaps_open": 0,
+      "max_seq": 3,
+      "max_slot": 153,
+      "min_slot": 43,
+      "missing": 0,
+      "newest_signature": "4iurH11SstrHqP8NDRcGn8XaP5GJxvKabn1gvXfUYeHhfDU8UubjyW2sYPjzhmvJpmFXxeNHf4t7SYEo5hMhPyte",
+      "oldest_signature": "4YFfRceeCxWaVVWq7rMvYVjBX3Jcme2MnyX4dFiQzJUhP2qeCR6NcS2DemTQLaq6EWaLHKcSKGUty8LZyXQqxV8G",
+      "payload_invalid": 0,
+      "payload_pending": 0,
+      "payload_unavailable": 0,
+      "program": "11111111111111111111111111111111",
+      "reverted": 1,
+      "unsealed": 0,
+      "with_err": 0
+    },
+    "ledger_dir": "/tmp/reeflog-fork-e2e",
+    "daemon_seconds": 60
+  },
+  "verdict": "passed",
+  "finishedAt": "2026-10-29T11:09:44.366Z"
+}

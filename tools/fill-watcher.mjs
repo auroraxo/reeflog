@@ -128,7 +128,14 @@ function cli(args) {
     let o = '', e = '';
     c.stdout.on('data', (d) => { o += d; });
     c.stderr.on('data', (d) => { e += d; });
-    c.on('exit', (code) => resolve({ code, out: o, err: e }));
+    // Resolve on 'close', NOT 'exit': 'exit' only says the process died, and
+    // piped stdout can still be unread at that moment. Measured 2026-10-29 —
+    // a reorg tail run resolved with an empty `out` while the child had
+    // already written its own cursor file (it had delivered the row we could
+    // not see), so the consumer reported 0 retractions for a retraction that
+    // was really there. 'close' fires after stdio has drained.
+    c.on('close', (code) => resolve({ code, out: o, err: e }));
+    c.on('error', (err) => resolve({ code: null, out: o, err: `${e}\n${err}` }));
   });
 }
 

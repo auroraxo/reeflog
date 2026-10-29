@@ -85,7 +85,11 @@ function cli(args) {
     let o = '', e = '';
     c.stdout.on('data', (d) => { o += d; });
     c.stderr.on('data', (d) => { e += d; });
-    c.on('exit', (code) => resolve({ code, out: o, err: e }));
+    // 'close' = stdio drained. 'exit' can fire while piped stdout is still
+    // unread, which silently truncates what this harness believes it read.
+    c.on('close', (code) => resolve({ code, out: o, err: e }));
+    // Without this a launch failure would leave the harness waiting forever.
+    c.on('error', (err) => resolve({ code: null, out: o, err: `${e}\n${err}` }));
   });
 }
 const json = (s) => { try { return JSON.parse(s); } catch { return { raw: s }; } };

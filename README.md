@@ -321,6 +321,49 @@ source could turn a transaction the chain still knows into a recorded
 source cannot answer either, the row stays pending and the pass reports
 `undecided`.
 
+### A real fork, end to end
+
+`tools/e2e-reorg.mjs`'s positive case plants a well-formed signature the
+chain never saw. That proves the two-source rule fires on an *unknown* key —
+not that it fires on a transaction that really was executed, really reached
+`confirmationStatus=finalized` with the root past its slot, and was then
+taken back. That is the only case a consumer can actually lose money on,
+and it was the open gap.
+
+`tools/e2e-fork.mjs` manufactures it honestly on a local agave chain
+(`node tools/e2e-fork.mjs`; `AGAVE_BIN` to point at a release). It runs a real
+validator, sends real system transfers, and rolls the ledger back to a
+copy of the blockstore taken *after* a first transaction and *before* a
+second one. Nothing is planted — the signature the detector retracts is one
+the chain itself made and then unmade. From the measured run (slots and
+hashes differ run to run; they are recorded per run in the report):
+
+- the **survivor** (slot 45) sits inside the snapshot: after the rollback its
+  `getTransaction` still serves it and the block hash at its slot is
+  byte-identical (`Cs4JNVar…` before and after);
+- the **forked transaction** (slot 108) is finalized, sealed, and promised as
+  final — then both sources refuse it, and the block at that same slot is a
+  different block (`CgbDQNLd…` → `FGJcD4zT…`);
+- the **running daemon** — not a one-shot CLI call — reports
+  `1 event(s) REVERTED`, with `reorg_reverted=1`, `reorg_incomplete=0` over
+  12 passes, and the journal ends with exactly one reorg record naming that
+  signature while the survivor and a post-fork transaction both stay
+  `finalized`;
+- the retraction is delivered **exactly once**, the second read delivers
+  nothing, and the consumer's ledger undoes the acted-on event and remembers
+  it as retracted;
+- controls: with the chain intact the detector finds **0** reverts (CLI and
+  daemon), and a new transaction on the forked chain is ingested, sealed, and
+  never retracted.
+
+Measured 2026-10-29: **47/47 checks pass**, twice
+(`research/fork-e2e-report.json`, verdict `passed`). The harness asserts the
+toolchain gap as `skipped` (exit 3) rather than a pass when an agave binary
+or the built binary is missing.
+
+A real fork on **mainnet** has still not been observed end to end — that
+requires watching long enough for mainnet to produce one.
+
 ## Undoing a fill: the retraction reaches the consumer
 
 Detecting a revert is only half the job. The other half is the question a
@@ -349,6 +392,18 @@ daemon's own check finds the revert, the retraction arrives on its own
 channel, the ledger join marks it undoable and carries the original fill,
 an unrelated retraction is reported but not unfilled, and a second read
 delivers nothing.
+
+One bug in the harnesses themselves is worth naming, because it hides in
+every measurement made with them. The consumer helper resolved its child
+process on Node's `'exit'` event, which fires when the process *dies* — not
+when its piped stdout has been read. A `reorg tail` run could therefore
+resolve with an empty output while the child had already written its own
+cursor file, i.e. it had really delivered the row the harness could not see.
+The consumer then reported **0 retractions for a retraction that was there**,
+and the strict cursor made it unrecoverable on the next read. Every harness
+now resolves on `'close'` (stdio drained) and fails loudly on a spawn error.
+Measured 2026-10-29: this was the difference between 44/47 and 47/47 on the
+same harness, same code.
 
 ## Two kinds of gap
 
@@ -400,15 +455,18 @@ Still open: Yellowstone as a second transport, webhook fan-out, and a real
 consumer other than my own RFQ fill polling and Whirlpool watcher. Reorg
 handling marks a retracted event, delivers the retraction, runs the check
 inside the daemon, and joins retractions against the fill watcher's ledger —
-but the check still looks only at sealed rows near the tip, and a real fork
-on mainnet has not been observed end to end.
+and it has now been proven against a REAL fork of a real chain, not only
+against a planted signature. What remains unproven is the check's reach on
+mainnet: it still looks only at sealed rows near the tip, and no mainnet fork
+has been observed end to end.
 
 ## Next qualification
 
 1. Put my own RFQ fill polling and Whirlpool watcher on `reeflog tail`. The fill watcher above is the prototype of it — it proves the mailbox yields fills cheaper and without loss, and it now also proves it can be un-done — but the production glue still polls, so user zero is earned, not assumed.
 2. Archive gap-fill for holes deeper than the RPC window.
 3. Yellowstone source and webhook fan-out.
-4. Observe a real mainnet fork end to end: the detector has only ever been
-   proven against a planted, well-formed signature the chain does not know.
-   The daemon's loop makes that plausible to catch, but only a real fork
-   proves it.
+4. Observe a real **mainnet** fork end to end: the detector is now proven
+   against a real fork of a real chain (`tools/e2e-fork.mjs`, 47/47 checks,
+   2026-10-29) and against a planted signature on live mainnet — but no
+   mainnet fork has been caught while watching. The daemon's loop makes that
+   plausible to catch; only an observed one closes it.
