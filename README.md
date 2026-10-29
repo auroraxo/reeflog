@@ -405,6 +405,95 @@ now resolves on `'close'` (stdio drained) and fails loudly on a spawn error.
 Measured 2026-10-29: this was the difference between 44/47 and 47/47 on the
 same harness, same code.
 
+## Webhook fan-out: a consumer that is not on this machine
+
+`reeflog tail` makes the journal a local tool: the consumer has to run next
+to the daemon and read a file. A webhook makes it a mailbox in the actual
+sense — an outside service gets the events pushed to it, and the delivery
+cursor survives a crash on either side.
+
+```bash
+cat > webhooks.json <<'EOF'
+{
+  "targets": [
+    { "id": "fill-service", "url": "https://example.com/reeflog", "secret": "whsec_…", "timeout_ms": 5000 }
+  ]
+}
+EOF
+
+reeflog webhook push   --db reeflog.db --config webhooks.json   # one pass
+reeflog webhook status --db reeflog.db --config webhooks.json   # cursors + failures
+reeflog start --db reeflog.db --webhook-config webhooks.json --webhook-every 5
+```
+
+**The contract, in order of importance:**
+
+1. **A delivery is recorded only when the endpoint answered 2xx.** A 403,
+   a timeout or a rate limit is recorded as a *failed attempt* with the
+   status that caused it. `webhook push` exits 3 while a target is blocked,
+   exactly like `verify` and `hydrate`: silence is never health.
+2. **At-least-once, in order.** Per target the deliveries follow the
+   journal's `seq` and stop at the first failure, so a consumer sees events
+   in chain order and never with a hole in front of it. It may see one
+   twice; the stable id (`X-Reeflog-Event-Id: <target>:<kind>:<seq>`) is
+   what a consumer dedups on for exactly-once.
+3. **The payload is authenticated.** Every request carries
+   `X-Reeflog-Signature: sha256=<hex>` = HMAC-SHA256(secret, body) over the
+   exact bytes sent (canonical JSON — `serde_json`'s sorted keys, so the same
+   event always produces the same signature). The receiver checks it with
+   one line of its own language:
+
+   ```python
+   import hmac, hashlib
+   want = "sha256=" + hmac.new(secret, body, hashlib.sha256).hexdigest()
+   ```
+4. **A retraction is delivered too**, on its own cursor, and it is delivered
+   *even when the event queue is blocked behind a refusal* — a retraction is
+   the one message whose lateness costs money.
+5. **Receipts make the crash window safe.** The state (per-target cursor)
+   and the receipts (which exact body was accepted, by sha256) live in the
+   journal. A daemon that dies between "POST succeeded" and "cursor advanced"
+   does not deliver the event twice on the next pass.
+
+### Measured, against an independent receiver
+
+`tools/e2e-webhook.mjs` (2026-10-29, live mainnet, Raydium AMM v4): a
+separate receiver process that reimplements the signature check with
+`node:crypto`, decides its own answers, and logs what it actually received —
+**14/14 checks passed** over 118 real events:
+
+| Check | Result |
+|---|---|
+| Fan-out to two independent targets | 118/118 delivered to **each**, in seq order, 118 distinct |
+| Signature verification at the receiver | 236 bodies, all valid (independent `node:crypto`) |
+| Delivered bodies carry content | 6 of 118 with real non-empty `logs` |
+| A **403** endpoint | 0 delivered, `blocked_seq: 1`, exit 3, cursor parked at 0, 0 receipts, attempt recorded as status 403 |
+| A body signed with the **wrong secret** | receiver rejects, 0 delivered, blocked |
+| A **429** endpoint | blocks the queue instead of dropping; recovery delivers 118 exactly once (118 accepted, 118 distinct) |
+| Caught-up queue | delivers nothing on a repeat pass |
+| Crash between POST and cursor (receipt without cursor) | 117 of 118 delivered, the owed event **not** re-sent, cursor catches up |
+| Retraction while the event queue is blocked | reorg delivered and verified, event queue still blocked, exit 3 |
+| Third implementation | Python `hmac` recomputes 476 bodies, **0 mismatches** against what the receiver accepted |
+
+Report: `research/webhook-e2e-report.json`.
+
+### The harness can fail
+
+A green harness proves nothing if it cannot go red.
+`tools/e2e-webhook-mutations.mjs` mutates the sender in four ways — sign the
+wrong bytes, count a refusal as a delivery, drop the receipt guard, gate the
+retraction behind the blocked queue — and requires the e2e harness to catch
+each one with its named check. Every mutation must turn the harness red.
+
+### Limits
+
+No TLS client authentication and no per-target payload filtering yet; the
+secret is a shared HMAC key, not a certificate. A target that stays refused
+holds its own queue (by design — the alternative is silently dropping
+events) while other targets keep moving; `webhook status` is where you find
+out. Nothing here is an outside user yet: the receiver above is my own test
+harness, not a third party.
+
 ## Two kinds of gap
 
 They need different tools, and conflating them is how a "we never lose events" claim turns out to be false:
@@ -426,6 +515,7 @@ reeflog verify  --db reeflog.db --pages 400        # detect, exit 3 if unfinishe
 reeflog repair  --db reeflog.db --pages 400        # fill signatures verify found
 reeflog hydrate --db reeflog.db [--limit 500]      # fetch missing event content
 reeflog tail    --db reeflog.db --cursor ./c.txt   # deliver events (content included)
+reeflog webhook push --db reeflog.db --config webhooks.json   # deliver to outside targets
 reeflog status  --db reeflog.db
 ```
 
@@ -445,26 +535,31 @@ is the harness's own).
 - Free, MIT: daemon, journal, CLI, SDKs, webhook fan-out, dead-letter queue, archive backfill. No event or cursor limits.
 - Paid later: managed always-on feeds, replicated journals with delivery objectives, and an enterprise mailbox with access control and a delivery audit trail. Events are never sold individually.
 
+Webhook fan-out ships in this tree: `reeflog webhook push` / `status`, signed
+bodies, per-target durable cursors, in-order at-least-once with receipts.
+The dead-letter queue and archive backfill do **not** exist yet.
+
 ## Evidence and limits
 
 Checked on 2026-10-23: Solana client errors already name the failure modes, including closed WebSockets, missing subscription IDs, and corrupt iterators. Yellowstone is a strong live transport but explicitly ephemeral. The closest general-chain project, Chainhook, is archived and does not cover Solana. One developer rebuilt reliable replay into Postgres as a four-star personal pipeline.
 
 reeflog does not recover account bytes from before an event. That is a different problem. Public WebSocket endpoints are also rate-limited, so provider independence has to be real rather than assumed.
 
-Still open: Yellowstone as a second transport, webhook fan-out, and a real
-consumer other than my own RFQ fill polling and Whirlpool watcher. Reorg
-handling marks a retracted event, delivers the retraction, runs the check
-inside the daemon, and joins retractions against the fill watcher's ledger —
-and it has now been proven against a REAL fork of a real chain, not only
-against a planted signature. What remains unproven is the check's reach on
-mainnet: it still looks only at sealed rows near the tip, and no mainnet fork
-has been observed end to end.
+Still open: Yellowstone as a second transport, archive backfill for deep
+holes, and a real consumer other than my own RFQ fill polling and Whirlpool
+watcher. Reorg handling marks a retracted event, delivers the retraction,
+runs the check inside the daemon, and joins retractions against the fill
+watcher's ledger — and it has now been proven against a REAL fork of a real
+chain, not only against a planted signature. What remains unproven is the
+check's reach on mainnet: it still looks only at sealed rows near the tip,
+and no mainnet fork has been observed end to end.
 
 ## Next qualification
 
 1. Put my own RFQ fill polling and Whirlpool watcher on `reeflog tail`. The fill watcher above is the prototype of it — it proves the mailbox yields fills cheaper and without loss, and it now also proves it can be un-done — but the production glue still polls, so user zero is earned, not assumed.
 2. Archive gap-fill for holes deeper than the RPC window.
-3. Yellowstone source and webhook fan-out.
+3. Yellowstone source, then the dead-letter queue for a target that stays
+   refused instead of holding its queue forever.
 4. Observe a real **mainnet** fork end to end: the detector is now proven
    against a real fork of a real chain (`tools/e2e-fork.mjs`, 47/47 checks,
    2026-10-29) and against a planted signature on live mainnet — but no

@@ -8,6 +8,7 @@ mod backfill;
 mod journal;
 mod payload;
 mod reorg;
+mod webhook;
 
 use backfill::{backfill_tail, repair_holes, verify_recent, HttpFetcher, Report};
 use futures_util::{SinkExt, StreamExt};
@@ -371,6 +372,28 @@ async fn run_start(args: &[String]) {
         .and_then(|s| s.parse().ok())
         .unwrap_or(500);
 
+    // Webhook fan-out. The mailbox is only a product if a consumer that is
+    // NOT on this machine can receive from it: a webhook target gets the
+    // events pushed, in order, with a signed body and a durable cursor.
+    //
+    // The pass runs on its own cadence and is independent of the ingest
+    // loop: a slow or refusing endpoint must never stall the journal, and a
+    // fast journal must never stall on the webhook. A blocked target is
+    // reported and retried; it is never skipped silently.
+    let webhook_cfg: Option<Vec<webhook::Target>> = match arg(args, "--webhook-config") {
+        Some(p) => {
+            let path = PathBuf::from(p);
+            Some(webhook::load_targets(&path).unwrap_or_else(|e| die(e)))
+        }
+        None => None,
+    };
+    let webhook_every_s: u64 = arg(args, "--webhook-every")
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(5);
+    let webhook_limit: i64 = arg(args, "--webhook-limit")
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(500);
+
     // The seal + reorg scheduler. These two passes are what turn a stream of
     // events into a *promise* a consumer can act on: `seal` promotes confirmed
     // to finalized, and the reorg check withdraws that promise again if the
@@ -390,6 +413,9 @@ async fn run_start(args: &[String]) {
     let reorg_lookback: i64 = arg(args, "--reorg-lookback").and_then(|s| s.parse().ok()).unwrap_or(300);
 
     let mut stats = Stats::new();
+    let mut webhook_passes = 0i64;
+    let mut webhook_delivered = 0i64;
+    let mut webhook_blocked = 0i64;
     let deadline = Instant::now() + Duration::from_secs(seconds);
 
     // Gap 1: anything since this journal's last event (previous run or crash).
@@ -514,6 +540,44 @@ async fn run_start(args: &[String]) {
     // a 3600-slot window gives a hole ~6 minutes of life and passes run every
     // 30s, so each hole gets ~12 chances.
     let mut next_repair = Instant::now() + Duration::from_secs(repair_every_s.max(1));
+    let mut next_webhook = Instant::now() + Duration::from_secs(webhook_every_s.max(1));
+    // One bounded webhook pass over all targets. Each target has its own
+    // cursor, so one target being blocked does not hold the others back.
+    macro_rules! webhook_tick_now {
+        () => {{
+            next_webhook = Instant::now() + Duration::from_secs(webhook_every_s.max(1));
+            if let Some(targets) = &webhook_cfg {
+                webhook_passes += 1;
+                for t in targets {
+                    let mut poster = webhook::HttpPoster { timeout_ms: t.timeout_ms };
+                    // Events first, then retractions: a retraction must not
+                    // wait behind a blocked event queue.
+                    match webhook::deliver_events(&j, t, &mut poster, webhook_limit) {
+                        Ok(r) => {
+                            webhook_delivered += r.delivered;
+                            if r.blocked() {
+                                webhook_blocked += 1;
+                                eprintln!(
+                                    "reeflog: webhook {} blocked at seq {:?} — the event stays owed",
+                                    t.id, r.blocked_seq
+                                );
+                            }
+                        }
+                        Err(e) => eprintln!("reeflog: webhook {}: {e}", t.id),
+                    }
+                    match webhook::deliver_reorgs(&j, t, &mut poster, webhook_limit) {
+                        Ok(r) => {
+                            webhook_delivered += r.reorg_delivered;
+                            if r.blocked_reorg_id.is_some() {
+                                webhook_blocked += 1;
+                            }
+                        }
+                        Err(e) => eprintln!("reeflog: webhook {}: {e}", t.id),
+                    }
+                }
+            }
+        }};
+    }
     // Runs one bounded repair pass over the recent rolling window.
     // Kept as a closure-free block so the journal is never borrowed twice.
     macro_rules! repair_tick {
@@ -683,6 +747,9 @@ async fn run_start(args: &[String]) {
             }
             if Instant::now() >= next_reorg {
                 reorg_tick_now!();
+            }
+            if Instant::now() >= next_webhook {
+                webhook_tick_now!();
             }
             if Instant::now() >= deadline {
                 break;
@@ -910,6 +977,12 @@ async fn run_start(args: &[String]) {
         "repair_filled": stats.repair_filled,
         "final_repair": final_repair,
         "hydrate": hydrate,
+        "webhook": {
+            "configured": webhook_cfg.is_some(),
+            "passes": webhook_passes,
+            "delivered": webhook_delivered,
+            "blocked_passes": webhook_blocked,
+        },
         "journal": {
             "events": c.total, "with_err": c.with_err,
             "finalized": c.finalized, "confirmed": c.confirmed,
@@ -1264,6 +1337,103 @@ fn run_hydrate(args: &[String]) {
     }
 }
 
+/// Deliver journal events to the targets in a webhook config.
+///
+/// The cursors live in the journal, so this is safe to run repeatedly and
+/// across crashes: a run that is interrupted resumes where it stopped, and a
+/// target that refuses delivery stays blocked (exit 3) instead of being
+/// silently skipped.
+fn run_webhook_push(args: &[String]) {
+    let db = PathBuf::from(arg(args, "--db").unwrap_or_else(|| "reeflog.db".into()));
+    let j = Journal::open(&db).unwrap_or_else(|e| die(e));
+    let cfg = PathBuf::from(require(args, "--config"));
+    let targets = webhook::load_targets(&cfg).unwrap_or_else(|e| die(e));
+    let limit: i64 = arg(args, "--limit")
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(500);
+
+    let mut reports = Vec::new();
+    for t in &targets {
+        let mut poster = webhook::HttpPoster {
+            timeout_ms: t.timeout_ms,
+        };
+        // Events first, then retractions: a retraction must never wait
+        // behind a blocked event queue.
+        let mut rep = match webhook::deliver_events(&j, t, &mut poster, limit) {
+            Ok(r) => r,
+            Err(e) => die(format!("webhook {}: {e}", t.id)),
+        };
+        match webhook::deliver_reorgs(&j, t, &mut poster, limit) {
+            Ok(r) => {
+                rep.reorg_delivered = r.reorg_delivered;
+                rep.failed += r.failed;
+                if r.blocked_reorg_id.is_some() {
+                    rep.blocked_reorg_id = r.blocked_reorg_id;
+                    rep.blocked_error = r.blocked_error;
+                }
+                rep.next_reorg_id = r.next_reorg_id;
+            }
+            Err(e) => die(format!("webhook {}: {e}", t.id)),
+        }
+        reports.push(rep);
+    }
+
+    let blocked = reports.iter().filter(|r| r.blocked()).count();
+    println!(
+        "{}",
+        serde_json::to_string_pretty(&json!({
+            "targets": reports.iter().map(|r| json!({
+                "target": r.target,
+                "delivered": r.delivered,
+                "reorg_delivered": r.reorg_delivered,
+                "failed": r.failed,
+                "blocked": r.blocked(),
+                "blocked_seq": r.blocked_seq,
+                "blocked_reorg_id": r.blocked_reorg_id,
+                "error": r.blocked_error,
+                "next_seq": r.next_seq,
+                "next_reorg_id": r.next_reorg_id,
+            })).collect::<Vec<_>>(),
+            "blocked_targets": blocked,
+        }))
+        .unwrap()
+    );
+    if blocked > 0 {
+        eprintln!(
+            "reeflog: {blocked} target(s) blocked — delivery is at-least-once and in order, so the queue stops at the first failure; the failure is recorded, not swallowed"
+        );
+        std::process::exit(3);
+    }
+}
+
+/// Show what a target has received, and why it is stuck if it is.
+fn run_webhook_status(args: &[String]) {
+    let db = PathBuf::from(arg(args, "--db").unwrap_or_else(|| "reeflog.db".into()));
+    let j = Journal::open(&db).unwrap_or_else(|e| die(e));
+    let cfg = PathBuf::from(require(args, "--config"));
+    let targets = webhook::load_targets(&cfg).unwrap_or_else(|e| die(e));
+    let mut out = Vec::new();
+    for t in &targets {
+        let s = j.webhook_summary(&t.id).unwrap_or_else(|e| die(e));
+        let pending: i64 = j
+            .events_after(s.next_seq, i64::MAX)
+            .map(|v| v.len() as i64)
+            .unwrap_or(0);
+        out.push(json!({
+            "target": s.target,
+            "url": t.url,
+            "next_seq": s.next_seq,
+            "next_reorg_id": s.next_reorg_id,
+            "delivered": s.delivered,
+            "failed_attempts": s.failed,
+            "transport_failures": s.transport_failures,
+            "pending_events": pending,
+            "last_error": s.last_error,
+        }));
+    }
+    println!("{}", serde_json::to_string_pretty(&json!({"targets": out})).unwrap());
+}
+
 fn usage() -> ! {
     eprintln!(
         "reeflog v0 — durable local mailbox for Solana events\n\n\
@@ -1271,6 +1441,7 @@ fn usage() -> ! {
          \x20 reeflog init  --db <file> --program <pubkey>\n\
          \x20 reeflog start --db <file> [--seconds N] [--ws URL] [--rpc URL] [--program <pubkey>]\n\
          \x20              [--seal-every N] [--reorg-every N] [--reorg-limit N] [--reorg-lookback N]\n\
+         \x20              [--webhook-config <file>] [--webhook-every N] [--webhook-limit N]\n\
          \x20 reeflog verify --db <file> [--pages N] [--since-slot N] [--rpc URL]\n\
          \x20 reeflog repair --db <file> [--pages N] [--since-slot N] [--rpc URL]\n\
          \x20 reeflog hydrate --db <file> [--limit N] [--rpc URL]\n\
@@ -1278,6 +1449,8 @@ fn usage() -> ! {
          \x20 reeflog tail  --db <file> --cursor <file> [--limit N] [--no-logs]\n\
          \x20 reeflog reorg check --db <file> [--limit N] [--rpc URL]\n\
          \x20 reeflog reorg tail  --db <file> --cursor <file> [--limit N]\n\
+         \x20 reeflog webhook push   --db <file> --config <file> [--limit N]\n\
+         \x20 reeflog webhook status --db <file> --config <file>\n\
          \x20 reeflog status --db <file>"
     );
     std::process::exit(64);
@@ -1390,6 +1563,14 @@ fn main() {
             match sub {
                 "check" => run_reorg_check(&args),
                 "tail" => run_reorg_tail(&args),
+                _ => usage(),
+            }
+        }
+        "webhook" => {
+            let sub = args.get(1).map(|s| s.as_str()).unwrap_or("");
+            match sub {
+                "push" => run_webhook_push(&args),
+                "status" => run_webhook_status(&args),
                 _ => usage(),
             }
         }

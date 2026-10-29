@@ -51,6 +51,40 @@ CREATE TABLE IF NOT EXISTS meta (
     key   TEXT PRIMARY KEY,
     value TEXT NOT NULL
 );
+-- Webhook delivery state. One row per target: the event cursor and the
+-- retraction cursor. The two cursors are separate because the two channels
+-- are separate: a retraction must still reach a consumer whose event queue
+-- is blocked.
+CREATE TABLE IF NOT EXISTS webhook_state (
+    target       TEXT PRIMARY KEY,
+    next_seq     INTEGER NOT NULL DEFAULT 0,
+    next_reorg_id INTEGER NOT NULL DEFAULT 0,
+    last_error   TEXT,
+    updated_at   INTEGER NOT NULL
+);
+-- Delivery receipts. Written only after the endpoint answered 2xx. They make
+-- a crash between "POST succeeded" and "cursor advanced" harmless: the next
+-- pass sees the receipt and skips the re-send instead of delivering twice.
+CREATE TABLE IF NOT EXISTS webhook_receipts (
+    target     TEXT NOT NULL,
+    kind       TEXT NOT NULL,
+    seq        INTEGER NOT NULL,
+    body_sha256 TEXT NOT NULL,
+    delivered_at INTEGER NOT NULL,
+    PRIMARY KEY (target, kind, seq)
+);
+-- Every attempt, successful or not, with the status that caused it. A failed
+-- attempt is never counted as a delivery; it is recorded as a failure with
+-- the reason, so `reeflog webhook status` can show what happened.
+CREATE TABLE IF NOT EXISTS webhook_attempts (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    target      TEXT NOT NULL,
+    kind        TEXT NOT NULL,
+    seq         INTEGER NOT NULL,
+    status      INTEGER,
+    error       TEXT,
+    attempted_at INTEGER NOT NULL
+);
 "#;
 
 /// Databases created before payload hydration existed (v0, commit adfbe60)
@@ -598,6 +632,165 @@ impl Journal {
             .map_err(|e| e.to_string())
     }
 
+    /// The delivery cursors of a webhook target: (event seq, retraction id).
+    pub fn webhook_state(&self, target: &str) -> Result<Option<(i64, i64)>, String> {
+        self.db
+            .query_row(
+                "SELECT next_seq, next_reorg_id FROM webhook_state WHERE target=?1",
+                params![target],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .optional()
+            .map_err(|e| e.to_string())
+    }
+
+    /// Advance (or set) a target's delivery cursors.
+    pub fn webhook_set_state(
+        &self,
+        target: &str,
+        next_seq: i64,
+        next_reorg_id: i64,
+    ) -> Result<(), String> {
+        self.db
+            .execute(
+                "INSERT INTO webhook_state(target,next_seq,next_reorg_id,updated_at)
+                 VALUES(?1,?2,?3,?4)
+                 ON CONFLICT(target) DO UPDATE SET
+                   next_seq=excluded.next_seq,
+                   next_reorg_id=excluded.next_reorg_id,
+                   updated_at=excluded.updated_at",
+                params![target, next_seq, next_reorg_id, now_ms()],
+            )
+            .map_err(|e| e.to_string())?;
+        Ok(())
+    }
+
+    /// Record why a target is stuck. The message is a fact about the last
+    /// attempt, not a verdict about the target.
+    pub fn webhook_set_error(&self, target: &str, error: Option<&str>) -> Result<(), String> {
+        self.db
+            .execute(
+                "INSERT INTO webhook_state(target,next_seq,next_reorg_id,last_error,updated_at)
+                 VALUES(?1,0,0,?2,?3)
+                 ON CONFLICT(target) DO UPDATE SET last_error=excluded.last_error, updated_at=excluded.updated_at",
+                params![target, error, now_ms()],
+            )
+            .map_err(|e| e.to_string())?;
+        Ok(())
+    }
+
+    /// Has this event (or retraction) already been handed over to this
+    /// target? A `true` here means: do not send it again.
+    pub fn webhook_delivered(&self, target: &str, kind: &str, seq: i64) -> Result<bool, String> {
+        let n: i64 = self
+            .db
+            .query_row(
+                "SELECT COUNT(*) FROM webhook_receipts WHERE target=?1 AND kind=?2 AND seq=?3",
+                params![target, kind, seq],
+                |r| r.get(0),
+            )
+            .map_err(|e| e.to_string())?;
+        Ok(n > 0)
+    }
+
+    /// Write a delivery receipt. The body hash is stored so a later audit can
+    /// prove which exact bytes were delivered.
+    pub fn webhook_record_delivered(
+        &self,
+        target: &str,
+        kind: &str,
+        seq: i64,
+        body: &str,
+    ) -> Result<(), String> {
+        let digest = {
+            use sha2::{Digest, Sha256};
+            let mut h = Sha256::new();
+            h.update(body.as_bytes());
+            hex::encode(h.finalize())
+        };
+        self.db
+            .execute(
+                "INSERT OR IGNORE INTO webhook_receipts(target,kind,seq,body_sha256,delivered_at)
+                 VALUES(?1,?2,?3,?4,?5)",
+                params![target, kind, seq, digest, now_ms()],
+            )
+            .map_err(|e| e.to_string())?;
+        Ok(())
+    }
+
+    /// Record a delivery attempt, successful or not.
+    pub fn webhook_record_attempt(
+        &self,
+        target: &str,
+        kind: &str,
+        seq: i64,
+        status: Option<i64>,
+        error: Option<&str>,
+    ) -> Result<(), String> {
+        self.db
+            .execute(
+                "INSERT INTO webhook_attempts(target,kind,seq,status,error,attempted_at)
+                 VALUES(?1,?2,?3,?4,?5,?6)",
+                params![target, kind, seq, status, error, now_ms()],
+            )
+            .map_err(|e| e.to_string())?;
+        Ok(())
+    }
+
+    /// Per-target delivery summary: how many were delivered, how many failed,
+    /// where the target is stuck.
+    pub fn webhook_summary(&self, target: &str) -> Result<WebhookSummary, String> {
+        let (next_seq, next_reorg_id, last_error) = match self.webhook_state(target)? {
+            Some((s, r)) => {
+                let e: Option<String> = self
+                    .db
+                    .query_row(
+                        "SELECT last_error FROM webhook_state WHERE target=?1",
+                        params![target],
+                        |r| r.get(0),
+                    )
+                    .optional()
+                    .map_err(|e| e.to_string())?
+                    .flatten();
+                (s, r, e)
+            }
+            None => (0, 0, None),
+        };
+        let delivered: i64 = self
+            .db
+            .query_row(
+                "SELECT COUNT(*) FROM webhook_receipts WHERE target=?1",
+                params![target],
+                |r| r.get(0),
+            )
+            .map_err(|e| e.to_string())?;
+        let failed: i64 = self
+            .db
+            .query_row(
+                "SELECT COUNT(*) FROM webhook_attempts WHERE target=?1 AND status IS NOT NULL AND (status < 200 OR status >= 300)",
+                params![target],
+                |r| r.get(0),
+            )
+            .map_err(|e| e.to_string())?;
+        let transport_failures: i64 = self
+            .db
+            .query_row(
+                "SELECT COUNT(*) FROM webhook_attempts WHERE target=?1 AND status IS NULL",
+                params![target],
+                |r| r.get(0),
+            )
+            .map_err(|e| e.to_string())?;
+        Ok(WebhookSummary {
+            target: target.to_string(),
+            next_seq,
+            next_reorg_id,
+            last_error,
+            delivered,
+            failed,
+            transport_failures,
+        })
+    }
+
     /// Read the seal status of a single signature (for assertions).
     #[allow(dead_code)]
     pub fn seal_status_of(&self, signature: &str) -> Result<Option<String>, String> {
@@ -747,6 +940,17 @@ impl Journal {
             payload_invalid,
         })
     }
+}
+
+#[derive(Debug)]
+pub struct WebhookSummary {
+    pub target: String,
+    pub next_seq: i64,
+    pub next_reorg_id: i64,
+    pub last_error: Option<String>,
+    pub delivered: i64,
+    pub failed: i64,
+    pub transport_failures: i64,
 }
 
 #[derive(Debug)]
