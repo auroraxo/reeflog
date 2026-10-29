@@ -1,0 +1,28 @@
+{
+  "generatedAt": "2026-10-29T20:06:03.272Z",
+  "program": "675kPX9MHTjS2zt1qfr1NYHuzeLXfQM9H24wFSUt1Mp8",
+  "daemonExit": {
+    "code": null,
+    "signal": "SIGKILL"
+  },
+  "journal": {
+    "events": 1069,
+    "max_seq": 1069,
+    "withPayload": 1060
+  },
+  "delivered": 968,
+  "checks": 7,
+  "passed": 7,
+  "failed": 0,
+  "results": [
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true
+  ],
+  "daemonSummaryTail": "",
+  "daemonStderrTail": "reeflog: repair pass {\"complete\":true,\"error\":null,\"filled\":18,\"found_missing\":18,\"missing_sample\":[\"3cpWPpdm827o2NFzDbFxhgc4upANNXMUkdkJJc3khFN8GfXVAN2P1SxFNHkdvUis112RrKXwUGnZ4DzxaSLK3jqq\",\"5Dje6wrwoBPyPwnng3PVtWE7dw4LVPtL37j5XqfZEe5FRazq7gLcXdT9pJkuHHiRheiFENKStuJcocqxRzSfYawP\",\"5sygwEjvgx8tssYUMDuGqPkETL8iKRf11Lwq9EPKj2thgJLYY2tcFrm4eMbfm3oATdsFY3ipyqeD2quVapwMj2zq\",\"2coXoFZBZ6LsSofwjNPYLwCw4X9pVgNU2dZdZXra8WH34wG1TA6ier5ThiTkHWg6nvea2dAcqZ6rETKqspr2JGSg\",\"47GciKvTceFnSUCaeQFdRtV6pzQEB5TD38TDiDg6EzfPfdj2pdRBuE53VQg2p1RkuuRmayyz8LL74U3PdXNU6SeH\"],\"pages\":1,\"scanned_from_slot\":463009238,\"since_slot\":463008624,\"truncated\":false}\nreeflog: repair pass {\"complete\":true,\"error\":null,\"filled\":3,\"found_missing\":3,\"missing_sample\":[\"5w1YZ5P5NzUum3qgmhKwAcnxbCKuVuPEsT6ZzfsQiwetWPFMe6CCch2VExq4neH48hT8yy9XVtVRZ9X6WaWWRaz4\",\"5G6uK52YKEZnzX7EAE6eNQsdmLTprEMpCM9WMBnjGo73jhL7jrzF1SUkabsq9bgRM4qNuWbvi5LpK3FGDEknmLxT\",\"NdFDLwLWKUMWVF41CKdouFY4tVkZHQ6zyPMcBpVoJgg9AkbXwuNqBVir8oJiecq9AweY6zfGpHesn3aNwKT7r2Z\"],\"pages\":2,\"scanned_from_slot\":463009313,\"since_slot\":463008701,\"truncated\":false}\n"
+}

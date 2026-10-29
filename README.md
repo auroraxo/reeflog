@@ -477,6 +477,24 @@ separate receiver process that reimplements the signature check with
 
 Report: `research/webhook-e2e-report.json`.
 
+### The daemon path, killed mid-run
+
+`tools/e2e-webhook-daemon.mjs` (2026-10-29, live mainnet): `reeflog start
+--webhook-config` ingests over a live WebSocket and pushes to the receiver on
+its own cadence. The daemon is **SIGKILLed** after 35 s — a mailbox that only
+survives a clean shutdown is not a mailbox. **7/7 checks passed**:
+
+| Check | Result |
+|---|---|
+| The daemon delivers what it ingested | 968 of 1.069 journal events delivered live (the rest were ingested after the last pass before the kill) |
+| Order and no repeats | 968 deliveries, 968 distinct, seqs 1..968 |
+| Signatures at the receiver | 968/968 valid (independent `node:crypto`) |
+| The cursor survives the SIGKILL | cursor 968 = last delivered seq, 968 receipts |
+| The follow-up resumes only the owed remainder | 101 delivered — exactly the 101 that were still owed, **0 re-sends** |
+| The consumer ends up holding the whole journal | 1.069 distinct of 1.069 journal events |
+
+Report: `research/webhook-daemon-e2e-report.json`.
+
 ### The harness can fail
 
 A green harness proves nothing if it cannot go red.
