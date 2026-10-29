@@ -55,6 +55,13 @@ pub const SEQ_HEADER: &str = "X-Reeflog-Seq";
 /// Header carrying the stable delivery id (`target:kind:seq`).
 pub const EVENT_ID_HEADER: &str = "X-Reeflog-Event-Id";
 
+/// How many refused attempts on the same event move it to the dead-letter
+/// queue when the config does not say. Five is deliberately more than one: a
+/// target that refuses once because it is mid-deploy should not lose the
+/// event, but a target that refuses five times in a row is not going to
+/// accept it, and the events behind it must not wait for it forever.
+pub const DEFAULT_DEAD_LETTER_AFTER: i64 = 5;
+
 /// A webhook target: where to deliver, and the secret that authenticates the
 /// delivery.
 #[derive(Debug, Clone)]
@@ -64,6 +71,10 @@ pub struct Target {
     pub secret: String,
     /// Per-request timeout in milliseconds.
     pub timeout_ms: u64,
+    /// After how many refused attempts the same event is moved to the
+    /// dead-letter queue instead of holding the queue forever. 0 disables
+    /// dead-lettering (the target blocks indefinitely).
+    pub dead_letter_after: i64,
 }
 
 /// HMAC-SHA256, RFC 2104, over `msg` with `secret`.
@@ -159,7 +170,10 @@ pub fn load_targets(path: &Path) -> Result<Vec<Target>, String> {
             .as_object()
             .ok_or_else(|| format!("target #{i} must be an object"))?;
         for k in o.keys() {
-            if !matches!(k.as_str(), "id" | "url" | "secret" | "timeout_ms") {
+            if !matches!(
+                k.as_str(),
+                "id" | "url" | "secret" | "timeout_ms" | "dead_letter_after"
+            ) {
                 return Err(format!("target #{i}: unknown key {k:?}"));
             }
         }
@@ -181,6 +195,15 @@ pub fn load_targets(path: &Path) -> Result<Vec<Target>, String> {
                 .as_u64()
                 .ok_or_else(|| format!("target #{i}: timeout_ms must be a number"))?,
         };
+        let dead_letter_after = match o.get("dead_letter_after") {
+            None | Some(Value::Null) => DEFAULT_DEAD_LETTER_AFTER,
+            Some(v) => v
+                .as_i64()
+                .ok_or_else(|| format!("target #{i}: dead_letter_after must be a number"))?,
+        };
+        if dead_letter_after < 0 {
+            return Err(format!("target #{i}: dead_letter_after must not be negative"));
+        }
         if id.trim().is_empty() {
             return Err(format!("target #{i}: \"id\" must not be empty"));
         }
@@ -198,6 +221,7 @@ pub fn load_targets(path: &Path) -> Result<Vec<Target>, String> {
             url: url.to_string(),
             secret: secret.to_string(),
             timeout_ms,
+            dead_letter_after,
         });
     }
     if out.is_empty() {
@@ -342,6 +366,8 @@ pub struct TargetReport {
     pub next_seq: i64,
     /// The retraction cursor after this pass.
     pub next_reorg_id: i64,
+    /// Events that were refused outright and moved to the dead-letter queue.
+    pub dead_lettered: i64,
 }
 
 impl TargetReport {
@@ -404,11 +430,57 @@ pub fn deliver_events(
                 rep.next_seq = r.seq;
                 j.webhook_set_state(&target.id, rep.next_seq, rep.next_reorg_id)?;
             }
+            Attempt::Refused(status) => {
+                // A refusal is a verdict, not an outage: this target will
+                // refuse this event again. But one refusal can be an accident
+                // (mid-deploy, a config reload), so the attempt is counted
+                // first and only a refusal that keeps repeating is treated as
+                // the verdict it is.
+                let reason = format!("refused with http {status}");
+                j.webhook_record_attempt(
+                    &target.id,
+                    "event",
+                    r.seq,
+                    Some(status as i64),
+                    Some(&reason),
+                )?;
+                rep.failed += 1;
+                let refusals = j.webhook_refusal_count(&target.id, "event", r.seq)?;
+                if target.dead_letter_after > 0 && refusals >= target.dead_letter_after {
+                    // Quarantine: park the event with the exact bytes that
+                    // were owed, and move the cursor past it. Without this
+                    // one bad consumer stops its own mailbox forever and
+                    // every event behind it is never delivered. The delivery
+                    // is NOT counted as delivered — the row sits in the
+                    // dead-letter queue until the target accepts it on a
+                    // replay. There is no discard path: an event a consumer
+                    // never got must not be able to disappear.
+                    j.webhook_dead_letter(
+                        &target.id,
+                        "event",
+                        r.seq,
+                        &body,
+                        &eid,
+                        &reason,
+                        Some(status as i64),
+                        refusals,
+                    )?;
+                    rep.dead_lettered += 1;
+                    rep.next_seq = r.seq;
+                    j.webhook_set_state(&target.id, rep.next_seq, rep.next_reorg_id)?;
+                    // The queue keeps moving: the next event is attempted.
+                    continue;
+                }
+                j.webhook_set_error(&target.id, Some(&reason))?;
+                rep.blocked_seq = Some(r.seq);
+                rep.blocked_error = Some(reason);
+                break;
+            }
             other => {
                 let (status, err) = match &other {
-                    Attempt::Refused(s) => (Some(*s as i64), Some(format!("refused with http {s}"))),
                     Attempt::Transient(e) => (None, Some(e.clone())),
                     Attempt::Delivered(_) => unreachable!(),
+                    Attempt::Refused(_) => unreachable!(),
                 };
                 j.webhook_record_attempt(&target.id, "event", r.seq, status, err.as_deref())?;
                 j.webhook_set_error(&target.id, err.as_deref())?;
@@ -547,6 +619,7 @@ mod tests {
             url: "http://127.0.0.1:1/hook".into(),
             secret: "s3cret".into(),
             timeout_ms: 1000,
+            dead_letter_after: DEFAULT_DEAD_LETTER_AFTER,
         }
     }
 
@@ -707,6 +780,106 @@ mod tests {
         assert_eq!(t.len(), 1);
         assert_eq!(t[0].timeout_ms, 5_000, "the default timeout applies");
         let _ = std::fs::remove_file(&p);
+    }
+
+    #[test]
+    fn a_refusal_blocks_the_queue_until_it_repeats_enough() {
+        let j = tmp("refusethreshold");
+        j.append("a", 10, None, Some("[]"), "ws").unwrap();
+        let mut t = target("t1");
+        t.dead_letter_after = 3;
+        // First refusal: the event stays owed, the queue is blocked.
+        let mut p = ScriptedPoster::new(vec![Ok(403)]);
+        let rep = deliver_events(&j, &t, &mut p, 10).unwrap();
+        assert_eq!(rep.dead_lettered, 0);
+        assert_eq!(rep.blocked_seq, Some(1));
+        assert_eq!(rep.next_seq, 0, "the cursor must not move on the first refusal");
+        // Second refusal: still blocked, still no dead letter.
+        let mut p = ScriptedPoster::new(vec![Ok(403)]);
+        let rep = deliver_events(&j, &t, &mut p, 10).unwrap();
+        assert_eq!(rep.dead_lettered, 0);
+        assert_eq!(rep.blocked_seq, Some(1));
+        // Third refusal = the configured threshold: now it is a verdict.
+        let mut p = ScriptedPoster::new(vec![Ok(403)]);
+        let rep = deliver_events(&j, &t, &mut p, 10).unwrap();
+        assert_eq!(rep.dead_lettered, 1, "the third refusal moves it to the dead-letter queue");
+        assert_eq!(rep.blocked_seq, None, "the queue is not blocked any more");
+        assert_eq!(rep.next_seq, 1, "the cursor moves past the quarantined event");
+        assert_eq!(j.webhook_dead_letter_count("t1").unwrap(), 1);
+        // And it was NOT counted as a delivery.
+        assert!(!j.webhook_delivered("t1", "event", 1).unwrap());
+    }
+
+    #[test]
+    fn a_dead_letter_keeps_the_exact_body_that_was_owed() {
+        let j = tmp("dlqbody");
+        j.append("a", 10, None, Some(r#"["log"]"#), "ws").unwrap();
+        let mut t = target("t1");
+        t.dead_letter_after = 1;
+        let mut p = ScriptedPoster::new(vec![Ok(403)]);
+        let rep = deliver_events(&j, &t, &mut p, 10).unwrap();
+        assert_eq!(rep.dead_lettered, 1);
+        let rows = j.webhook_dead_letters("t1", 10).unwrap();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].seq, 1);
+        assert_eq!(rows[0].kind, "event");
+        assert_eq!(rows[0].status, Some(403));
+        assert_eq!(rows[0].attempts, 1);
+        // The body is the canonical event body, byte for byte.
+        let ev = j.events_after(0, 10).unwrap();
+        assert_eq!(rows[0].body, event_body(&ev[0]));
+        // And the signature over that body is the one the target would have
+        // received — a replay is the same event, not a new one.
+        assert_eq!(
+            signature_header(&t.secret, &rows[0].body),
+            signature_header(&t.secret, &event_body(&ev[0]))
+        );
+    }
+
+    #[test]
+    fn a_transient_failure_never_becomes_a_dead_letter() {
+        let j = tmp("dlqtransient");
+        j.append("a", 10, None, Some("[]"), "ws").unwrap();
+        let mut t = target("t1");
+        t.dead_letter_after = 1;
+        // 503 is transient: retried forever, never quarantined.
+        let mut p = ScriptedPoster::new(vec![Ok(503), Ok(503), Ok(503)]);
+        for _ in 0..3 {
+            let rep = deliver_events(&j, &t, &mut p, 10).unwrap();
+            assert_eq!(rep.dead_lettered, 0, "a 5xx is an outage, not a verdict");
+            assert_eq!(rep.blocked_seq, Some(1));
+        }
+        assert_eq!(j.webhook_dead_letter_count("t1").unwrap(), 0);
+        assert_eq!(j.webhook_refusal_count("t1", "event", 1).unwrap(), 0);
+    }
+
+    #[test]
+    fn a_retraction_is_never_quarantined() {
+        let j = tmp("dlqreorg");
+        j.append("a", 10, None, Some("[]"), "ws").unwrap();
+        j.mark_reverted("a", 10, "status", "tx", "gone").unwrap();
+        let mut t = target("t1");
+        t.dead_letter_after = 1;
+        let mut p = ScriptedPoster::new(vec![Ok(403)]);
+        let rep = deliver_reorgs(&j, &t, &mut p, 10).unwrap();
+        assert_eq!(rep.reorg_delivered, 0);
+        assert_eq!(rep.blocked_reorg_id, Some(1), "a late retraction must not be skipped");
+        assert_eq!(j.webhook_dead_letter_count("t1").unwrap(), 0);
+    }
+
+    #[test]
+    fn a_quarantined_event_lets_the_queue_keep_moving() {
+        let j = tmp("dlqmoving");
+        j.append("a", 10, None, Some("[]"), "ws").unwrap();
+        j.append("b", 11, None, Some("[]"), "ws").unwrap();
+        let mut t = target("t1");
+        t.dead_letter_after = 1;
+        // The target refuses the first event and accepts the second.
+        let mut p = ScriptedPoster::new(vec![Ok(403), Ok(200)]);
+        let rep = deliver_events(&j, &t, &mut p, 10).unwrap();
+        assert_eq!(rep.dead_lettered, 1);
+        assert_eq!(rep.delivered, 1, "the event behind the dead letter is delivered");
+        assert_eq!(rep.next_seq, 2);
     }
 
     #[test]

@@ -2,7 +2,7 @@
 
 A durable local mailbox for Solana events. A daemon journals logs, account changes, and transactions for selected programs into a cursor-addressed append-only log, so a consumer resumes without gaps after a crash, disconnect, or reorg.
 
-**Status: v0 working (October 2026).** Live against mainnet-beta: see *Measured results* below.
+**Status: v0 working (October 2026).** Live against mainnet-beta: see *Measured results* below. Webhook fan-out and a dead-letter queue ship in this tree; archive backfill and Yellowstone as a second transport do not.
 
 ## The idea
 
@@ -40,7 +40,7 @@ Checked live on 2026-10-27 against `api.mainnet-beta.solana.com`, program `whirL
 | Tail gap after a restart | 9 / 9 deleted events refilled |
 | Middle hole detection | 17 missing reported = 15 deleted + 2 baseline, exactly |
 | Cursor resume | no replay, monotone advance, no overlap |
-| Unit tests | 23 / 23 |
+| Unit tests | 58 / 58 |
 
 Kill test (600 s on Raydium AMM v4, SIGKILL every 60 s): see *The kill test*
 below — the first run **falsified** the delivery claim; the fixes are now
@@ -423,6 +423,8 @@ EOF
 
 reeflog webhook push   --db reeflog.db --config webhooks.json   # one pass
 reeflog webhook status --db reeflog.db --config webhooks.json   # cursors + failures
+reeflog webhook dlq list   --db reeflog.db --config webhooks.json  # quarantined events
+reeflog webhook dlq replay --db reeflog.db --config webhooks.json  # hand them over
 reeflog start --db reeflog.db --webhook-config webhooks.json --webhook-every 5
 ```
 
@@ -454,6 +456,30 @@ reeflog start --db reeflog.db --webhook-config webhooks.json --webhook-every 5
    and the receipts (which exact body was accepted, by sha256) live in the
    journal. A daemon that dies between "POST succeeded" and "cursor advanced"
    does not deliver the event twice on the next pass.
+6. **A refusal stops being a verdict only when it stops repeating.** One
+   4xx can be an accident (mid-deploy, a config reload), so the refusal is
+   counted. After `dead_letter_after` refused attempts on the same event
+   (default 5, `0` disables it) the event moves to the **dead-letter queue**:
+   it is quarantined with the exact bytes it was owed, and the target's
+   cursor moves past it, so one consumer that will never accept one event
+   does not stop its own mailbox forever while the events behind it are
+   never delivered. A dead letter is **not** a delivery — no receipt is
+   written, `push` reports it as `dead_lettered`, and `webhook status` shows
+   it as `dead_letters` until it is replayed. Transient failures (5xx, 429,
+   timeout) are never quarantined: an outage is not a verdict. Retractions
+   are never quarantined either: a late retraction costs money, so its queue
+   stays blocked rather than being papered over.
+
+   ```bash
+   reeflog webhook dlq list   --db reeflog.db --config webhooks.json
+   reeflog webhook dlq replay --db reeflog.db --config webhooks.json
+   ```
+
+   The replay sends the stored body byte for byte, so the signature over it
+   is the same signature it would have had — a receiver deduping on
+   `X-Reeflog-Event-Id` sees the same event it rejected (or missed), not a
+   new one. A replay that is refused again stays in the queue and exits 3;
+   nothing is ever dropped.
 
 ### Measured, against an independent receiver
 
@@ -495,22 +521,62 @@ survives a clean shutdown is not a mailbox. **7/7 checks passed**:
 
 Report: `research/webhook-daemon-e2e-report.json`.
 
+### The dead-letter queue, measured against the same receiver
+
+`tools/e2e-dlq.mjs` (2026-10-29, live mainnet, Raydium AMM v4): the receiver
+permanently refuses ONE event (seq 1) and accepts everything behind it —
+the exact case that used to stop that target's mailbox forever.
+**13/13 checks passed**:
+
+| Check | Result |
+|---|---|
+| A 503 is retried, not quarantined | blocked, 0 dead letters, 0 pending — an outage is not a verdict |
+| The refused event lands in the dead-letter queue | 1 letter, status 403, `attempts: 3` (= `dead_letter_after`), state `pending` |
+| The push reports the quarantine | `dead_lettered: 1`, `blocked: false` — the queue is no longer stuck |
+| The events BEHIND the refused one are delivered | 54 of 54, in seq order — what the old design lost |
+| The refused event is never counted as delivered | 0 receipts for seq 1, cursor at the tip |
+| The quarantined body is the canonical event body | same type/seq/signature/slot as the journal row |
+| The quarantined body carries its own signature | `stuck:event:1`, HMAC over exactly those bytes |
+| Replay after recovery | `replayed: 1`, `failed: 0` |
+| The replayed event verifies at the receiver | 1 accepted, signature valid |
+| The dead letter is marked replayed | `state: replayed`, `replayed_at` set |
+| **The replay sends byte-identical bytes** | 287 = 287 bytes — a replay is the same event, not a new one |
+| A second replay has nothing left to send | `replayed: 0` |
+| A wrong secret fails the receiver's own check | 55 requests, 0 with a valid signature |
+
+Report: `research/dlq-e2e-report.json`.
+
 ### The harness can fail
 
 A green harness proves nothing if it cannot go red.
 `tools/e2e-webhook-mutations.mjs` mutates the sender in four ways — sign the
 wrong bytes, count a refusal as a delivery, drop the receipt guard, gate the
 retraction behind the blocked queue — and requires the e2e harness to catch
-each one with its named check. Every mutation must turn the harness red.
+each one with its named check. **4/4 caught.**
+
+`tools/e2e-dlq-mutations.mjs` does the same for the dead-letter harness —
+**4/4 caught**: disable the queue (the refused event never lands and the
+queue dies), count a quarantined event as a delivery, reclassify a 5xx as a
+verdict, and send different bytes on replay.
+
+The third mutation earned its keep: the first version of the refusal counter
+selected on a hard-coded `400..500` status range while the classifier
+decides "refusal" independently, so a mutation that reclassified 5xx as a
+refusal produced a dead letter the counter never counted — the harness went
+green over a real defect. The counter now follows the classification (a
+recorded non-2xx status IS a refusal, by construction of where attempts are
+recorded), and the mutation turns the harness red as it must.
 
 ### Limits
 
 No TLS client authentication and no per-target payload filtering yet; the
 secret is a shared HMAC key, not a certificate. A target that stays refused
-holds its own queue (by design — the alternative is silently dropping
-events) while other targets keep moving; `webhook status` is where you find
-out. Nothing here is an outside user yet: the receiver above is my own test
-harness, not a third party.
+used to hold its own queue forever; since the dead-letter queue it holds it
+for `dead_letter_after` refused attempts, then the event is quarantined and
+the queue moves on — `webhook status` shows `dead_letters`, `webhook dlq
+list` shows what is in them, and `webhook dlq replay` hands them over. Other
+targets always kept moving. Nothing here is an outside user yet: the
+receiver above is my own test harness, not a third party.
 
 ## Two kinds of gap
 
@@ -554,8 +620,10 @@ is the harness's own).
 - Paid later: managed always-on feeds, replicated journals with delivery objectives, and an enterprise mailbox with access control and a delivery audit trail. Events are never sold individually.
 
 Webhook fan-out ships in this tree: `reeflog webhook push` / `status`, signed
-bodies, per-target durable cursors, in-order at-least-once with receipts.
-The dead-letter queue and archive backfill do **not** exist yet.
+bodies, per-target durable cursors, in-order at-least-once with receipts —
+plus the dead-letter queue (`reeflog webhook dlq list` / `replay`) for a
+target that refuses one event instead of holding its queue forever. Archive
+backfill does **not** exist yet.
 
 ## Evidence and limits
 
@@ -576,8 +644,8 @@ and no mainnet fork has been observed end to end.
 
 1. Put my own RFQ fill polling and Whirlpool watcher on `reeflog tail`. The fill watcher above is the prototype of it — it proves the mailbox yields fills cheaper and without loss, and it now also proves it can be un-done — but the production glue still polls, so user zero is earned, not assumed.
 2. Archive gap-fill for holes deeper than the RPC window.
-3. Yellowstone source, then the dead-letter queue for a target that stays
-   refused instead of holding its queue forever.
+3. Yellowstone source as a second transport, then archive backfill for
+   holes deeper than the RPC window.
 4. Observe a real **mainnet** fork end to end: the detector is now proven
    against a real fork of a real chain (`tools/e2e-fork.mjs`, 47/47 checks,
    2026-10-29) and against a planted signature on live mainnet — but no

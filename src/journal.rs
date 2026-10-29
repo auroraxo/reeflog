@@ -85,6 +85,36 @@ CREATE TABLE IF NOT EXISTS webhook_attempts (
     error       TEXT,
     attempted_at INTEGER NOT NULL
 );
+-- The dead-letter queue. A target that refuses an event outright (a 4xx
+-- that is not a transient status) must not hold its queue forever: the
+-- mailbox would stall behind one bad consumer and the events behind it
+-- would never be delivered. So the refused event is quarantined HERE, with
+-- the exact body that was owed, and the target's cursor moves past it.
+--
+-- This is a quarantine, not a discard. The body is kept verbatim, the
+-- refusal is kept with it, and `reeflog webhook dlq replay` can hand the
+-- event over later. Nothing is ever dropped silently.
+--
+-- Only refusals land here. A transient failure (5xx, 429, timeout) is
+-- retried forever, because a temporary outage is not a dead letter. And
+-- retractions never land here at all: a retraction that arrives late costs
+-- money, so its queue stays blocked instead of being papered over.
+CREATE TABLE IF NOT EXISTS webhook_dead_letters (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    target          TEXT NOT NULL,
+    kind            TEXT NOT NULL,
+    seq             INTEGER NOT NULL,
+    body            TEXT NOT NULL,
+    event_id        TEXT NOT NULL,
+    reason          TEXT NOT NULL,
+    status          INTEGER,
+    attempts        INTEGER NOT NULL DEFAULT 0,
+    first_failed_at INTEGER NOT NULL,
+    last_failed_at  INTEGER NOT NULL,
+    state           TEXT NOT NULL DEFAULT 'pending',
+    replayed_at     INTEGER,
+    UNIQUE (target, kind, seq)
+);
 "#;
 
 /// Databases created before payload hydration existed (v0, commit adfbe60)
@@ -791,6 +821,149 @@ impl Journal {
         })
     }
 
+    // -----------------------------------------------------------------
+    // Dead-letter queue
+    // -----------------------------------------------------------------
+
+    /// Quarantine an event a target refused.
+    ///
+    /// The body is stored verbatim: it is the exact bytes that were owed, so
+    /// a later replay sends the same bytes and therefore the same signature.
+    /// Re-quarantining the same (target, kind, seq) bumps the attempt count
+    /// instead of creating a second row.
+    // The refusal record is a fact with eight fields (who refused which
+    // exact bytes, when, how often); splitting it into two calls would only
+    // split the atomicity.
+    #[allow(clippy::too_many_arguments)]
+    pub fn webhook_dead_letter(
+        &self,
+        target: &str,
+        kind: &str,
+        seq: i64,
+        body: &str,
+        event_id: &str,
+        reason: &str,
+        status: Option<i64>,
+        refusals: i64,
+    ) -> Result<(), String> {
+        let now = now_ms();
+        self.db
+            .execute(
+                "INSERT INTO webhook_dead_letters
+                   (target,kind,seq,body,event_id,reason,status,attempts,first_failed_at,last_failed_at,state)
+                 VALUES(?1,?2,?3,?4,?5,?6,?7,?9,?8,?8,'pending')
+                 ON CONFLICT(target,kind,seq) DO UPDATE SET
+                   attempts = MAX(webhook_dead_letters.attempts, ?9),
+                   last_failed_at = ?8,
+                   reason = ?6,
+                   status = ?7",
+                params![target, kind, seq, body, event_id, reason, status, now, refusals],
+            )
+            .map_err(|e| e.to_string())?;
+        Ok(())
+    }
+
+    /// The dead letters of a target that are still waiting to be replayed.
+    pub fn webhook_dead_letters(
+        &self,
+        target: &str,
+        limit: i64,
+    ) -> Result<Vec<DeadLetterRow>, String> {
+        let mut stmt = self
+            .db
+            .prepare(
+                "SELECT id, target, kind, seq, body, event_id, reason, status, attempts,
+                        first_failed_at, last_failed_at, state
+                 FROM webhook_dead_letters
+                 WHERE target=?1 AND state='pending'
+                 ORDER BY kind, seq LIMIT ?2",
+            )
+            .map_err(|e| e.to_string())?;
+        let rows = stmt
+            .query_map(params![target, limit.max(1)], |r| {
+                Ok(DeadLetterRow {
+                    id: r.get(0)?,
+                    target: r.get(1)?,
+                    kind: r.get(2)?,
+                    seq: r.get(3)?,
+                    body: r.get(4)?,
+                    event_id: r.get(5)?,
+                    reason: r.get(6)?,
+                    status: r.get(7)?,
+                    attempts: r.get(8)?,
+                    first_failed_at: r.get(9)?,
+                    last_failed_at: r.get(10)?,
+                    state: r.get(11)?,
+                })
+            })
+            .map_err(|e| e.to_string())?;
+        let mut out = Vec::new();
+        for row in rows {
+            out.push(row.map_err(|e| e.to_string())?);
+        }
+        Ok(out)
+    }
+
+    /// Mark a dead letter as replayed. The row stays, so the history of what
+    /// was refused and when it was finally delivered is auditable.
+    pub fn webhook_dead_letter_replayed(&self, id: i64) -> Result<(), String> {
+        self.db
+            .execute(
+                "UPDATE webhook_dead_letters
+                 SET state='replayed', replayed_at=?2
+                 WHERE id=?1 AND state='pending'",
+                params![id, now_ms()],
+            )
+            .map_err(|e| e.to_string())?;
+        Ok(())
+    }
+
+    /// How many times this target has refused this event. This is the
+    /// counter the dead-letter decision is made on: one refusal is an
+    /// accident, five in a row is a verdict.
+    ///
+    /// The counter follows the CLASSIFICATION, not a hard-coded status
+    /// range: an attempt was recorded with a status exactly when it was
+    /// classified Delivered or Refused, so a recorded non-2xx status is a
+    /// refusal by construction. Counting `400..500` instead (the first
+    /// version) silently undercounted any refusal whose status fell outside
+    /// that range, and a probe proved it: a mutation that reclassified 5xx
+    /// as a refusal was invisible to this counter and slipped past the
+    /// harness. Transient attempts carry a NULL status and are excluded
+    /// here, as are the three transient 4xx codes the classifier never
+    /// treats as refusals.
+    pub fn webhook_refusal_count(
+        &self,
+        target: &str,
+        kind: &str,
+        seq: i64,
+    ) -> Result<i64, String> {
+        let n: i64 = self
+            .db
+            .query_row(
+                "SELECT COUNT(*) FROM webhook_attempts
+                 WHERE target=?1 AND kind=?2 AND seq=?3
+                   AND status IS NOT NULL
+                   AND (status < 200 OR status >= 300)
+                   AND status NOT IN (408,425,429)",
+                params![target, kind, seq],
+                |r| r.get(0),
+            )
+            .map_err(|e| e.to_string())?;
+        Ok(n)
+    }
+
+    /// How many dead letters are still pending for a target.
+    pub fn webhook_dead_letter_count(&self, target: &str) -> Result<i64, String> {
+        self.db
+            .query_row(
+                "SELECT COUNT(*) FROM webhook_dead_letters WHERE target=?1 AND state='pending'",
+                params![target],
+                |r| r.get(0),
+            )
+            .map_err(|e| e.to_string())
+    }
+
     /// Read the seal status of a single signature (for assertions).
     #[allow(dead_code)]
     pub fn seal_status_of(&self, signature: &str) -> Result<Option<String>, String> {
@@ -940,6 +1113,24 @@ impl Journal {
             payload_invalid,
         })
     }
+}
+
+/// A quarantined event: one a target refused outright.
+#[derive(Debug, Clone)]
+pub struct DeadLetterRow {
+    pub id: i64,
+    pub target: String,
+    pub kind: String,
+    pub seq: i64,
+    /// The exact body that was owed.
+    pub body: String,
+    pub event_id: String,
+    pub reason: String,
+    pub status: Option<i64>,
+    pub attempts: i64,
+    pub first_failed_at: i64,
+    pub last_failed_at: i64,
+    pub state: String,
 }
 
 #[derive(Debug)]

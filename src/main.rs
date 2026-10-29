@@ -15,6 +15,7 @@ use futures_util::{SinkExt, StreamExt};
 use journal::{EventRow, Journal};
 use payload::hydrate_payloads;
 use reorg::{check_sealed, check_sealed_window};
+use webhook::Poster;
 use serde_json::{json, Value};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
@@ -416,6 +417,7 @@ async fn run_start(args: &[String]) {
     let mut webhook_passes = 0i64;
     let mut webhook_delivered = 0i64;
     let mut webhook_blocked = 0i64;
+    let mut webhook_dead_lettered = 0i64;
     let deadline = Instant::now() + Duration::from_secs(seconds);
 
     // Gap 1: anything since this journal's last event (previous run or crash).
@@ -555,6 +557,17 @@ async fn run_start(args: &[String]) {
                     match webhook::deliver_events(&j, t, &mut poster, webhook_limit) {
                         Ok(r) => {
                             webhook_delivered += r.delivered;
+                            if r.dead_lettered > 0 {
+                                // A quarantine is not a delivery, and it is
+                                // not a crash either: say what happened and
+                                // where it went, or a daemon log would show
+                                // an event disappearing.
+                                webhook_dead_lettered += r.dead_lettered;
+                                eprintln!(
+                                    "reeflog: webhook {} moved {} event(s) to the dead-letter queue — see `reeflog webhook dlq list`",
+                                    t.id, r.dead_lettered
+                                );
+                            }
                             if r.blocked() {
                                 webhook_blocked += 1;
                                 eprintln!(
@@ -982,6 +995,7 @@ async fn run_start(args: &[String]) {
             "passes": webhook_passes,
             "delivered": webhook_delivered,
             "blocked_passes": webhook_blocked,
+            "dead_lettered": webhook_dead_lettered,
         },
         "journal": {
             "events": c.total, "with_err": c.with_err,
@@ -1379,6 +1393,28 @@ fn run_webhook_push(args: &[String]) {
     }
 
     let blocked = reports.iter().filter(|r| r.blocked()).count();
+
+    // A quarantined event is not a blocked queue — but it is also not a
+    // delivered event, and a caller must not be able to mistake one for the
+    // other. Pending dead letters are reported per target and hold the exit
+    // code, exactly like a blocked target does: the queue moving on is what
+    // the dead-letter queue is FOR, and silence is still not health.
+    let mut pending_dead_letters = 0i64;
+    for t in &targets {
+        pending_dead_letters += j
+            .webhook_dead_letter_count(&t.id)
+            .unwrap_or_else(|e| die(e));
+    }
+    let pending_per_target: Vec<(String, i64)> = targets
+        .iter()
+        .map(|t| {
+            (
+                t.id.clone(),
+                j.webhook_dead_letter_count(&t.id).unwrap_or_else(|e| die(e)),
+            )
+        })
+        .collect();
+
     println!(
         "{}",
         serde_json::to_string_pretty(&json!({
@@ -1387,6 +1423,12 @@ fn run_webhook_push(args: &[String]) {
                 "delivered": r.delivered,
                 "reorg_delivered": r.reorg_delivered,
                 "failed": r.failed,
+                "dead_lettered": r.dead_lettered,
+                "dead_letters_pending": pending_per_target
+                    .iter()
+                    .find(|(id, _)| *id == r.target)
+                    .map(|(_, n)| *n)
+                    .unwrap_or(0),
                 "blocked": r.blocked(),
                 "blocked_seq": r.blocked_seq,
                 "blocked_reorg_id": r.blocked_reorg_id,
@@ -1395,12 +1437,19 @@ fn run_webhook_push(args: &[String]) {
                 "next_reorg_id": r.next_reorg_id,
             })).collect::<Vec<_>>(),
             "blocked_targets": blocked,
+            "dead_letters_pending": pending_dead_letters,
         }))
         .unwrap()
     );
     if blocked > 0 {
         eprintln!(
             "reeflog: {blocked} target(s) blocked — delivery is at-least-once and in order, so the queue stops at the first failure; the failure is recorded, not swallowed"
+        );
+        std::process::exit(3);
+    }
+    if pending_dead_letters > 0 {
+        eprintln!(
+            "reeflog: {pending_dead_letters} event(s) sit in the dead-letter queue — the queue keeps moving, but these consumers do not hold these events yet; inspect with `reeflog webhook dlq list`"
         );
         std::process::exit(3);
     }
@@ -1419,6 +1468,7 @@ fn run_webhook_status(args: &[String]) {
             .events_after(s.next_seq, i64::MAX)
             .map(|v| v.len() as i64)
             .unwrap_or(0);
+        let dead_letters = j.webhook_dead_letter_count(&t.id).unwrap_or_else(|e| die(e));
         out.push(json!({
             "target": s.target,
             "url": t.url,
@@ -1428,10 +1478,168 @@ fn run_webhook_status(args: &[String]) {
             "failed_attempts": s.failed,
             "transport_failures": s.transport_failures,
             "pending_events": pending,
+            "dead_letters": dead_letters,
             "last_error": s.last_error,
         }));
     }
     println!("{}", serde_json::to_string_pretty(&json!({"targets": out})).unwrap());
+}
+
+/// List the events that were quarantined for a target.
+///
+/// The dead-letter queue is the answer to a refusal that does not go away:
+/// the event is kept verbatim, with the reason and the attempt count, so
+/// nothing is ever lost and the operator can see exactly what a consumer
+/// rejected.
+fn run_webhook_dlq_list(args: &[String]) {
+    let db = PathBuf::from(arg(args, "--db").unwrap_or_else(|| "reeflog.db".into()));
+    let j = Journal::open(&db).unwrap_or_else(|e| die(e));
+    let cfg = PathBuf::from(require(args, "--config"));
+    let targets = webhook::load_targets(&cfg).unwrap_or_else(|e| die(e));
+    let limit: i64 = arg(args, "--limit")
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(100);
+    let only = arg(args, "--target");
+
+    let mut out = Vec::new();
+    for t in &targets {
+        if let Some(only) = &only {
+            if &t.id != only {
+                continue;
+            }
+        }
+        let rows = j
+            .webhook_dead_letters(&t.id, limit)
+            .unwrap_or_else(|e| die(e));
+        out.push(json!({
+            "target": t.id,
+            "pending": rows.len(),
+            "dead_letters": rows.iter().map(|r| json!({
+                "target": r.target,
+                "kind": r.kind,
+                "seq": r.seq,
+                "event_id": r.event_id,
+                "reason": r.reason,
+                "status": r.status,
+                "attempts": r.attempts,
+                "first_failed_at": r.first_failed_at,
+                "last_failed_at": r.last_failed_at,
+                "state": r.state,
+            })).collect::<Vec<_>>(),
+        }));
+    }
+    let total: usize = out
+        .iter()
+        .map(|t| t["dead_letters"].as_array().map(|a| a.len()).unwrap_or(0))
+        .sum();
+    println!(
+        "{}",
+        serde_json::to_string_pretty(&json!({"targets": out, "pending_total": total})).unwrap()
+    );
+}
+
+/// Replay quarantined events to their target.
+///
+/// The body stored in the dead-letter queue is the exact bytes that were
+/// owed, so the replay sends the same body and therefore the same signature
+/// — a receiver that dedups on the event id sees exactly the same event as
+/// before, and one that never saw it gets it now.
+fn run_webhook_dlq_replay(args: &[String]) {
+    let db = PathBuf::from(arg(args, "--db").unwrap_or_else(|| "reeflog.db".into()));
+    let j = Journal::open(&db).unwrap_or_else(|e| die(e));
+    let cfg = PathBuf::from(require(args, "--config"));
+    let targets = webhook::load_targets(&cfg).unwrap_or_else(|e| die(e));
+    let limit: i64 = arg(args, "--limit")
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(100);
+    let only = arg(args, "--target");
+
+    let mut replayed = 0i64;
+    let mut failed = 0i64;
+    let mut out = Vec::new();
+    for t in &targets {
+        if let Some(only) = &only {
+            if &t.id != only {
+                continue;
+            }
+        }
+        let rows = j
+            .webhook_dead_letters(&t.id, limit)
+            .unwrap_or_else(|e| die(e));
+        let mut poster = webhook::HttpPoster {
+            timeout_ms: t.timeout_ms,
+        };
+        let mut target_replayed = 0i64;
+        let mut target_failed = 0i64;
+        for r in &rows {
+            let sig = webhook::signature_header(&t.secret, &r.body);
+            let seq_s = r.seq.to_string();
+            let headers = [
+                ("content-type", "application/json"),
+                (webhook::SIGNATURE_HEADER, sig.as_str()),
+                (webhook::SEQ_HEADER, seq_s.as_str()),
+                (webhook::EVENT_ID_HEADER, r.event_id.as_str()),
+            ];
+            let outcome = match poster.post(&t.url, &r.body, &headers) {
+                Ok(status) => webhook::classify_status(status),
+                Err(e) => webhook::Attempt::Transient(e),
+            };
+            match outcome {
+                webhook::Attempt::Delivered(status) => {
+                    j.webhook_record_delivered(&t.id, &r.kind, r.seq, &r.body)
+                        .unwrap_or_else(|e| die(e));
+                    j.webhook_record_attempt(
+                        &t.id,
+                        &r.kind,
+                        r.seq,
+                        Some(status as i64),
+                        None,
+                    )
+                    .unwrap_or_else(|e| die(e));
+                    j.webhook_dead_letter_replayed(r.id).unwrap_or_else(|e| die(e));
+                    target_replayed += 1;
+                }
+                webhook::Attempt::Refused(status) => {
+                    j.webhook_record_attempt(
+                        &t.id,
+                        &r.kind,
+                        r.seq,
+                        Some(status as i64),
+                        Some(&format!("refused with http {status}")),
+                    )
+                    .unwrap_or_else(|e| die(e));
+                    target_failed += 1;
+                }
+                webhook::Attempt::Transient(e) => {
+                    j.webhook_record_attempt(&t.id, &r.kind, r.seq, None, Some(&e))
+                        .unwrap_or_else(|e| die(e));
+                    target_failed += 1;
+                }
+            }
+        }
+        replayed += target_replayed;
+        failed += target_failed;
+        out.push(json!({
+            "target": t.id,
+            "replayed": target_replayed,
+            "failed": target_failed,
+        }));
+    }
+    println!(
+        "{}",
+        serde_json::to_string_pretty(&json!({
+            "targets": out,
+            "replayed": replayed,
+            "failed": failed,
+        }))
+        .unwrap()
+    );
+    if failed > 0 {
+        eprintln!(
+            "reeflog: {failed} dead letter(s) still refused — they stay in the dead-letter queue, nothing is dropped"
+        );
+        std::process::exit(3);
+    }
 }
 
 fn usage() -> ! {
@@ -1450,7 +1658,9 @@ fn usage() -> ! {
          \x20 reeflog reorg check --db <file> [--limit N] [--rpc URL]\n\
          \x20 reeflog reorg tail  --db <file> --cursor <file> [--limit N]\n\
          \x20 reeflog webhook push   --db <file> --config <file> [--limit N]\n\
-         \x20 reeflog webhook status --db <file> --config <file>\n\
+         \x20 reeflog webhook status --db <file> --config <file>\n\\
+         \x20 reeflog webhook dlq list   --db <file> --config <file> [--target <id>] [--limit N]\n\\
+         \x20 reeflog webhook dlq replay --db <file> --config <file> [--target <id>] [--limit N]\n\
          \x20 reeflog status --db <file>"
     );
     std::process::exit(64);
@@ -1571,6 +1781,14 @@ fn main() {
             match sub {
                 "push" => run_webhook_push(&args),
                 "status" => run_webhook_status(&args),
+                "dlq" => {
+                    let dsub = args.get(2).map(|s| s.as_str()).unwrap_or("");
+                    match dsub {
+                        "list" => run_webhook_dlq_list(&args),
+                        "replay" => run_webhook_dlq_replay(&args),
+                        _ => usage(),
+                    }
+                }
                 _ => usage(),
             }
         }

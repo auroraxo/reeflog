@@ -1,0 +1,940 @@
+{
+  "generatedAt": "2026-10-29T21:06:18.137Z",
+  "program": "675kPX9MHTjS2zt1qfr1NYHuzeLXfQM9H24wFSUt1Mp8",
+  "events": 54,
+  "threshold": 3,
+  "requests_received": 112,
+  "accepted": 108,
+  "checks": 15,
+  "passed": 15,
+  "failed": 0,
+  "results": [
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true
+  ],
+  "deadLetters": [
+    {
+      "attempts": 3,
+      "event_id": "stuck:event:1",
+      "first_failed_at": 1793307977897,
+      "kind": "event",
+      "last_failed_at": 1793307977897,
+      "reason": "refused with http 403",
+      "seq": 1,
+      "state": "pending",
+      "status": 403,
+      "target": "stuck"
+    }
+  ],
+  "received": [
+    {
+      "path": "/ok",
+      "type": "event",
+      "seq": 1,
+      "eventId": "flaky:event:1",
+      "status": 503,
+      "sigValid": true
+    },
+    {
+      "path": "/ok",
+      "type": "event",
+      "seq": 1,
+      "eventId": "stuck:event:1",
+      "status": 403,
+      "sigValid": true
+    },
+    {
+      "path": "/ok",
+      "type": "event",
+      "seq": 1,
+      "eventId": "stuck:event:1",
+      "status": 403,
+      "sigValid": true
+    },
+    {
+      "path": "/ok",
+      "type": "event",
+      "seq": 1,
+      "eventId": "stuck:event:1",
+      "status": 403,
+      "sigValid": true
+    },
+    {
+      "path": "/ok",
+      "type": "event",
+      "seq": 2,
+      "eventId": "stuck:event:2",
+      "status": 200,
+      "sigValid": true
+    },
+    {
+      "path": "/ok",
+      "type": "event",
+      "seq": 3,
+      "eventId": "stuck:event:3",
+      "status": 200,
+      "sigValid": true
+    },
+    {
+      "path": "/ok",
+      "type": "event",
+      "seq": 4,
+      "eventId": "stuck:event:4",
+      "status": 200,
+      "sigValid": true
+    },
+    {
+      "path": "/ok",
+      "type": "event",
+      "seq": 5,
+      "eventId": "stuck:event:5",
+      "status": 200,
+      "sigValid": true
+    },
+    {
+      "path": "/ok",
+      "type": "event",
+      "seq": 6,
+      "eventId": "stuck:event:6",
+      "status": 200,
+      "sigValid": true
+    },
+    {
+      "path": "/ok",
+      "type": "event",
+      "seq": 7,
+      "eventId": "stuck:event:7",
+      "status": 200,
+      "sigValid": true
+    },
+    {
+      "path": "/ok",
+      "type": "event",
+      "seq": 8,
+      "eventId": "stuck:event:8",
+      "status": 200,
+      "sigValid": true
+    },
+    {
+      "path": "/ok",
+      "type": "event",
+      "seq": 9,
+      "eventId": "stuck:event:9",
+      "status": 200,
+      "sigValid": true
+    },
+    {
+      "path": "/ok",
+      "type": "event",
+      "seq": 10,
+      "eventId": "stuck:event:10",
+      "status": 200,
+      "sigValid": true
+    },
+    {
+      "path": "/ok",
+      "type": "event",
+      "seq": 11,
+      "eventId": "stuck:event:11",
+      "status": 200,
+      "sigValid": true
+    },
+    {
+      "path": "/ok",
+      "type": "event",
+      "seq": 12,
+      "eventId": "stuck:event:12",
+      "status": 200,
+      "sigValid": true
+    },
+    {
+      "path": "/ok",
+      "type": "event",
+      "seq": 13,
+      "eventId": "stuck:event:13",
+      "status": 200,
+      "sigValid": true
+    },
+    {
+      "path": "/ok",
+      "type": "event",
+      "seq": 14,
+      "eventId": "stuck:event:14",
+      "status": 200,
+      "sigValid": true
+    },
+    {
+      "path": "/ok",
+      "type": "event",
+      "seq": 15,
+      "eventId": "stuck:event:15",
+      "status": 200,
+      "sigValid": true
+    },
+    {
+      "path": "/ok",
+      "type": "event",
+      "seq": 16,
+      "eventId": "stuck:event:16",
+      "status": 200,
+      "sigValid": true
+    },
+    {
+      "path": "/ok",
+      "type": "event",
+      "seq": 17,
+      "eventId": "stuck:event:17",
+      "status": 200,
+      "sigValid": true
+    },
+    {
+      "path": "/ok",
+      "type": "event",
+      "seq": 18,
+      "eventId": "stuck:event:18",
+      "status": 200,
+      "sigValid": true
+    },
+    {
+      "path": "/ok",
+      "type": "event",
+      "seq": 19,
+      "eventId": "stuck:event:19",
+      "status": 200,
+      "sigValid": true
+    },
+    {
+      "path": "/ok",
+      "type": "event",
+      "seq": 20,
+      "eventId": "stuck:event:20",
+      "status": 200,
+      "sigValid": true
+    },
+    {
+      "path": "/ok",
+      "type": "event",
+      "seq": 21,
+      "eventId": "stuck:event:21",
+      "status": 200,
+      "sigValid": true
+    },
+    {
+      "path": "/ok",
+      "type": "event",
+      "seq": 22,
+      "eventId": "stuck:event:22",
+      "status": 200,
+      "sigValid": true
+    },
+    {
+      "path": "/ok",
+      "type": "event",
+      "seq": 23,
+      "eventId": "stuck:event:23",
+      "status": 200,
+      "sigValid": true
+    },
+    {
+      "path": "/ok",
+      "type": "event",
+      "seq": 24,
+      "eventId": "stuck:event:24",
+      "status": 200,
+      "sigValid": true
+    },
+    {
+      "path": "/ok",
+      "type": "event",
+      "seq": 25,
+      "eventId": "stuck:event:25",
+      "status": 200,
+      "sigValid": true
+    },
+    {
+      "path": "/ok",
+      "type": "event",
+      "seq": 26,
+      "eventId": "stuck:event:26",
+      "status": 200,
+      "sigValid": true
+    },
+    {
+      "path": "/ok",
+      "type": "event",
+      "seq": 27,
+      "eventId": "stuck:event:27",
+      "status": 200,
+      "sigValid": true
+    },
+    {
+      "path": "/ok",
+      "type": "event",
+      "seq": 28,
+      "eventId": "stuck:event:28",
+      "status": 200,
+      "sigValid": true
+    },
+    {
+      "path": "/ok",
+      "type": "event",
+      "seq": 29,
+      "eventId": "stuck:event:29",
+      "status": 200,
+      "sigValid": true
+    },
+    {
+      "path": "/ok",
+      "type": "event",
+      "seq": 30,
+      "eventId": "stuck:event:30",
+      "status": 200,
+      "sigValid": true
+    },
+    {
+      "path": "/ok",
+      "type": "event",
+      "seq": 31,
+      "eventId": "stuck:event:31",
+      "status": 200,
+      "sigValid": true
+    },
+    {
+      "path": "/ok",
+      "type": "event",
+      "seq": 32,
+      "eventId": "stuck:event:32",
+      "status": 200,
+      "sigValid": true
+    },
+    {
+      "path": "/ok",
+      "type": "event",
+      "seq": 33,
+      "eventId": "stuck:event:33",
+      "status": 200,
+      "sigValid": true
+    },
+    {
+      "path": "/ok",
+      "type": "event",
+      "seq": 34,
+      "eventId": "stuck:event:34",
+      "status": 200,
+      "sigValid": true
+    },
+    {
+      "path": "/ok",
+      "type": "event",
+      "seq": 35,
+      "eventId": "stuck:event:35",
+      "status": 200,
+      "sigValid": true
+    },
+    {
+      "path": "/ok",
+      "type": "event",
+      "seq": 36,
+      "eventId": "stuck:event:36",
+      "status": 200,
+      "sigValid": true
+    },
+    {
+      "path": "/ok",
+      "type": "event",
+      "seq": 37,
+      "eventId": "stuck:event:37",
+      "status": 200,
+      "sigValid": true
+    },
+    {
+      "path": "/ok",
+      "type": "event",
+      "seq": 38,
+      "eventId": "stuck:event:38",
+      "status": 200,
+      "sigValid": true
+    },
+    {
+      "path": "/ok",
+      "type": "event",
+      "seq": 39,
+      "eventId": "stuck:event:39",
+      "status": 200,
+      "sigValid": true
+    },
+    {
+      "path": "/ok",
+      "type": "event",
+      "seq": 40,
+      "eventId": "stuck:event:40",
+      "status": 200,
+      "sigValid": true
+    },
+    {
+      "path": "/ok",
+      "type": "event",
+      "seq": 41,
+      "eventId": "stuck:event:41",
+      "status": 200,
+      "sigValid": true
+    },
+    {
+      "path": "/ok",
+      "type": "event",
+      "seq": 42,
+      "eventId": "stuck:event:42",
+      "status": 200,
+      "sigValid": true
+    },
+    {
+      "path": "/ok",
+      "type": "event",
+      "seq": 43,
+      "eventId": "stuck:event:43",
+      "status": 200,
+      "sigValid": true
+    },
+    {
+      "path": "/ok",
+      "type": "event",
+      "seq": 44,
+      "eventId": "stuck:event:44",
+      "status": 200,
+      "sigValid": true
+    },
+    {
+      "path": "/ok",
+      "type": "event",
+      "seq": 45,
+      "eventId": "stuck:event:45",
+      "status": 200,
+      "sigValid": true
+    },
+    {
+      "path": "/ok",
+      "type": "event",
+      "seq": 46,
+      "eventId": "stuck:event:46",
+      "status": 200,
+      "sigValid": true
+    },
+    {
+      "path": "/ok",
+      "type": "event",
+      "seq": 47,
+      "eventId": "stuck:event:47",
+      "status": 200,
+      "sigValid": true
+    },
+    {
+      "path": "/ok",
+      "type": "event",
+      "seq": 48,
+      "eventId": "stuck:event:48",
+      "status": 200,
+      "sigValid": true
+    },
+    {
+      "path": "/ok",
+      "type": "event",
+      "seq": 49,
+      "eventId": "stuck:event:49",
+      "status": 200,
+      "sigValid": true
+    },
+    {
+      "path": "/ok",
+      "type": "event",
+      "seq": 50,
+      "eventId": "stuck:event:50",
+      "status": 200,
+      "sigValid": true
+    },
+    {
+      "path": "/ok",
+      "type": "event",
+      "seq": 51,
+      "eventId": "stuck:event:51",
+      "status": 200,
+      "sigValid": true
+    },
+    {
+      "path": "/ok",
+      "type": "event",
+      "seq": 52,
+      "eventId": "stuck:event:52",
+      "status": 200,
+      "sigValid": true
+    },
+    {
+      "path": "/ok",
+      "type": "event",
+      "seq": 53,
+      "eventId": "stuck:event:53",
+      "status": 200,
+      "sigValid": true
+    },
+    {
+      "path": "/ok",
+      "type": "event",
+      "seq": 54,
+      "eventId": "stuck:event:54",
+      "status": 200,
+      "sigValid": true
+    },
+    {
+      "path": "/ok",
+      "type": "event",
+      "seq": 1,
+      "eventId": "stuck:event:1",
+      "status": 200,
+      "sigValid": true
+    },
+    {
+      "path": "/ok",
+      "type": "event",
+      "seq": 1,
+      "eventId": "wrong:event:1",
+      "status": 200,
+      "sigValid": false
+    },
+    {
+      "path": "/ok",
+      "type": "event",
+      "seq": 2,
+      "eventId": "wrong:event:2",
+      "status": 200,
+      "sigValid": false
+    },
+    {
+      "path": "/ok",
+      "type": "event",
+      "seq": 3,
+      "eventId": "wrong:event:3",
+      "status": 200,
+      "sigValid": false
+    },
+    {
+      "path": "/ok",
+      "type": "event",
+      "seq": 4,
+      "eventId": "wrong:event:4",
+      "status": 200,
+      "sigValid": false
+    },
+    {
+      "path": "/ok",
+      "type": "event",
+      "seq": 5,
+      "eventId": "wrong:event:5",
+      "status": 200,
+      "sigValid": false
+    },
+    {
+      "path": "/ok",
+      "type": "event",
+      "seq": 6,
+      "eventId": "wrong:event:6",
+      "status": 200,
+      "sigValid": false
+    },
+    {
+      "path": "/ok",
+      "type": "event",
+      "seq": 7,
+      "eventId": "wrong:event:7",
+      "status": 200,
+      "sigValid": false
+    },
+    {
+      "path": "/ok",
+      "type": "event",
+      "seq": 8,
+      "eventId": "wrong:event:8",
+      "status": 200,
+      "sigValid": false
+    },
+    {
+      "path": "/ok",
+      "type": "event",
+      "seq": 9,
+      "eventId": "wrong:event:9",
+      "status": 200,
+      "sigValid": false
+    },
+    {
+      "path": "/ok",
+      "type": "event",
+      "seq": 10,
+      "eventId": "wrong:event:10",
+      "status": 200,
+      "sigValid": false
+    },
+    {
+      "path": "/ok",
+      "type": "event",
+      "seq": 11,
+      "eventId": "wrong:event:11",
+      "status": 200,
+      "sigValid": false
+    },
+    {
+      "path": "/ok",
+      "type": "event",
+      "seq": 12,
+      "eventId": "wrong:event:12",
+      "status": 200,
+      "sigValid": false
+    },
+    {
+      "path": "/ok",
+      "type": "event",
+      "seq": 13,
+      "eventId": "wrong:event:13",
+      "status": 200,
+      "sigValid": false
+    },
+    {
+      "path": "/ok",
+      "type": "event",
+      "seq": 14,
+      "eventId": "wrong:event:14",
+      "status": 200,
+      "sigValid": false
+    },
+    {
+      "path": "/ok",
+      "type": "event",
+      "seq": 15,
+      "eventId": "wrong:event:15",
+      "status": 200,
+      "sigValid": false
+    },
+    {
+      "path": "/ok",
+      "type": "event",
+      "seq": 16,
+      "eventId": "wrong:event:16",
+      "status": 200,
+      "sigValid": false
+    },
+    {
+      "path": "/ok",
+      "type": "event",
+      "seq": 17,
+      "eventId": "wrong:event:17",
+      "status": 200,
+      "sigValid": false
+    },
+    {
+      "path": "/ok",
+      "type": "event",
+      "seq": 18,
+      "eventId": "wrong:event:18",
+      "status": 200,
+      "sigValid": false
+    },
+    {
+      "path": "/ok",
+      "type": "event",
+      "seq": 19,
+      "eventId": "wrong:event:19",
+      "status": 200,
+      "sigValid": false
+    },
+    {
+      "path": "/ok",
+      "type": "event",
+      "seq": 20,
+      "eventId": "wrong:event:20",
+      "status": 200,
+      "sigValid": false
+    },
+    {
+      "path": "/ok",
+      "type": "event",
+      "seq": 21,
+      "eventId": "wrong:event:21",
+      "status": 200,
+      "sigValid": false
+    },
+    {
+      "path": "/ok",
+      "type": "event",
+      "seq": 22,
+      "eventId": "wrong:event:22",
+      "status": 200,
+      "sigValid": false
+    },
+    {
+      "path": "/ok",
+      "type": "event",
+      "seq": 23,
+      "eventId": "wrong:event:23",
+      "status": 200,
+      "sigValid": false
+    },
+    {
+      "path": "/ok",
+      "type": "event",
+      "seq": 24,
+      "eventId": "wrong:event:24",
+      "status": 200,
+      "sigValid": false
+    },
+    {
+      "path": "/ok",
+      "type": "event",
+      "seq": 25,
+      "eventId": "wrong:event:25",
+      "status": 200,
+      "sigValid": false
+    },
+    {
+      "path": "/ok",
+      "type": "event",
+      "seq": 26,
+      "eventId": "wrong:event:26",
+      "status": 200,
+      "sigValid": false
+    },
+    {
+      "path": "/ok",
+      "type": "event",
+      "seq": 27,
+      "eventId": "wrong:event:27",
+      "status": 200,
+      "sigValid": false
+    },
+    {
+      "path": "/ok",
+      "type": "event",
+      "seq": 28,
+      "eventId": "wrong:event:28",
+      "status": 200,
+      "sigValid": false
+    },
+    {
+      "path": "/ok",
+      "type": "event",
+      "seq": 29,
+      "eventId": "wrong:event:29",
+      "status": 200,
+      "sigValid": false
+    },
+    {
+      "path": "/ok",
+      "type": "event",
+      "seq": 30,
+      "eventId": "wrong:event:30",
+      "status": 200,
+      "sigValid": false
+    },
+    {
+      "path": "/ok",
+      "type": "event",
+      "seq": 31,
+      "eventId": "wrong:event:31",
+      "status": 200,
+      "sigValid": false
+    },
+    {
+      "path": "/ok",
+      "type": "event",
+      "seq": 32,
+      "eventId": "wrong:event:32",
+      "status": 200,
+      "sigValid": false
+    },
+    {
+      "path": "/ok",
+      "type": "event",
+      "seq": 33,
+      "eventId": "wrong:event:33",
+      "status": 200,
+      "sigValid": false
+    },
+    {
+      "path": "/ok",
+      "type": "event",
+      "seq": 34,
+      "eventId": "wrong:event:34",
+      "status": 200,
+      "sigValid": false
+    },
+    {
+      "path": "/ok",
+      "type": "event",
+      "seq": 35,
+      "eventId": "wrong:event:35",
+      "status": 200,
+      "sigValid": false
+    },
+    {
+      "path": "/ok",
+      "type": "event",
+      "seq": 36,
+      "eventId": "wrong:event:36",
+      "status": 200,
+      "sigValid": false
+    },
+    {
+      "path": "/ok",
+      "type": "event",
+      "seq": 37,
+      "eventId": "wrong:event:37",
+      "status": 200,
+      "sigValid": false
+    },
+    {
+      "path": "/ok",
+      "type": "event",
+      "seq": 38,
+      "eventId": "wrong:event:38",
+      "status": 200,
+      "sigValid": false
+    },
+    {
+      "path": "/ok",
+      "type": "event",
+      "seq": 39,
+      "eventId": "wrong:event:39",
+      "status": 200,
+      "sigValid": false
+    },
+    {
+      "path": "/ok",
+      "type": "event",
+      "seq": 40,
+      "eventId": "wrong:event:40",
+      "status": 200,
+      "sigValid": false
+    },
+    {
+      "path": "/ok",
+      "type": "event",
+      "seq": 41,
+      "eventId": "wrong:event:41",
+      "status": 200,
+      "sigValid": false
+    },
+    {
+      "path": "/ok",
+      "type": "event",
+      "seq": 42,
+      "eventId": "wrong:event:42",
+      "status": 200,
+      "sigValid": false
+    },
+    {
+      "path": "/ok",
+      "type": "event",
+      "seq": 43,
+      "eventId": "wrong:event:43",
+      "status": 200,
+      "sigValid": false
+    },
+    {
+      "path": "/ok",
+      "type": "event",
+      "seq": 44,
+      "eventId": "wrong:event:44",
+      "status": 200,
+      "sigValid": false
+    },
+    {
+      "path": "/ok",
+      "type": "event",
+      "seq": 45,
+      "eventId": "wrong:event:45",
+      "status": 200,
+      "sigValid": false
+    },
+    {
+      "path": "/ok",
+      "type": "event",
+      "seq": 46,
+      "eventId": "wrong:event:46",
+      "status": 200,
+      "sigValid": false
+    },
+    {
+      "path": "/ok",
+      "type": "event",
+      "seq": 47,
+      "eventId": "wrong:event:47",
+      "status": 200,
+      "sigValid": false
+    },
+    {
+      "path": "/ok",
+      "type": "event",
+      "seq": 48,
+      "eventId": "wrong:event:48",
+      "status": 200,
+      "sigValid": false
+    },
+    {
+      "path": "/ok",
+      "type": "event",
+      "seq": 49,
+      "eventId": "wrong:event:49",
+      "status": 200,
+      "sigValid": false
+    },
+    {
+      "path": "/ok",
+      "type": "event",
+      "seq": 50,
+      "eventId": "wrong:event:50",
+      "status": 200,
+      "sigValid": false
+    },
+    {
+      "path": "/ok",
+      "type": "event",
+      "seq": 51,
+      "eventId": "wrong:event:51",
+      "status": 200,
+      "sigValid": false
+    },
+    {
+      "path": "/ok",
+      "type": "event",
+      "seq": 52,
+      "eventId": "wrong:event:52",
+      "status": 200,
+      "sigValid": false
+    },
+    {
+      "path": "/ok",
+      "type": "event",
+      "seq": 53,
+      "eventId": "wrong:event:53",
+      "status": 200,
+      "sigValid": false
+    },
+    {
+      "path": "/ok",
+      "type": "event",
+      "seq": 54,
+      "eventId": "wrong:event:54",
+      "status": 200,
+      "sigValid": false
+    }
+  ]
+}
