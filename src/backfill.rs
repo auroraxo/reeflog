@@ -110,6 +110,85 @@ impl Fetcher for HttpFetcher {
     }
 }
 
+/// A chain-returned signature that a walk may start from instead of the tip.
+///
+/// ARCHIVE PATH (measured 2026-10-30 against api.mainnet-beta.solana.com):
+/// a tip-started walk for Raydium AMM v4 covers 40 pages x 1000 signatures
+/// = 40,000 signatures ≈ 17,490 slots (2.4h). A journal whose window sits
+/// deeper than that can never be verified or repaired from the tip — the
+/// budget is spent crossing history the scan does not claim.
+///
+/// The fix is to start the walk where the claim begins. A signature for the
+/// anchor comes from `getBlock(slot, transactionDetails:"signatures")`:
+/// the block's LAST signature, so every transaction at slots <= anchor slot
+/// is strictly older than it and is returned by the backward walk. That was
+/// measured twice (first and last signature of a 7-day-old block): the walk
+/// landed 1000 program signatures at the deep slot, not at the tip.
+///
+/// An anchor resolved this way is chain-returned (it came out of a finalized
+/// block), which is exactly the anchor rule the 2026-10-28 kill test imposed:
+/// never walk from a signature the chain may not know.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Anchor {
+    pub sig: String,
+    pub slot: i64,
+}
+
+/// Resolve an anchor at or above `target_slot`: the last signature of the
+/// first block at/above the target that holds at least one transaction.
+///
+/// Failure modes are told apart, because they mean different things:
+///   - a SKIPPED slot has no block by definition — try the next slot.
+///   - "ledger jump to recent snapshot" means this node does not hold that
+///     history; trying more slots would not help, so report it.
+///   - no block with transactions within `max_tries` slots — report it.
+pub fn resolve_anchor<F: Fetcher>(
+    f: &mut F,
+    target_slot: i64,
+    max_tries: i64,
+) -> Result<Anchor, String> {
+    let mut last_err = String::from("no anchor attempt made");
+    for i in 0..max_tries {
+        let slot = target_slot + i;
+        let params = json!([
+            slot,
+            {
+                "encoding": "base64",
+                "transactionDetails": "signatures",
+                "rewards": false,
+                "commitment": "finalized",
+                "maxSupportedTransactionVersion": 1,
+            }
+        ]);
+        match f.call("getBlock", params) {
+            Ok(v) => {
+                let sigs = v.get("signatures").and_then(|s| s.as_array()).cloned().unwrap_or_default();
+                if let Some(last) = sigs.last().and_then(|s| s.as_str()) {
+                    return Ok(Anchor { sig: last.to_string(), slot });
+                }
+                // A block object without signatures: treat like a skipped slot.
+                last_err = format!("slot {slot}: block returned no signatures");
+            }
+            Err(e) => {
+                if e.contains("was skipped") {
+                    last_err = format!("slot {slot}: skipped");
+                    continue;
+                }
+                if e.contains("ledger jump") {
+                    return Err(format!(
+                        "anchor at slot {slot}: this node does not hold that history ({e})"
+                    ));
+                }
+                return Err(format!("anchor at slot {slot}: {e}"));
+            }
+        }
+    }
+    Err(format!(
+        "no anchor block with transactions in slots {target_slot}..{} ({last_err})",
+        target_slot + max_tries.saturating_sub(1)
+    ))
+}
+
 #[derive(Debug, Default, Clone)]
 pub struct Report {
     /// Signatures the RPC returned in the scanned window.
@@ -146,6 +225,10 @@ pub struct Report {
     /// page budget before reaching the journal floor. A report with an error
     /// or truncation is never proof that the journal is complete.
     pub error: Option<String>,
+    /// The archive anchor the walk started from, if any: (signature, slot).
+    /// Carried in the output so nobody mistakes an anchored scan for a
+    /// tip-started one.
+    pub anchor: Option<(String, i64)>,
 }
 
 impl Report {
@@ -285,13 +368,34 @@ pub fn backfill_tail<F: Fetcher>(
 /// Tip-start is immune to phantom anchors. The price is paid above the
 /// journal's ceiling, and running out of budget there is reported as
 /// `truncated` — never as a clean scan.
-pub fn verify_recent<F: Fetcher>(
+/// Verify the journal's claimed window starting from an ARCHIVE ANCHOR
+/// instead of the chain tip.
+///
+/// WHY (measured 2026-10-30): a tip-started walk for a busy program spends
+/// its whole page budget crossing history ABOVE the journal's window — 40
+/// pages x 1000 signatures = 40,000 signatures, but only ~17,490 slots
+/// (~2.4 hours) of a busy program's history. A journal that claims an older
+/// window can therefore never be verified from the tip: the budget runs out
+/// before the scan reaches the floor, and the report says "truncated" forever.
+///
+/// The anchored walk starts at the signature that bounds the claimed window
+/// and walks BACKWARD from there. The anchor comes from the chain itself
+/// (the last signature of a finalized block at/above the window's floor), so
+/// the anchor rule from the 2026-10-28 kill test still holds: never walk
+/// from a signature the chain might not know.
+///
+/// The scan is honest about what it did: `anchor` records where the walk
+/// started, and the coverage checks below are unchanged — the walk must
+/// still reach the floor and must not stop above the ceiling before it may
+/// claim completeness.
+pub fn verify_recent_anchored<F: Fetcher>(
     j: &Journal,
     f: &mut F,
     program: &str,
     max_pages: usize,
     page_size: usize,
     since_slot: Option<i64>,
+    anchor: Option<Anchor>,
 ) -> Result<Report, String> {
     let mut report = Report::default();
     let held = j.all_signatures()?;
@@ -304,6 +408,10 @@ pub fn verify_recent<F: Fetcher>(
     }
 
     let mut before: Option<String> = None;
+    if let Some(a) = &anchor {
+        report.anchor = Some((a.sig.clone(), a.slot));
+        before = Some(a.sig.clone());
+    }
     loop {
         if report.pages >= max_pages as i64 {
             report.truncated = true;
@@ -394,6 +502,15 @@ pub fn verify_recent<F: Fetcher>(
         // the bottom of the window, so this is not a finished scan.
         report.truncated = true;
     }
+    // An ANCHORED walk starts where the anchor is, not at the tip. Whether
+    // it crossed the claimed ceiling is then a property of the ANCHOR, not of
+    // the rows it happened to read: an anchor at/above the ceiling covers the
+    // top of the window by construction (it came from a finalized block at
+    // that slot), an anchor below the ceiling does not, and that pass must
+    // never claim the whole window.
+    if let Some((_, anchor_slot)) = &report.anchor {
+        report.passed_ceiling = *anchor_slot >= ceil;
+    }
     Ok(report)
 }
 
@@ -404,15 +521,20 @@ pub fn verify_recent<F: Fetcher>(
 /// `since_slot` narrows the scanned window (see `verify_recent`); the repair
 /// covers exactly what the scan covered — it never claims to have repaired
 /// a window it did not read.
-pub fn repair_holes<F: Fetcher>(
+/// Same as [`repair_holes`], but the scan starts from an archive anchor so a
+/// hole DEEPER than one tip-walk's page budget is reachable at all.
+/// Filling costs no extra RPC round trips — the scan already collected the
+/// signature, slot and error of every hole it found.
+pub fn repair_holes_anchored<F: Fetcher>(
     j: &Journal,
     f: &mut F,
     program: &str,
     max_pages: usize,
     page_size: usize,
     since_slot: Option<i64>,
+    anchor: Option<Anchor>,
 ) -> Result<Report, String> {
-    let mut r = verify_recent(j, f, program, max_pages, page_size, since_slot)?;
+    let mut r = verify_recent_anchored(j, f, program, max_pages, page_size, since_slot, anchor)?;
     for (sig, slot, err) in &r.missing_rows {
         let (_, is_new) = j.append(sig, *slot, err.as_deref(), None, "repair")?;
         if is_new {
@@ -600,7 +722,7 @@ mod tests {
         j.append("sig1", 1, None, None, "ws").unwrap();
         j.append("sig3", 3, None, None, "ws").unwrap();
         let mut rpc = FakeRpc { chain: chain(5), calls: 0 };
-        let r = verify_recent(&j, &mut rpc, "prog", 5, 100, None).unwrap();
+        let r = verify_recent_anchored(&j, &mut rpc, "prog", 5, 100, None, None).unwrap();
         // The journal covers slots 1..3 (floor=1, ceil=3). The chain has
         // sig1..sig5; sig4 and sig5 are NEWER than the journal's window and
         // are not holes. Only sig2 sits inside the window and is missing.
@@ -616,7 +738,7 @@ mod tests {
             j.append(&format!("sig{i}"), i, None, None, "ws").unwrap();
         }
         let mut rpc = FakeRpc { chain: chain(5), calls: 0 };
-        let r = verify_recent(&j, &mut rpc, "prog", 5, 100, None).unwrap();
+        let r = verify_recent_anchored(&j, &mut rpc, "prog", 5, 100, None, None).unwrap();
         assert_eq!(r.missing.len(), 1);
         assert_eq!(r.missing[0], "sig3");
     }
@@ -627,7 +749,7 @@ mod tests {
         j.append("sig8", 8, None, None, "ws").unwrap();
         j.append("sig9", 9, None, None, "ws").unwrap();
         let mut rpc = FakeRpc { chain: chain(10), calls: 0 };
-        let r = verify_recent(&j, &mut rpc, "prog", 5, 100, None).unwrap();
+        let r = verify_recent_anchored(&j, &mut rpc, "prog", 5, 100, None, None).unwrap();
         assert!(r.missing.is_empty(), "older history was never in scope");
     }
 
@@ -638,8 +760,220 @@ mod tests {
             j.append(&format!("sig{i}"), i, None, None, "ws").unwrap();
         }
         let mut rpc = FakeRpc { chain: chain(5), calls: 0 };
-        let r = verify_recent(&j, &mut rpc, "prog", 5, 100, None).unwrap();
+        let r = verify_recent_anchored(&j, &mut rpc, "prog", 5, 100, None, None).unwrap();
         assert!(r.missing.is_empty(), "a complete journal reports nothing missing");
+    }
+
+    // -------------------------------------------------------------------
+    // ARCHIVE ANCHOR (2026-10-30)
+    //
+    // The claim under test: a tip-started walk cannot verify a DEEP window,
+    // because the page budget is spent crossing history the journal never
+    // claimed. An archive anchor — a signature taken from a finalized block
+    // at/above the window's floor — makes the deep window reachable.
+    //
+    // The fake RPC below models the measured endpoint behaviour:
+    //   * `getBlock` returns a block whose `signatures` array is the anchor
+    //     source (the last signature bounds everything at or below its slot);
+    //   * `getSignaturesForAddress` walks BACKWARD from `before`, and a
+    //     `before` that is not part of the chain's index is IGNORED (the
+    //     walk silently restarts at the tip — measured, and the reason a
+    //     journal-held signature may not be used as an anchor);
+    //   * the program keeps trading well ABOVE the journal's window, so a
+    //     tip-started walk with a small budget can never reach the floor.
+    // -------------------------------------------------------------------
+
+
+    /// A fake RPC whose chain history is a deep window plus a tip region
+    /// the journal does not claim.
+    ///
+    /// The contract mirrors the MEASURED endpoint behaviour:
+    ///   * `getBlock(slot, transactionDetails:"signatures")` returns the
+    ///     block's `signatures` array. Its LAST signature is the anchor: every
+    ///     transaction at or below that slot is strictly older than it.
+    ///   * `getSignaturesForAddress(before=<sig>)` resolves `before` to a
+    ///     SLOT — even when the signature belongs to a transaction of another
+    ///     program (measured 2026-10-30: a foreign signature from a 7-day-old
+    ///     block returned 1000 program signatures AT that deep slot) — and
+    ///     returns the program's signatures older than that slot.
+    ///   * a `before` the chain does not know at all is IGNORED and the walk
+    ///     restarts at the tip.
+    ///   * the program keeps trading between the journal's window and the
+    ///     tip, so a tip-started walk burns its budget on rows the journal
+    ///     never claimed.
+    struct DeepRpc {
+        /// the program's own history, oldest-first: (signature, slot)
+        history: Vec<(String, i64)>,
+        /// every block in the chain, for `getBlock`: (slot, signatures)
+        blocks: Vec<(i64, Vec<String>)>,
+        calls: usize,
+        block_calls: usize,
+    }
+
+    impl DeepRpc {
+        /// `history_len` is how far the program's trading history reaches;
+        /// the journal claims a window far below its tip.
+        fn new(history_len: i64) -> Self {
+            let history: Vec<(String, i64)> = (1..=history_len)
+                .map(|i| (format!("dsig{i}"), i))
+                .collect();
+            let blocks = history
+                .iter()
+                .map(|(sig, slot)| (*slot, vec![format!("blk{sig}"), format!("anchor{sig}")]))
+                .collect();
+            Self {
+                history,
+                blocks,
+                calls: 0,
+                block_calls: 0,
+            }
+        }
+
+        /// The slot a `before` signature refers to, if the chain knows it.
+        fn slot_of(&self, sig: &str) -> Option<i64> {
+            if let Some((_, slot)) = self.history.iter().find(|(s, _)| s == sig) {
+                return Some(*slot);
+            }
+            for (slot, sigs) in &self.blocks {
+                if sigs.iter().any(|s| s == sig) {
+                    return Some(*slot);
+                }
+            }
+            None
+        }
+    }
+
+    impl Fetcher for DeepRpc {
+        fn call(&mut self, method: &str, params: Value) -> Result<Value, String> {
+            match method {
+                "getBlock" => {
+                    self.block_calls += 1;
+                    let slot = params[0].as_i64().unwrap_or(0);
+                    match self.blocks.iter().find(|(s, _)| *s == slot) {
+                        Some((_, sigs)) => Ok(json!({
+                            "slot": slot,
+                            "signatures": sigs,
+                        })),
+                        None => Err(format!(
+                            "getBlock: Slot {slot} was skipped, or missing due to ledger jump to recent snapshot"
+                        )),
+                    }
+                }
+                "getSignaturesForAddress" => {
+                    self.calls += 1;
+                    let limit = params[1]["limit"].as_u64().unwrap_or(100) as usize;
+                    let before = params[1].get("before").and_then(|v| v.as_str());
+                    // An unknown `before` is IGNORED: the walk restarts at the
+                    // tip. That is what makes a journal-held signature an
+                    // unusable anchor.
+                    let bound = before.and_then(|b| self.slot_of(b));
+                    let mut rows: Vec<Value> = self
+                        .history
+                        .iter()
+                        .filter(|(_, slot)| match bound {
+                            Some(b) => *slot < b,
+                            None => true,
+                        })
+                        .rev()
+                        .map(|(sig, slot)| {
+                            json!({"signature": sig, "slot": slot, "err": Value::Null})
+                        })
+                        .collect();
+                    rows.truncate(limit);
+                    Ok(Value::Array(rows))
+                }
+                other => Err(format!("unexpected method {other}")),
+            }
+        }
+    }
+
+    /// THE FALSIFICATION: the deep window is invisible to a tip-started
+    /// walk with a realistic budget, and visible to an anchored walk.
+    #[test]
+    fn a_deep_window_is_unreachable_from_the_tip_but_reachable_from_an_archive_anchor() {
+        let j = tmp("deep");
+        // The journal claims slots 2900..3000 — far below the tip (8000).
+        // It holds that window densely, except one planted hole: dsig2902.
+        for i in 2_900..=3_000 {
+            if i == 2_902 {
+                continue; // the hole
+            }
+            j.append(&format!("dsig{i}"), i, None, None, "ws").unwrap();
+        }
+        let mut rpc = DeepRpc::new(8_000);
+
+        // (a) tip-started: the walk reads the tip region, never reaches the
+        //     floor, and must therefore NOT claim completeness — and the
+        //     hole inside the window stays invisible.
+        let tip_run = verify_recent_anchored(&j, &mut rpc, "prog", 2, 100, None, None).unwrap();
+        assert!(
+            !tip_run.complete(),
+            "a tip-started walk that never reached the floor must not claim completeness"
+        );
+        assert!(
+            tip_run.missing.is_empty(),
+            "the deep hole was invisible to the tip-started walk — that is the bug"
+        );
+
+        // (b) anchored: the anchor is the LAST signature of the block at the
+        //     window's ceiling, and the walk from there reaches the floor and
+        //     finds the hole.
+        let anchor = resolve_anchor(&mut rpc, 3_000, 20).unwrap();
+        assert_eq!(anchor.slot, 3_000, "the anchor sits at the ceiling slot");
+        assert_eq!(
+            anchor.sig, "anchordsig3000",
+            "the anchor is the block's LAST signature, so everything at or below its slot is older"
+        );
+        let anchored = verify_recent_anchored(
+            &j,
+            &mut rpc,
+            "prog",
+            2,
+            100,
+            None,
+            Some(anchor.clone()),
+        )
+        .unwrap();
+        assert!(
+            anchored.complete(),
+            "the anchored walk reached the floor and may claim completeness (error={:?})",
+            anchored.error
+        );
+        assert_eq!(
+            anchored.missing.len(),
+            1,
+            "the hole inside the window is now visible"
+        );
+        assert!(anchored.missing.contains(&"dsig2902".to_string()));
+    }
+
+    /// The anchored walk must not be able to fake completeness: an anchor
+    /// BELOW the claimed floor cannot cover the window.
+    #[test]
+    fn an_anchor_below_the_floor_does_not_prove_the_window() {
+        let j = tmp("lowanchor");
+        for i in 2_900..=3_000 {
+            j.append(&format!("dsig{i}"), i, None, None, "ws").unwrap();
+        }
+        let mut rpc = DeepRpc::new(8_000);
+        let anchor = resolve_anchor(&mut rpc, 50, 20).unwrap();
+        let r = verify_recent_anchored(&j, &mut rpc, "prog", 2, 100, None, Some(anchor)).unwrap();
+        assert!(
+            !r.complete(),
+            "an anchor below the floor cannot cover the window"
+        );
+    }
+
+    /// A missing anchor must be REPORTED, never silently turned into a
+    /// tip-started walk that claims to have covered the deep window.
+    #[test]
+    fn an_unresolvable_anchor_is_reported_instead_of_being_ignored() {
+        let mut rpc = DeepRpc::new(8_000);
+        let err = resolve_anchor(&mut rpc, 900_000, 5).unwrap_err();
+        assert!(
+            err.contains("anchor"),
+            "the failure must name the anchor, not look like a clean scan: {err}"
+        );
     }
 
     /// REGRESSION — the falsifying case of 2026-10-28 kill-test run `full`:
@@ -662,7 +996,7 @@ mod tests {
             chain: chain(10), // no "phantom" signature anywhere on chain
             calls: 0,
         };
-        let r = verify_recent(&j, &mut rpc, "prog", 50, 100, None).unwrap();
+        let r = verify_recent_anchored(&j, &mut rpc, "prog", 50, 100, None, None).unwrap();
         assert!(r.pages > 0, "the scan must actually read pages");
         assert!(r.complete(), "a tip-started scan that finishes is complete");
         assert!(
@@ -683,12 +1017,12 @@ mod tests {
         j.append("sig1", 1, None, None, "ws").unwrap();
         // Fails on the very first call: nothing was read.
         let mut rpc = FlakyRpc { chain: chain(10), calls: 0, fail_after: 0 };
-        let r = verify_recent(&j, &mut rpc, "prog", 5, 3, None).unwrap();
+        let r = verify_recent_anchored(&j, &mut rpc, "prog", 5, 3, None, None).unwrap();
         assert!(!r.complete(), "error + 0 pages must not be complete");
         assert!(r.error.is_some());
         // Page budget reached before the floor: also not complete.
         let mut rpc2 = FakeRpc { chain: chain(100), calls: 0 };
-        let r2 = verify_recent(&j, &mut rpc2, "prog", 1, 10, None).unwrap();
+        let r2 = verify_recent_anchored(&j, &mut rpc2, "prog", 1, 10, None, None).unwrap();
         assert!(r2.truncated, "page budget reached => truncated");
         assert!(!r2.complete(), "truncated must never be complete");
     }
@@ -725,11 +1059,11 @@ mod tests {
             j.append(&format!("sig{i}"), i, None, None, "ws").unwrap();
         }
         let mut rpc = FakeRpc { chain: chain(5), calls: 0 };
-        let r = repair_holes(&j, &mut rpc, "prog", 5, 100, None).unwrap();
+        let r = repair_holes_anchored(&j, &mut rpc, "prog", 5, 100, None, None).unwrap();
         assert_eq!(r.missing, vec!["sig3".to_string()], "verify found the hole");
         assert_eq!(r.filled, 1, "repair appended it");
         let mut rpc2 = FakeRpc { chain: chain(5), calls: 0 };
-        let r2 = verify_recent(&j, &mut rpc2, "prog", 5, 100, None).unwrap();
+        let r2 = verify_recent_anchored(&j, &mut rpc2, "prog", 5, 100, None, None).unwrap();
         assert!(r2.missing.is_empty(), "second scan is clean");
         assert!(r2.complete());
     }
@@ -781,7 +1115,7 @@ mod tests {
             drop_above: 8,
             calls: 0,
         };
-        let r = verify_recent(&j, &mut rpc, "prog", 50, 100, None).unwrap();
+        let r = verify_recent_anchored(&j, &mut rpc, "prog", 50, 100, None, None).unwrap();
         assert!(r.pages > 0, "it did read pages");
         assert!(r.error.is_none(), "and hit no error");
         assert!(r.reached_floor, "and reached the floor");
@@ -800,7 +1134,9 @@ mod tests {
             j.append(&format!("sig{i}"), i, None, None, "ws").unwrap();
         }
         let mut rpc = FakeRpc { chain: chain(10), calls: 0 };
-        let r = verify_recent(&j, &mut rpc, "prog", 50, 100, Some(5)).unwrap();
+        let r = verify_recent_anchored(&j, &mut rpc, "prog", 50, 100, Some(5), None,
+        )
+        .unwrap();
         assert_eq!(
             r.missing,
             vec!["sig8".to_string()],

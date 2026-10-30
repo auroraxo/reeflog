@@ -2,7 +2,7 @@
 
 A durable local mailbox for Solana events. A daemon journals logs, account changes, and transactions for selected programs into a cursor-addressed append-only log, so a consumer resumes without gaps after a crash, disconnect, or reorg.
 
-**Status: v0 working (October 2026).** Live against mainnet-beta: see *Measured results* below. Webhook fan-out and a dead-letter queue ship in this tree; archive backfill and Yellowstone as a second transport do not.
+**Status: v0 working (October 2026).** Live against mainnet-beta: see *Measured results* below. Webhook fan-out, a dead-letter queue, and archive backfill ship in this tree; Yellowstone as a second transport does not.
 
 ## The idea
 
@@ -146,7 +146,7 @@ never be mistaken for a clean one.
 | `getSignatureStatuses` | returns `null` for a phantom, a status for a real signature — the reliable way to tell them apart |
 | throughput | 19 of 40 consecutive `limit=1000` pages answered HTTP 429, ~0.63 pages/s sustained |
 
-Consequence: a backfill written with `since=<newest signature we hold>` returns an empty window and reports no loss while filling nothing. reeflog pages backwards with `before` and stops at the boundary **slot** instead, always starting from the chain tip so no held signature is ever an anchor. This was found by measuring the endpoint, not by reading the docs, and it is recorded in `src/backfill.rs`.
+Consequence: a backfill written with `since=<newest signature we hold>` returns an empty window and reports no loss while filling nothing. reeflog pages backwards with `before` and stops at the boundary **slot** instead. The default walk starts from the chain tip so no held signature is ever an anchor; `--anchor-slot` starts it from a signature the CHAIN returned (the last signature of a finalized block), which is the same rule from the other side. This was found by measuring the endpoint, not by reading the docs, and it is recorded in `src/backfill.rs`.
 
 ## Event content (payload hydration)
 
@@ -578,12 +578,13 @@ list` shows what is in them, and `webhook dlq replay` hands them over. Other
 targets always kept moving. Nothing here is an outside user yet: the
 receiver above is my own test harness, not a third party.
 
-## Two kinds of gap
+## Three kinds of gap
 
 They need different tools, and conflating them is how a "we never lose events" claim turns out to be false:
 
 - **Tail gap** — events after the newest signature the journal holds (crash, disconnect, restart). Fixed by walking back from the chain tip with `before` until the boundary **slot**. Bounded and cheap. reeflog closes this automatically on `start`.
-- **Deep hole** — events missing from the middle of the journal's history. Filling it costs one RPC page per 1000 signatures (the endpoint's maximum), and public endpoints rate-limit: measured 2026-10-28, 19 of 40 consecutive `getSignaturesForAddress` calls answered HTTP 429 at ~0.63 pages/s. `start` therefore repairs a **rolling window** rather than all of history, and `reeflog repair --pages N` does a bounded pass on demand over whatever window you ask for (`--since-slot` raises the floor).
+- **Rolling-window hole** — events missing from the middle of the recent history the daemon saw. Repaired by `start` every 30s over a rolling window (default 1800 slots) so rows the WebSocket dropped do not age out unrescued.
+- **Archive hole** — events missing from history deeper than one tip-walk budget reaches (measured 2026-10-30: 40 pages of 1000 signatures = 40,000 signatures covers only ~17,490 slots / ~2.4h on Raydium AMM v4). A tip-started walk burns its budget crossing history the journal never claimed, reports `truncated: true` and exits 3. `reeflog verify --anchor-slot` and `reeflog repair --anchor-slot` anchor the walk at a finalized block's last signature at the window's ceiling, making 24h-deep (or deeper) holes reachable and verifiable with zero tip-crossing overhead.
 
 A walk that is cut short is reported as truncated, the gap stays **open**, and the command exits non-zero. A partially filled gap is never presented as filled, and a scan that read nothing cannot report `missing_count: 0` as if it had checked.
 
@@ -595,8 +596,8 @@ reeflog start   --db reeflog.db --seconds 60 [--repair-every 30] \
                                       [--repair-lookback 1800] [--repair-pages 40] \
                                       [--payload-limit 500]
 reeflog seal    --db reeflog.db
-reeflog verify  --db reeflog.db --pages 400        # detect, exit 3 if unfinished
-reeflog repair  --db reeflog.db --pages 400        # fill signatures verify found
+reeflog verify  --db reeflog.db --pages 400 [--anchor-slot <slot>]   # detect, exit 3 if unfinished
+reeflog repair  --db reeflog.db --pages 400 [--anchor-slot <slot>]   # fill signatures verify found
 reeflog hydrate --db reeflog.db [--limit 500]      # fetch missing event content
 reeflog tail    --db reeflog.db --cursor ./c.txt   # deliver events (content included)
 reeflog webhook push --db reeflog.db --config webhooks.json   # deliver to outside targets
@@ -608,6 +609,13 @@ journal with planted holes and fails if any step misreports; it passed on
 2026-10-28 with 333 planted holes: verify saw 333, repair filled 333, the
 second verify returned `missing_count: 0, complete: true`, and a deliberately
 truncated scan exited 3.
+
+`tools/e2e-archive.mjs` proves archive-anchored gap fill on live mainnet
+at 24h depth (~216,000 slots back, well past a tip-walk's 17.5k-slot budget):
+tip-started verify exits 3 refusing to claim completeness, anchored verify
+sees all 39 planted holes, anchored repair fills all 39, second verify
+returns `missing_count: 0, complete: true`, and `--anchor-slot` without value
+anchors at the journal's ceiling. Report: `research/archive-e2e-report.json`.
 
 The raw report of the confirmation kill test is committed at
 `research/killtest-full-after-fix-2026-10-28.json` (compact form: the
@@ -623,7 +631,8 @@ Webhook fan-out ships in this tree: `reeflog webhook push` / `status`, signed
 bodies, per-target durable cursors, in-order at-least-once with receipts —
 plus the dead-letter queue (`reeflog webhook dlq list` / `replay`) for a
 target that refuses one event instead of holding its queue forever. Archive
-backfill does **not** exist yet.
+backfill (`verify --anchor-slot` / `repair --anchor-slot`) ships as well,
+anchored at finalized blocks for holes deeper than the tip-walk window.
 
 ## Evidence and limits
 
@@ -631,22 +640,20 @@ Checked on 2026-10-23: Solana client errors already name the failure modes, incl
 
 reeflog does not recover account bytes from before an event. That is a different problem. Public WebSocket endpoints are also rate-limited, so provider independence has to be real rather than assumed.
 
-Still open: Yellowstone as a second transport, archive backfill for deep
-holes, and a real consumer other than my own RFQ fill polling and Whirlpool
-watcher. Reorg handling marks a retracted event, delivers the retraction,
-runs the check inside the daemon, and joins retractions against the fill
-watcher's ledger — and it has now been proven against a REAL fork of a real
-chain, not only against a planted signature. What remains unproven is the
-check's reach on mainnet: it still looks only at sealed rows near the tip,
-and no mainnet fork has been observed end to end.
+Still open: Yellowstone as a second transport, and a real consumer other
+than my own RFQ fill polling and Whirlpool watcher. Reorg handling marks a
+retracted event, delivers the retraction, runs the check inside the daemon,
+and joins retractions against the fill watcher's ledger — and it has now been
+proven against a REAL fork of a real chain, not only against a planted
+signature. What remains unproven is the check's reach on mainnet: it still
+looks only at sealed rows near the tip, and no mainnet fork has been observed
+end to end.
 
 ## Next qualification
 
 1. Put my own RFQ fill polling and Whirlpool watcher on `reeflog tail`. The fill watcher above is the prototype of it — it proves the mailbox yields fills cheaper and without loss, and it now also proves it can be un-done — but the production glue still polls, so user zero is earned, not assumed.
-2. Archive gap-fill for holes deeper than the RPC window.
-3. Yellowstone source as a second transport, then archive backfill for
-   holes deeper than the RPC window.
-4. Observe a real **mainnet** fork end to end: the detector is now proven
+2. Yellowstone source as a second transport.
+3. Observe a real **mainnet** fork end to end: the detector is now proven
    against a real fork of a real chain (`tools/e2e-fork.mjs`, 47/47 checks,
    2026-10-29) and against a planted signature on live mainnet — but no
    mainnet fork has been caught while watching. The daemon's loop makes that

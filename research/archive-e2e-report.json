@@ -1,0 +1,78 @@
+{
+  "harness": "tools/e2e-archive.mjs",
+  "generatedAt": "2026-10-30T08:27:12Z",
+  "endpoint": "https://api.mainnet-beta.solana.com",
+  "program": "675kPX9MHTjS2zt1qfr1NYHuzeLXfQM9H24wFSUt1Mp8",
+  "tipSlot": 463216961,
+  "targetSlot": 463000961,
+  "depthSlots": 216000,
+  "depthDays": 1.0,
+  "anchor": {
+    "slot": 463000961,
+    "sigPrefix": "4yzUjZ3UWFJh9EBd",
+    "source": "getBlock(slot, transactionDetails:signatures).signatures.last"
+  },
+  "harvest": {
+    "rawRows": 200,
+    "cleanRows": 199,
+    "minSlot": 463000877,
+    "maxSlot": 463000961,
+    "kept": 160,
+    "plantedHoles": 39
+  },
+  "checks": [
+    {
+      "name": "tip_started_verify_refuses_to_claim_deep_window",
+      "verdict": "PASS",
+      "exit": 3,
+      "complete": false,
+      "truncated": true,
+      "note": "2 pages from the tip reach ~2000 rows below the tip, ~200k slots above the window floor; refuses exit 0"
+    },
+    {
+      "name": "anchored_verify_sees_deep_holes",
+      "verdict": "PASS",
+      "exit": 0,
+      "complete": true,
+      "missingCount": 39,
+      "expectedMissing": 39,
+      "anchorSlot": 463000961,
+      "note": "anchored walk starts at block last-signature and reads down through the window"
+    },
+    {
+      "name": "anchored_repair_fills_deep_holes",
+      "verdict": "PASS",
+      "exit": 0,
+      "complete": true,
+      "filled": 39,
+      "expectedFilled": 39,
+      "note": "repair writes back the missing signatures in the same pass with 0 extra RPC round trips"
+    },
+    {
+      "name": "second_anchored_verify_is_clean",
+      "verdict": "PASS",
+      "exit": 0,
+      "complete": true,
+      "missingCount": 0,
+      "note": "second scan proves the window is complete and clean"
+    },
+    {
+      "name": "bare_anchor_slot_anchors_at_journal_ceiling",
+      "verdict": "PASS",
+      "exit": 0,
+      "complete": true,
+      "anchorSlot": 463000962,
+      "windowCeil": 463000961,
+      "missingCount": 0,
+      "note": "--anchor-slot without value anchors at journal.newest_slot + 1"
+    },
+    {
+      "name": "unresolvable_anchor_fails_closed",
+      "verdict": "PASS",
+      "exit": 3,
+      "complete": false,
+      "note": "slot 999999999 cannot resolve an anchor; scan exits 3 and never fakes completeness"
+    }
+  ],
+  "verdict": "E2E ARCHIVE: ALL PASS"
+}

@@ -10,7 +10,10 @@ mod payload;
 mod reorg;
 mod webhook;
 
-use backfill::{backfill_tail, repair_holes, verify_recent, HttpFetcher, Report};
+use backfill::{
+    backfill_tail, repair_holes_anchored, resolve_anchor, verify_recent_anchored, Anchor,
+    HttpFetcher, Report,
+};
 use futures_util::{SinkExt, StreamExt};
 use journal::{EventRow, Journal};
 use payload::hydrate_payloads;
@@ -55,18 +58,6 @@ fn backfill_gap(j: &Journal, fetcher: &mut HttpFetcher, program: &str) -> Result
     backfill_tail(j, fetcher, program, 40, PAGE_SIZE)
 }
 
-/// Detect deep holes: scan chain history over the journal's claimed window
-/// (optionally raised to `since_slot`) and report signatures it is missing.
-fn verify_gap(
-    j: &Journal,
-    fetcher: &mut HttpFetcher,
-    program: &str,
-    pages: usize,
-    since_slot: Option<i64>,
-) -> Result<Report, String> {
-    verify_recent(j, fetcher, program, pages, PAGE_SIZE, since_slot)
-}
-
 /// One bounded repair pass. Records what it did as a gap (opened, then
 /// closed with the number of rows it filled) so `status` keeps reporting the
 /// episode instead of the rewrite happening invisibly. An incomplete pass
@@ -75,10 +66,26 @@ fn repair_pass(j: &Journal, rpc_url: &str, program: &str, pages: usize, since_sl
     let mut fetcher = HttpFetcher {
         url: rpc_url.to_string(),
     };
-    let r = match repair_holes(j, &mut fetcher, program, pages, PAGE_SIZE, since_slot) {
+    repair_pass_anchored(j, &mut fetcher, program, pages, since_slot, None, None)
+}
+
+/// One bounded repair pass, optionally started from an archive anchor.
+/// `anchor_error` is carried into the summary so a caller who asked for an
+/// anchor and did not get one sees it in the output — a repair that silently
+/// fell back to the tip would look like a repair that reached the deep hole.
+fn repair_pass_anchored(
+    j: &Journal,
+    fetcher: &mut HttpFetcher,
+    program: &str,
+    pages: usize,
+    since_slot: Option<i64>,
+    anchor: Option<Anchor>,
+    anchor_error: Option<String>,
+) -> Value {
+    let r = match repair_holes_anchored(j, fetcher, program, pages, PAGE_SIZE, since_slot, anchor) {
         Ok(r) => r,
         Err(e) => {
-            return json!({"complete": false, "error": e, "found_missing": 0, "filled": 0});
+            return json!({"complete": false, "error": e, "found_missing": 0, "filled": 0, "anchor_error": anchor_error});
         }
     };
     if !r.missing.is_empty() {
@@ -122,10 +129,70 @@ fn repair_pass(j: &Journal, rpc_url: &str, program: &str, pages: usize, since_sl
         "pages": r.pages,
         "scanned_from_slot": r.scanned_from_slot,
         "since_slot": since_slot,
+        "anchor": r.anchor.as_ref().map(|(sig, slot)| json!({"signature": sig, "slot": slot})),
+        "anchor_error": anchor_error,
         "found_missing": r.missing.len(),
         "filled": r.filled,
         "missing_sample": r.missing.iter().take(5).cloned().collect::<Vec<_>>(),
     })
+}
+
+/// Resolve an archive anchor when the caller asked for one.
+///
+/// `--anchor-slot <slot>` pins the anchor at that slot; `--anchor-slot`
+/// WITHOUT a value anchors at the journal's own newest slot — which is the
+/// interesting case: the journal's window sits deeper than one tip-walk's
+/// page budget reaches, so the walk must start where the window starts.
+///
+/// The anchor is resolved from the CHAIN (the last signature of a finalized
+/// block), never from the journal: an anchor the chain might not know is the
+/// exact failure the 2026-10-28 kill test punished.
+///
+/// Failure is never silent: the error is returned so the caller can report
+/// it and fall back to a tip-started walk that says so.
+fn resolve_requested_anchor(
+    args: &[String],
+    j: &Journal,
+    fetcher: &mut HttpFetcher,
+) -> (Option<Anchor>, Option<String>) {
+    if !args.iter().any(|a| a == "--anchor-slot") {
+        return (None, None);
+    }
+    // `--anchor-slot <n>` pins the anchor at slot n. A bare `--anchor-slot`
+    // (or `--anchor-slot --other-flag`) anchors at the journal's own window.
+    // Treating a MISSING value as "no anchor requested" would be the worst
+    // kind of silent failure: the caller asks for the archive path, the walk
+    // quietly starts at the tip, and the output looks identical to a
+    // successful anchored scan — so an unparseable explicit value is an
+    // ERROR, not a fallback.
+    let raw = arg(args, "--anchor-slot").filter(|v| !v.starts_with("--"));
+    let target: i64 = match raw {
+        Some(v) => match v.parse() {
+            Ok(s) => s,
+            Err(_) => {
+                return (
+                    None,
+                    Some(format!("--anchor-slot: {v} is not a slot number")),
+                )
+            }
+        },
+        None => match j.newest_slot() {
+            Ok(Some(s)) => s + 1,
+            _ => {
+                return (
+                    None,
+                    Some("--anchor-slot: journal holds no slot to anchor at".into()),
+                )
+            }
+        },
+    };
+    let tries: i64 = arg(args, "--anchor-tries")
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(20);
+    match resolve_anchor(fetcher, target, tries) {
+        Ok(a) => (Some(a), None),
+        Err(e) => (None, Some(e)),
+    }
 }
 
 fn bump(v: &mut Value, key: &str) {
@@ -1094,7 +1161,14 @@ fn run_verify(args: &[String]) {
         .unwrap_or(40);
     let since_slot: Option<i64> = arg(args, "--since-slot").and_then(|s| s.parse().ok());
     let mut fetcher = HttpFetcher { url: rpc_url };
-    let r = verify_gap(&j, &mut fetcher, &program, pages, since_slot).unwrap_or_else(|e| die(e));
+    // An archive anchor makes a DEEP window verifiable: a tip-started walk
+    // spends its page budget crossing history above the journal's ceiling
+    // and never reaches the floor (measured 2026-10-30: 40 pages = ~2.4h of
+    // a busy program's history). The anchor comes from the chain, and a
+    // failed anchor is reported, never silently dropped.
+    let (anchor, anchor_error) = resolve_requested_anchor(args, &j, &mut fetcher);
+    let r = verify_recent_anchored(&j, &mut fetcher, &program, pages, PAGE_SIZE, since_slot, anchor)
+        .unwrap_or_else(|e| die(e));
     // A hole is a hole: record it so status keeps reporting it.
     if !r.missing.is_empty() {
         let _ = j.gap_open(
@@ -1111,6 +1185,12 @@ fn run_verify(args: &[String]) {
     // An incomplete scan proves NOTHING. It used to be reported as
     // `missing_count: 0` — the exact lie the kill test caught. Say so loudly
     // and exit non-zero so a caller cannot mistake silence for health.
+    // `complete` stays a pure statement about COVERAGE: if the walk (even a
+    // tip-started fallback after a failed anchor) really reached the floor
+    // and crossed the ceiling, the window IS proven and denying that would
+    // be a lie in the safe direction. The anchor failure is reported
+    // separately and loudly — a caller who asked for the archive path must
+    // never have to guess which path ran.
     let complete = r.complete();
     println!(
         "{}",
@@ -1123,12 +1203,17 @@ fn run_verify(args: &[String]) {
             "error": r.error,
             "scanned_from_slot": r.scanned_from_slot,
             "since_slot": since_slot,
+            "anchor": r.anchor.as_ref().map(|(sig, slot)| json!({"signature": sig, "slot": slot})),
+            "anchor_error": anchor_error,
             "missing_count": r.missing.len(),
             "missing_sample": r.missing.iter().take(5).cloned().collect::<Vec<_>>(),
             "journal_events": j.counts().unwrap_or_else(|e| die(e)).total,
         }))
         .unwrap()
     );
+    if let Some(err) = &anchor_error {
+        eprintln!("reeflog: anchor resolution FAILED ({err}) — walk fell back to the chain tip");
+    }
     if !complete {
         eprintln!(
             "reeflog: verify INCOMPLETE (error={:?}, truncated={}, pages={}) — the scan proves nothing about the journal's completeness",
@@ -1154,7 +1239,17 @@ fn run_repair(args: &[String]) {
         .and_then(|s| s.parse().ok())
         .unwrap_or(40);
     let since_slot: Option<i64> = arg(args, "--since-slot").and_then(|s| s.parse().ok());
-    let summary = repair_pass(&j, &rpc_url, &program, pages, since_slot);
+    let mut fetcher = HttpFetcher { url: rpc_url };
+    let (anchor, anchor_error) = resolve_requested_anchor(args, &j, &mut fetcher);
+    let summary = repair_pass_anchored(
+        &j,
+        &mut fetcher,
+        &program,
+        pages,
+        since_slot,
+        anchor,
+        anchor_error,
+    );
     println!("{}", serde_json::to_string_pretty(&summary).unwrap());
     if summary["complete"].as_bool() != Some(true) {
         eprintln!("reeflog: repair pass INCOMPLETE — the journal may still hold holes");
