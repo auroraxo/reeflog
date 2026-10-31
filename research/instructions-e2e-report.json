@@ -26,9 +26,16 @@
   },
   "mutations": {
     "tool": "tools/e2e-accounts-mutations.mjs",
-    "result": "6/6 caught (see probe log for the final run)",
-    "new": ["instruction-data-shift (must fail the cross-check)", "inner-position-drop (must fail the cross-check)"],
-    "harness_fix": "exit 2 no longer counts as a catch"
+    "result": "6/6 caught, all exit=1 (a named check failed): address-shift, delta-drop, empty-delta, wrong-mint, instruction-data-shift (CPI checks + cross-check), inner-position-drop (deterministic CPI-position stub check + cross-check)",
+    "new": ["instruction-data-shift (must fail the cross-check)", "inner-position-drop (must fail the cross-check)", "probe counts only exit=1 as a catch now"],
+    "harness_fix": "exit 2 no longer counts as a catch; first probe run had counted an exit=2 (setup failure) as a catch for inner-position-drop"
+  },
+  "live_upgrade_scenario": {
+    "setup": "pre-fix binary (741b622) enriched a real journal from live mainnet (2 rows, balances without instructions)",
+    "old_binary_status": "accounts_held=2, accounts_missing=0 — the half envelopes look complete",
+    "new_binary_status": "accounts_held=2, accounts_partial=2, accounts_missing=0",
+    "repair": "hydrate --accounts: stored=2, complete=true",
+    "after": "accounts_partial=0, second pass stored=0 (idempotent)"
   },
   "unit_tests": "84 passed; 0 failed (was 82 with the in-flight work, 77 on base); clippy -D warnings clean (CI invocation); decoder selftest ALL PASS",
   "regression_tests_added": [
