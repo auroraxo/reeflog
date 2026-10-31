@@ -668,7 +668,12 @@ for `dead_letter_after` refused attempts, then the event is quarantined and
 the queue moves on — `webhook status` shows `dead_letters`, `webhook dlq
 list` shows what is in them, and `webhook dlq replay` hands them over. Other
 targets always kept moving. Nothing here is an outside user yet: the
-receiver above is my own test harness, not a third party.
+receiver above is my own test harness, not a third party. The first consumer
+that is not reeflog lives in its own repository —
+[auroraxo/whirlpool-watcher](https://github.com/auroraxo/whirlpool-watcher),
+which reads this mailbox over `tail` and the signed webhook, decodes Whirlpool
+`Traded` events with a layout it verified against live mainnet itself, and
+keeps a fill ledger without spending an RPC call (see the qualification list).
 
 ## Three kinds of gap
 
@@ -749,7 +754,7 @@ end to end.
 
 ## Next qualification
 
-1. Put my own RFQ fill polling and Whirlpool watcher on `reeflog tail`. The fill watcher above is the prototype of it — it proves the mailbox yields fills cheaper and without loss, and it now also proves it can be un-done — but the production glue still polls, so user zero is earned, not assumed.
+1. ~~Put my own RFQ fill polling and Whirlpool watcher on `reeflog tail`.~~ **User zero exists**: [auroraxo/whirlpool-watcher](https://github.com/auroraxo/whirlpool-watcher) (2026-10-31) is a real out-of-tree consumer — separate repository, no reeflog code linked, the `Traded` decode verified from live mainnet independently. Measured against a direct-RPC poller on the same window: 7/7 checks, including `window_superset` (0 in-window trades missing), `decoded_amounts_match` (two independently written decoders agree) and `chain_witness` (every sampled fill's amounts appear as real token-balance deltas); the watcher made **0 RPC calls** for 138 fills where the poller spent **85 calls** for 19 trade-bearing transactions. Its mutation probe goes red as required. What remains out of scope: this consumer is still the mailbox owner's own (user zero, not user one), and my own RFQ fill polling has not been moved over yet — a third party adopting it is what would close the second half of this item.
 2. Yellowstone source as a second transport.
 3. Observe a real **mainnet** fork end to end: the detector is now proven
    against a real fork of a real chain (`tools/e2e-fork.mjs`, 47/47 checks,
