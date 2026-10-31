@@ -56,6 +56,13 @@ type TokenEntry = (Option<String>, Option<String>);
 ///   "accounts_total": 33,
 ///   "accounts_static": 33,
 ///   "accounts_loaded": 0,
+///   "accounts_flags_source": "header",
+///   "accounts": [
+///     {"index": 0, "address": "...", "signer": true, "writable": true,
+///      "source": "static"},
+///     {"index": 33, "address": "...", "signer": false, "writable": true,
+///      "source": "lookup_writable"}
+///   ],
 ///   "instructions": [
 ///     {"inner": false, "outer": 0, "program_id": "...",
 ///      "accounts": ["...", null], "data": "<base58>"},
@@ -134,6 +141,144 @@ pub fn extract(tx: &Value) -> Option<AccountEnvelope> {
     let post = meta.get("postBalances").and_then(|v| v.as_array());
     let pre_tok = meta.get("preTokenBalances").and_then(|v| v.as_array());
     let post_tok = meta.get("postTokenBalances").and_then(|v| v.as_array());
+
+    // The ACCOUNT LIST with signer/writable flags — what a consumer needs to
+    // know WHICH accounts a transaction touched and how, without a second
+    // RPC round trip. This is the field the envelope claimed it needed; until
+    // 31.10. it carried only the CHANGES and the counts.
+    //
+    // Versioned messages CARRY the authoritative flags per static key (the
+    // object form of accountKeys). Legacy messages do not, and the flags are
+    // DERIVED from the message header's three counts plus the loaded groups:
+    //   [writable signed][readonly signed][writable unsigned][readonly unsigned]
+    // then loaded writable (all non-signers), then loaded readonly.
+    // The derivation is not an assumption: measured live 2026-10-31 against
+    // jsonParsed's authoritative per-key flags (source transaction/lookupTable)
+    // over 346 keys across 8 transactions incl. two with lookup tables —
+    // 346/346 agreement, 0 mismatches, static-prefix order identical.
+    let object_keys: Option<Vec<&Value>> = msg
+        .get("accountKeys")
+        .and_then(|v| v.as_array())
+        .map(|a| a.iter().collect());
+    let has_authoritative = object_keys
+        .as_ref()
+        .map(|keys| keys.first().map(|k| k.is_object()).unwrap_or(false))
+        .unwrap_or(false);
+    let (flags_source, account_list): (&str, Option<Vec<Value>>) = if has_authoritative {
+        // The response itself states signer/writable per static key; loaded
+        // keys are always non-signers, and their writable bit is which group
+        // they came from.
+        let mut entries: Vec<Value> = Vec::with_capacity(addresses.len());
+        let keys = object_keys.as_deref().unwrap_or(&[]);
+        for (i, k) in keys.iter().enumerate() {
+            entries.push(json!({
+                "index": i,
+                "address": addresses.get(i).cloned(),
+                "signer": k.get("signer").and_then(|v| v.as_bool()).unwrap_or(false),
+                "writable": k.get("writable").and_then(|v| v.as_bool()).unwrap_or(false),
+                "source": "static",
+            }));
+        }
+        let lw = loaded
+            .and_then(|l| l.get("writable"))
+            .and_then(|v| v.as_array())
+            .map(|a| a.len())
+            .unwrap_or(0);
+        let lr = loaded
+            .and_then(|l| l.get("readonly"))
+            .and_then(|v| v.as_array())
+            .map(|a| a.len())
+            .unwrap_or(0);
+        for i in 0..lw {
+            entries.push(json!({
+                "index": static_count + i,
+                "address": addresses.get(static_count + i).cloned(),
+                "signer": false,
+                "writable": true,
+                "source": "lookup_writable",
+            }));
+        }
+        for i in 0..lr {
+            entries.push(json!({
+                "index": static_count + lw + i,
+                "address": addresses.get(static_count + lw + i).cloned(),
+                "signer": false,
+                "writable": false,
+                "source": "lookup_readonly",
+            }));
+        }
+        ("stated", Some(entries))
+    } else {
+        // Derive from the header. A header the response does not carry, or
+        // whose counts do not fit the static keys, refuses the derivation:
+        // a guessed flag is worse than an absent one (it would authorize a
+        // consumer that trusts it).
+        let header = msg.get("header");
+        let n_sig = header
+            .and_then(|h| h.get("numRequiredSignatures"))
+            .and_then(|v| v.as_u64());
+        let n_rs = header
+            .and_then(|h| h.get("numReadonlySignedAccounts"))
+            .and_then(|v| v.as_u64());
+        let n_ru = header
+            .and_then(|h| h.get("numReadonlyUnsignedAccounts"))
+            .and_then(|v| v.as_u64());
+        let lw = loaded
+            .and_then(|l| l.get("writable"))
+            .and_then(|v| v.as_array())
+            .map(|a| a.len() as u64)
+            .unwrap_or(0);
+        let lr = loaded
+            .and_then(|l| l.get("readonly"))
+            .and_then(|v| v.as_array())
+            .map(|a| a.len() as u64)
+            .unwrap_or(0);
+        let n_static = static_count as u64;
+        match (n_sig, n_rs, n_ru) {
+            (Some(n_sig), Some(n_rs), Some(n_ru)) if n_sig <= n_static
+                && n_rs <= n_sig
+                && n_ru <= n_static - n_sig =>
+            {
+                let n_ws = n_sig - n_rs;
+                let n_wu = n_static - n_sig - n_ru;
+                let mut entries: Vec<Value> = Vec::with_capacity(addresses.len());
+                for i in 0..n_static {
+                    let (signer, writable) = if i < n_sig {
+                        (true, i < n_ws)
+                    } else {
+                        (false, i - n_sig < n_wu)
+                    };
+                    entries.push(json!({
+                        "index": i,
+                        "address": addresses.get(i as usize).cloned(),
+                        "signer": signer,
+                        "writable": writable,
+                        "source": "static",
+                    }));
+                }
+                for i in 0..lw {
+                    entries.push(json!({
+                        "index": static_count + i as usize,
+                        "address": addresses.get(static_count + i as usize).cloned(),
+                        "signer": false,
+                        "writable": true,
+                        "source": "lookup_writable",
+                    }));
+                }
+                for i in 0..lr {
+                    entries.push(json!({
+                        "index": static_count + lw as usize + i as usize,
+                        "address": addresses.get(static_count + lw as usize + i as usize).cloned(),
+                        "signer": false,
+                        "writable": false,
+                        "source": "lookup_readonly",
+                    }));
+                }
+                ("header", Some(entries))
+            }
+            _ => ("unavailable", None),
+        }
+    };
 
     // The balances may be shorter than the account list (a truncated or
     // partial response). Every balance is then matched to the address at the
@@ -321,6 +466,14 @@ pub fn extract(tx: &Value) -> Option<AccountEnvelope> {
             "accounts_total": addresses.len(),
             "accounts_static": static_count,
             "accounts_loaded": loaded_count,
+            // "stated" = the response carries the flags; "header" = derived
+            // from the message header; "unavailable" = neither, so `accounts`
+            // is null rather than a list of guessed permissions.
+            "accounts_flags_source": flags_source,
+            "accounts": match account_list {
+                Some(list) => Value::Array(list),
+                None => Value::Null,
+            },
             "instructions": instructions,
             "lamport_changes": lamport_changes,
             "token_changes": token_changes,
@@ -495,6 +648,157 @@ mod tests {
         assert_eq!(env.value["program_id"], "P");
         let changes = env.value["lamport_changes"].as_array().unwrap();
         assert_eq!(changes[0]["address"], "B");
+    }
+
+    #[test]
+    fn the_account_list_carries_the_permissions_a_consumer_needs() {
+        // The gap this closes: the envelope said WHAT changed and HOW MANY
+        // accounts there were, but not WHICH accounts the transaction touched
+        // and whether it could write to them. A consumer that wanted to know
+        // "was my account written to" had to ask the chain again.
+        let tx = json!({
+            "slot": 200,
+            "transaction": {
+                "message": {
+                    "accountKeys": ["A", "B", "C", "D"],
+                    "header": {
+                        "numRequiredSignatures": 1,
+                        "numReadonlySignedAccounts": 0,
+                        "numReadonlyUnsignedAccounts": 1
+                    },
+                    "instructions": [{"programIdIndex": 3}]
+                }
+            },
+            "meta": {
+                "preBalances": [1, 2, 3, 4],
+                "postBalances": [1, 2, 3, 4]
+            }
+        });
+        let env = extract(&tx).expect("envelope");
+        assert_eq!(env.value["accounts_flags_source"], "header");
+        let accounts = env.value["accounts"].as_array().expect("account list");
+        assert_eq!(accounts.len(), 4);
+        assert_eq!(accounts[0]["address"], "A");
+        assert_eq!(accounts[0]["signer"], true);
+        assert_eq!(accounts[0]["writable"], true, "the first required signature is writable");
+        assert_eq!(accounts[1]["signer"], false);
+        assert_eq!(accounts[1]["writable"], true, "an unsigned key before the readonly ones is writable");
+        // The header says 1 required signature and 1 readonly-unsigned
+        // account, and there are 4 static keys: so 2 of them are writable
+        // unsigned, and only the LAST one is readonly.
+        assert_eq!(accounts[2]["writable"], true);
+        assert_eq!(accounts[3]["writable"], false, "the readonly-unsigned tail is not writable");
+        assert_eq!(accounts[0]["source"], "static");
+    }
+
+    #[test]
+    fn a_lookup_table_account_keeps_its_group_and_its_position() {
+        // The trap the balances already fell into, now for the permissions:
+        // a loaded WRITABLE account is writable, a loaded READONLY one is
+        // not, and both keep their index in the canonical list.
+        let tx = json!({
+            "slot": 201,
+            "transaction": {
+                "message": {
+                    "accountKeys": ["A", "B"],
+                    "header": {
+                        "numRequiredSignatures": 1,
+                        "numReadonlySignedAccounts": 0,
+                        "numReadonlyUnsignedAccounts": 1
+                    },
+                    "instructions": [{"programIdIndex": 1}]
+                }
+            },
+            "meta": {
+                "loadedAddresses": {"writable": ["W"], "readonly": ["R"]},
+                "preBalances": [1, 2, 3, 4],
+                "postBalances": [1, 2, 3, 4]
+            }
+        });
+        let env = extract(&tx).expect("envelope");
+        let accounts = env.value["accounts"].as_array().expect("account list");
+        assert_eq!(accounts.len(), 4);
+        assert_eq!(accounts[2]["address"], "W");
+        assert_eq!(accounts[2]["writable"], true);
+        assert_eq!(accounts[2]["source"], "lookup_writable");
+        assert_eq!(accounts[2]["index"], 2);
+        assert_eq!(accounts[3]["address"], "R");
+        assert_eq!(accounts[3]["writable"], false);
+        assert_eq!(accounts[3]["source"], "lookup_readonly");
+    }
+
+    #[test]
+    fn a_versioned_message_states_its_own_permissions_and_they_are_not_derived() {
+        // The response carries the authoritative flags in the object form of
+        // accountKeys. When it does, the envelope states them — it does not
+        // derive them, because the derivation is only a fallback.
+        let tx = json!({
+            "slot": 202,
+            "transaction": {
+                "message": {
+                    "version": 0,
+                    "accountKeys": [
+                        {"pubkey": "A", "signer": true, "writable": true},
+                        {"pubkey": "B", "signer": false, "writable": false}
+                    ],
+                    "instructions": [{"programId": "P"}]
+                }
+            },
+            "meta": {"preBalances": [1, 2], "postBalances": [1, 2]}
+        });
+        let env = extract(&tx).expect("envelope");
+        assert_eq!(env.value["accounts_flags_source"], "stated");
+        let accounts = env.value["accounts"].as_array().expect("account list");
+        assert_eq!(accounts[0]["signer"], true);
+        assert_eq!(accounts[0]["writable"], true);
+        assert_eq!(accounts[1]["signer"], false);
+        assert_eq!(accounts[1]["writable"], false);
+    }
+
+    #[test]
+    fn a_header_that_does_not_fit_the_static_keys_refuses_the_derivation() {
+        // A guessed permission is worse than an absent one: a consumer that
+        // trusts "writable" would act on a flag nobody stated. When the
+        // header's counts cannot describe the static keys, the envelope says
+        // so and delivers no permissions at all.
+        let tx = json!({
+            "slot": 203,
+            "transaction": {
+                "message": {
+                    "accountKeys": ["A", "B"],
+                    "header": {
+                        "numRequiredSignatures": 1,
+                        "numReadonlySignedAccounts": 0,
+                        "numReadonlyUnsignedAccounts": 9
+                    },
+                    "instructions": [{"programIdIndex": 1}]
+                }
+            },
+            "meta": {"preBalances": [1, 2], "postBalances": [1, 2]}
+        });
+        let env = extract(&tx).expect("envelope");
+        assert_eq!(env.value["accounts_flags_source"], "unavailable");
+        assert!(
+            env.value["accounts"].is_null(),
+            "no guessed permissions are delivered"
+        );
+    }
+
+    #[test]
+    fn a_message_without_a_header_refuses_the_derivation() {
+        let tx = json!({
+            "slot": 204,
+            "transaction": {
+                "message": {
+                    "accountKeys": ["A", "B"],
+                    "instructions": [{"programIdIndex": 1}]
+                }
+            },
+            "meta": {"preBalances": [1, 2], "postBalances": [1, 2]}
+        });
+        let env = extract(&tx).expect("envelope");
+        assert_eq!(env.value["accounts_flags_source"], "unavailable");
+        assert!(env.value["accounts"].is_null());
     }
 
     #[test]

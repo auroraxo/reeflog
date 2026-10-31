@@ -518,8 +518,10 @@ impl Journal {
                 "UPDATE events SET accounts=?2, account_state='held'
                  WHERE signature=?1 AND logs IS NOT NULL
                    AND (account_state IS NULL
-                        OR json_extract(accounts, '$.instructions') IS NULL)
-                    AND json_extract(?2, '$.instructions') IS NOT NULL",
+                        OR json_extract(accounts, '$.instructions') IS NULL
+                        OR json_extract(accounts, '$.accounts_flags_source') IS NULL)
+                    AND json_extract(?2, '$.instructions') IS NOT NULL
+                    AND json_extract(?2, '$.accounts_flags_source') IS NOT NULL",
                 params![signature, accounts],
             )
             .map_err(|e| e.to_string())?;
@@ -553,10 +555,16 @@ impl Journal {
     /// (socket-delivered rows never paid the `getTransaction`), and a row
     /// can have an envelope that PREDATES a field the extractor now
     /// extracts — a journal written by an older binary holds balances but
-    /// no instruction bytes. The second kind looks complete to every
+    /// no instruction bytes, and one written before the account list
+    /// existed holds neither. The second kind looks complete to every
     /// count-based query, so a mailbox that only asked "is there an
     /// envelope?" would deliver a half event and call it whole. Both kinds
     /// are selected here, and the caller re-fetches and overwrites.
+    ///
+    /// `accounts_flags_source` is the marker of the newer extractor. It is
+    /// written even when the derivation is refused ("unavailable"), so a row
+    /// whose flags could not be derived is NOT re-fetched forever: the chain
+    /// would answer the same.
     pub fn events_missing_accounts(&self, limit: i64) -> Result<Vec<(i64, String)>, String> {
         let mut stmt = self
             .db
@@ -565,7 +573,8 @@ impl Journal {
                  WHERE logs IS NOT NULL
                    AND (account_state IS NULL
                         OR (accounts IS NOT NULL
-                            AND json_extract(accounts, '$.instructions') IS NULL))
+                            AND (json_extract(accounts, '$.instructions') IS NULL
+                                 OR json_extract(accounts, '$.accounts_flags_source') IS NULL)))
                  ORDER BY seq LIMIT ?1",
             )
             .map_err(|e| e.to_string())?;
@@ -592,7 +601,8 @@ impl Journal {
                  WHERE logs IS NOT NULL
                    AND (account_state IS NULL
                         OR (accounts IS NOT NULL
-                            AND json_extract(accounts, '$.instructions') IS NULL))",
+                            AND (json_extract(accounts, '$.instructions') IS NULL
+                                 OR json_extract(accounts, '$.accounts_flags_source') IS NULL)))",
                 [],
                 |r| r.get(0),
             )
@@ -1228,12 +1238,16 @@ impl Journal {
         // extractor produces. Silent unless counted — a consumer reading
         // `accounts_held` alone would believe a half envelope is a whole
         // one, exactly the confusion `account_state` exists to prevent.
+        // Two of those fields now: the instruction bytes and the account
+        // list. An envelope missing EITHER one is half of what the current
+        // extractor writes.
         let accounts_partial: i64 = self
             .db
             .query_row(
                 "SELECT COUNT(*) FROM events
                  WHERE accounts IS NOT NULL
-                   AND json_extract(accounts, '$.instructions') IS NULL",
+                   AND (json_extract(accounts, '$.instructions') IS NULL
+                        OR json_extract(accounts, '$.accounts_flags_source') IS NULL)",
                 [],
                 |r| r.get(0),
             )
