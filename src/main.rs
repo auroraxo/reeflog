@@ -1432,6 +1432,7 @@ fn run_status(args: &[String]) {
             // accounts, which still owe it (`hydrate --accounts`), and which
             // are known-unreachable (the chain forgot the transaction).
             "accounts_held": c.accounts_held,
+            "accounts_partial": c.accounts_partial,
             "accounts_missing": c.accounts_missing,
             "accounts_unreachable": c.accounts_unreachable,
         }))
@@ -1512,6 +1513,7 @@ fn run_hydrate(args: &[String]) {
                 "payload_unavailable": c.payload_unavailable,
                 "payload_invalid": c.payload_invalid,
                 "accounts_held": c.accounts_held,
+                "accounts_partial": c.accounts_partial,
                 "accounts_missing": c.accounts_missing,
             },
         }))

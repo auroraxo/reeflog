@@ -622,6 +622,72 @@ mod tests {
         assert_eq!(rpc.calls, before, "the second pass must cost no RPC");
     }
 
+    /// A journal written by an older binary: balances stored, instruction
+    /// bytes never extracted. The envelope exists, every count-based query
+    /// sees it, and a pass that only asked "is there an envelope?" would
+    /// leave it half forever while reporting the journal complete.
+    fn plant_pre_instruction_envelope(j: &Journal, signature: &str) {
+        let old = serde_json::json!({
+            "version": "legacy", "slot": 10, "program_id": "Program",
+            "accounts_total": 3, "accounts_static": 3, "accounts_loaded": 0,
+            "lamport_changes": [{"index": 0, "address": "Payer", "before": 1000, "after": 900, "delta": -100}],
+            "token_changes": []
+        });
+        j.db
+            .execute(
+                "UPDATE events SET accounts=?2, account_state='held' WHERE signature=?1",
+                rusqlite::params![signature, old.to_string()],
+            )
+            .unwrap();
+    }
+
+    #[test]
+    fn an_envelope_from_an_older_binary_is_owed_again_not_quoted_back() {
+        // The claim under test: a pre-instruction envelope is INCOMPLETE, so
+        // it is selected for re-enrichment and overwritten by the newer
+        // extractor — a mailbox must not mistake "stored earlier" for
+        // "complete".
+        let j = tmp("partial-envelope");
+        j.append("legacy", 10, None, Some(r#"["x"]"#), "ws").unwrap();
+        plant_pre_instruction_envelope(&j, "legacy");
+        assert_eq!(
+            j.accounts_missing_count().unwrap(),
+            1,
+            "a half envelope is still a debt, not an outcome"
+        );
+        let mut rpc = FullRpc { calls: 0, fail_after: None };
+        let r = hydrate_accounts(&j, &mut rpc, 10).unwrap();
+        assert_eq!(r.stored, 1, "the half envelope is re-fetched and replaced");
+        assert!(r.complete());
+        let rows = j.events_after(0, 10).unwrap();
+        let env: Value = serde_json::from_str(rows[0].accounts.as_ref().unwrap()).unwrap();
+        assert!(
+            env["instructions"].is_array(),
+            "the replacement carries the instruction bytes the old one lacked"
+        );
+        // And the journal is genuinely complete afterwards — not "complete
+        // because the query stopped looking".
+        assert_eq!(j.accounts_missing_count().unwrap(), 0);
+        let mut rpc2 = FullRpc { calls: 0, fail_after: None };
+        let r2 = hydrate_accounts(&j, &mut rpc2, 10).unwrap();
+        assert_eq!(r2.considered, 0, "a complete envelope is not refetched");
+    }
+
+    #[test]
+    fn an_older_binary_never_its_own_half_envelope() {
+        // Symmetry check: set_accounts must also refuse to write a NEW
+        // half-envelope — the guard is on the FIELD, not on who calls it.
+        // Without this, a future extractor regression would be stored over a
+        // good envelope and the journal would silently go backwards.
+        let j = tmp("refuse-half-write");
+        j.append("row", 10, None, Some(r#"["x"]"#), "ws").unwrap();
+        let half = serde_json::json!({"lamport_changes": []});
+        let wrote = j
+            .set_accounts("row", &half.to_string())
+            .expect("set_accounts");
+        assert!(!wrote, "a response without instruction bytes must not overwrite a real envelope");
+    }
+
     #[test]
     fn a_rate_limit_leaves_no_envelope_and_the_pass_incomplete() {
         // The rule that keeps the mailbox honest: an endpoint failure must

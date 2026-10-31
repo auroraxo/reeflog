@@ -10,6 +10,12 @@
 //   3. EMPTY DELTA     — the closed-account encoding hole the first live run
 //                        found, reintroduced.
 //   4. WRONG MINT      — a token row's mint replaced by another row's.
+//   5. INSTRUCTION DATA SHIFT — an instruction's bytes mangled, so the
+//                        instruction half of the envelope no longer matches
+//                        the chain.
+//   6. INNER POSITION DROP — the position of a CPI inside its parent
+//                        instruction dropped, so two CPIs of one call become
+//                        indistinguishable.
 //
 // Each mutation is applied to a COPY of the source tree, the binary is
 // rebuilt, and the e2e must fail. The unmutated tree must pass — otherwise
@@ -37,6 +43,22 @@ const MUTATIONS = [
     name: 'empty-delta',
     find: '        let delta = decimal_sub(&after_eff, &before_eff);',
     replace: '        let delta = if after.is_none() { String::new() } else { decimal_sub(&after_eff, &before_eff) };',
+  },
+  {
+    // The instruction half: an instruction's bytes swapped for another
+    // instruction's bytes (a decoder downstream would then read the wrong
+    // arguments and still "succeed"). The live cross-check must catch it.
+    name: 'instruction-data-shift',
+    find: '            "data": ix.get("data").cloned().unwrap_or(Value::Null),',
+    replace: '            "data": ix.get("data").cloned().unwrap_or(Value::Null).as_str().map(|s| s.to_string()).unwrap_or_default().chars().rev().collect::<String>(),',
+  },
+  {
+    // The CPI position dropped: two CPIs of the same parent become
+    // indistinguishable, so a decoder cannot tell which argument set it is
+    // looking at.
+    name: 'inner-position-drop',
+    find: '                    v["inner_index"] = json!(pos);',
+    replace: '                    let _ = pos;',
   },
   {
     name: 'wrong-mint',
@@ -104,13 +126,26 @@ for (const m of MUTATIONS) {
     continue;
   }
   const bin = path.join(dir, 'target/release/reeflog');
-  const res = await e2e(bin);
+  let res = await e2e(bin);
+  // Exit 2 is the harness failing to set up (the public endpoint rate
+  // limits and `getSignaturesForAddress` comes back empty), not a check
+  // going red. Counting it as a catch would report a mutant as caught by a
+  // verdict that never ran — retry once, then call it inconclusive and
+  // fail, because a probe that cannot tell an RPC flake from a red check
+  // proves nothing either way.
+  if (res.code === 2) {
+    console.log(`  setup failed (exit=2), retrying once: ${res.out.trim().split('\n').slice(-1).join('')}`);
+    await new Promise((r) => setTimeout(r, 20000));
+    res = await e2e(bin);
+  }
   const last = res.out.trim().split('\n').slice(-3).join(' | ');
-  if (res.code !== 0) {
+  if (res.code === 1) {
     caught++;
-    console.log(`  CAUGHT: exit=${res.code} — ${last}`);
-  } else {
+    console.log(`  CAUGHT: exit=1 — ${last}`);
+  } else if (res.code === 0) {
     console.log(`  NOT CAUGHT: the harness passed a broken product — ${last}`);
+  } else {
+    console.log(`  INCONCLUSIVE: exit=${res.code} is a setup failure, not a red check — ${last}`);
   }
 }
 

@@ -126,7 +126,44 @@ function parseIndependent(tx) {
       });
     }
   }
-  return { lamports, tokens };
+  // The instruction half of the envelope, parsed independently: program ids
+  // resolved against the harness's own key list, inner instructions tagged
+  // with their parent index and their position inside it. Same order the
+  // response presents them: outer instructions first, then inner groups.
+  const resolve = (ix) => {
+    const programId = Number.isSafeInteger(ix?.programIdIndex)
+      ? (keys[ix.programIdIndex] ?? null)
+      : (typeof ix?.programId === 'string' ? ix.programId : null);
+    const accounts = Array.isArray(ix?.accounts)
+      ? ix.accounts.map((i) => (Number.isSafeInteger(i) && i >= 0 && i < keys.length ? keys[i] : null))
+      : [];
+    return {
+      inner: false,
+      outer: 0,
+      program_id: programId,
+      accounts,
+      data: typeof ix?.data === 'string' ? ix.data : null,
+    };
+  };
+  const instructions = [];
+  for (const [i, ix] of (msg.instructions ?? []).entries()) {
+    const entry = resolve(ix);
+    entry.outer = i;
+    instructions.push(entry);
+  }
+  for (const group of meta.innerInstructions ?? []) {
+    const outer = Number.isSafeInteger(group?.index) ? group.index : 0;
+    for (const [position, ix] of (group?.instructions ?? []).entries()) {
+      const entry = resolve(ix);
+      entry.outer = outer;
+      entry.inner = true;
+      entry.inner_index = position;
+      instructions.push(entry);
+    }
+  }
+  const err = meta.err === undefined ? null : meta.err;
+
+  return { lamports, tokens, instructions, err };
 }
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -249,22 +286,52 @@ check('--with-accounts: skips are reported on stderr, not swallowed',
 // planted for it does not need to exist on chain.
 // ---------------------------------------------------------------------------
 const CLOSED_SIG = 'Loca1StubClosedAccountSignatureAAAAAAAAAAAAAAAAAAAAAAA';
+const FAIL_SIG = 'Loca1StubFailedTransactionSignatureAAAAAAAAAAAAAAAAAAAA';
 const stubTx = {
   slot: 42,
   transaction: {
     message: {
       accountKeys: ['StubPayer11111111111111111111111111111111111', 'StubAcct22222222222222222222222222222222222222'],
-      instructions: [{ programIdIndex: 1 }],
+      instructions: [
+        { programIdIndex: 1, accounts: [0, 1], data: 'stub-outer' },
+        { programIdIndex: 0, accounts: [1], data: 'stub-outer2' },
+      ],
     },
   },
   meta: {
     logMessages: ['Program log: stub'],
     preBalances: [1000, 500],
     postBalances: [1000, 600],
+    innerInstructions: [
+      { index: 0, instructions: [
+        { programIdIndex: 0, accounts: [1], data: 'stub-cpi-a' },
+        { programIdIndex: 1, accounts: [0], data: 'stub-cpi-b' },
+      ] },
+    ],
     preTokenBalances: [
       { accountIndex: 1, mint: 'StubMint111111111111111111111111111111111111', owner: 'StubOwnr111111111111111111111111111111111111', uiTokenAmount: { amount: '1331874357100' } },
     ],
     postTokenBalances: [],
+    err: null,
+  },
+};
+// A transaction that FAILED. Every live transaction the cross-check samples
+// on a healthy run succeeds, so `err: null === null` would compare green
+// even if the envelope dropped the field entirely — this canned failure is
+// what pins "err is carried verbatim", independent of live traffic.
+const failTx = {
+  slot: 43,
+  transaction: {
+    message: {
+      accountKeys: ['StubPayer11111111111111111111111111111111111'],
+      instructions: [{ programIdIndex: 0, accounts: [0], data: 'failing-ix' }],
+    },
+  },
+  meta: {
+    logMessages: ['Program log: about to fail'],
+    preBalances: [1000],
+    postBalances: [1000],
+    err: { InstructionError: [0, { Custom: 42 }] },
   },
 };
 import http from 'node:http';
@@ -277,6 +344,8 @@ const stubServer = http.createServer((req, res) => {
     res.writeHead(200, { 'content-type': 'application/json' });
     if (sig === CLOSED_SIG) {
       res.end(JSON.stringify({ jsonrpc: '2.0', id: j.id, result: stubTx }));
+    } else if (sig === FAIL_SIG) {
+      res.end(JSON.stringify({ jsonrpc: '2.0', id: j.id, result: failTx }));
     } else {
       res.end(JSON.stringify({ jsonrpc: '2.0', id: j.id, result: null }));
     }
@@ -290,6 +359,8 @@ const stubUrl = `http://127.0.0.1:${stubServer.address().port}`;
 const db2 = new DatabaseSync(DB);
 db2.prepare("INSERT INTO events(signature, slot, first_seen, source, logs, payload_state, seal_status, seal_seen) VALUES(?,?,?,?,?,?,?,?)")
   .run(CLOSED_SIG, 6, Date.now(), 'ws', '["Program log: closed account row"]', 'held', 'finalized', Date.now());
+db2.prepare("INSERT INTO events(signature, slot, first_seen, source, logs, payload_state, seal_status, seal_seen) VALUES(?,?,?,?,?,?,?,?)")
+  .run(FAIL_SIG, 7, Date.now(), 'ws', '["Program log: about to fail"]', 'held', 'finalized', Date.now());
 db2.close();
 
 const h4 = await cli(['hydrate', '--db', DB, '--limit', '10', '--rpc', stubUrl, '--accounts']);
@@ -303,6 +374,27 @@ check('closed account: the stub-served row gets its envelope',
 check('closed account: absence from post means delta = -before, never an empty string',
   closedTok?.before === '1331874357100' && closedTok?.after === '0' && closedTok?.delta === '-1331874357100',
   `before=${closedTok?.before} after=${closedTok?.after} delta=${closedTok?.delta}`);
+
+// The CPI shape and the failed-transaction outcome, both from the local stub:
+// neither depends on live traffic, and both are invisible to a sample of
+// successful transactions.
+const failRow = (await cli(['tail', '--db', DB, '--cursor', path.join(DIR, 'cursor5.txt')]))
+  .out.split('\n').filter(Boolean).map((l) => json(l))
+  .find((x) => x.signature === FAIL_SIG);
+check('failed transaction: the outcome is carried verbatim, not flattened to null',
+  JSON.stringify(failRow?.accounts?.err) === JSON.stringify({ InstructionError: [0, { Custom: 42 }] }),
+  `err=${JSON.stringify(failRow?.accounts?.err)}`);
+const stubIxs = closedRow?.accounts?.instructions ?? [];
+const stubInner = stubIxs.filter((i) => i.inner);
+check('instructions: the CPI is tagged with its parent and its own position',
+  stubInner.length === 2 && stubInner[0].outer === 0 && stubInner[0].inner_index === 0
+    && stubInner[1].outer === 0 && stubInner[1].inner_index === 1
+    && stubInner[0].data === 'stub-cpi-a' && stubInner[1].data === 'stub-cpi-b',
+  `inner=${JSON.stringify(stubInner).slice(0, 240)}`);
+check('instructions: the outer instructions come first, in execution order',
+  stubIxs.length === 4 && stubIxs[0].inner === false && stubIxs[0].outer === 0
+    && stubIxs[0].data === 'stub-outer' && stubIxs[1].outer === 1 && stubIxs[1].data === 'stub-outer2',
+  `outer=${JSON.stringify(stubIxs.slice(0, 2)).slice(0, 200)}`);
 stubServer.close();
 
 // ---------------------------------------------------------------------------
@@ -321,14 +413,21 @@ for (const row of store) {
   const sortL = (a) => [...a].sort((x, y) => String(x.address).localeCompare(String(y.address)));
   const same = canonical(sortL(indep.lamports)) === canonical(sortL(mine.lamport_changes || []));
   const tokSame = canonical(sortL(indep.tokens)) === canonical(sortL(mine.token_changes || []));
-  if (!same || !tokSame) {
+  // The instruction half: every outer and inner instruction, program id,
+  // resolved accounts, verbatim base58 data, parent and CPI position, plus
+  // the transaction outcome — compared the same way, re-parsed from the
+  // chain response rather than read back from reeflog's own numbers.
+  const ixSame = canonical(indep.instructions) === canonical(mine.instructions || []);
+  const errSame = canonical(indep.err) === canonical(mine.err ?? null);
+  if (!same || !tokSame || !ixSame || !errSame) {
     crossMismatch++;
     if (mismatchSamples.length < 2) {
       mismatchSamples.push({
         sig: row.signature.slice(0, 12),
-        lamportsEqual: same, tokensEqual: tokSame,
+        lamportsEqual: same, tokensEqual: tokSame, instructionsEqual: ixSame, errEqual: errSame,
         indepLamports: indep.lamports.length, myLamports: (mine.lamport_changes || []).length,
         indepTokens: indep.tokens.length, myTokens: (mine.token_changes || []).length,
+        indepInstructions: indep.instructions.length, myInstructions: (mine.instructions || []).length,
       });
     }
   } else {
@@ -336,7 +435,7 @@ for (const row of store) {
   }
   await sleep(300);
 }
-check('cross-check: stored envelopes equal an independent re-fetch field by field',
+check('cross-check: stored envelopes (balances, instructions, outcome) equal an independent re-fetch field by field',
   crossMismatch === 0 && crossChecked >= 2,
   `matched=${crossChecked} mismatched=${crossMismatch}${mismatchSamples.length ? ` samples=${JSON.stringify(mismatchSamples)}` : ''}`);
 
@@ -350,6 +449,17 @@ const sj = json(s.out);
 const t4 = await cli(['tail', '--db', DB, '--cursor', path.join(DIR, 'cursor4.txt')]);
 const t4rows = t4.out.split('\n').filter(Boolean).map((l) => json(l));
 const envNow = t4rows.filter((x) => x.accounts && typeof x.accounts === 'object').length;
+// The instruction half must be present on the enriched rows — an envelope
+// with zero instructions would still satisfy the balance cross-check, so the
+// claim "the journal carries the instruction bytes" needs its own check.
+const ixRows = rows.filter((x) => Array.isArray(x.accounts?.instructions) && x.accounts.instructions.length);
+check('instructions: enriched rows carry the instruction bytes with their data',
+  ixRows.length >= 2 && ixRows.every((x) => x.accounts.instructions.every((i) => typeof i.data === 'string' && i.data.length)),
+  `rows with instructions=${ixRows.length}, sample=${JSON.stringify(ixRows[0]?.accounts?.instructions?.[0] ?? null).slice(0, 200)}`);
+check('instructions: the outer/inner distinction and the parent index are recorded',
+  ixRows.length >= 2 && ixRows.every((x) => x.accounts.instructions.every((i) => typeof i.inner === 'boolean' && Number.isSafeInteger(i.outer))),
+  `sample=${JSON.stringify((ixRows[0]?.accounts?.instructions ?? []).slice(0, 2)).slice(0, 220)}`);
+
 check('status: accounts_held covers exactly the rows with envelopes',
   sj.accounts_held === envNow && typeof sj.accounts_missing === 'number',
   `accounts_held=${sj.accounts_held}, envelopes_in_journal=${envNow}, accounts_missing=${sj.accounts_missing}, unreachable=${sj.accounts_unreachable}`);

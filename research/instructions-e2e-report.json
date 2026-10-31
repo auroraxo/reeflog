@@ -1,0 +1,44 @@
+{
+  "generated_at": "2026-10-31T17:10:00Z",
+  "base": "741b622 (account envelopes: balances)",
+  "feature": "the envelope carries the instruction bytes (outer + CPI) and the transaction outcome (err)",
+  "in_flight_takeover": "uncommitted work found in the working tree (src/accounts.rs, tools/e2e-accounts.mjs, tools/e2e-accounts-mutations.mjs, mtime 13:56-13:59 local), no live process, no heartbeat, card moved to ready mid-stream at 13:30; taken over and finished, not redone",
+  "what_changed": [
+    "extractor: instructions[] (outer in execution order, then CPIs tagged with parent outer index + inner_index position; program_id + accounts resolved through the same canonical address list as the balances; data verbatim base58; unresolvable index = explicit null at its position)",
+    "extractor: err = meta.err verbatim (null = success)",
+    "harness: independent re-parse of the instruction half + err in the cross-check; two new checks; deterministic local stub for a 2-CPI transaction and a FAILED transaction",
+    "harness fix: the mutation probe counted ANY non-zero exit as a catch — exit 2 (setup failure against the rate-limited public endpoint) was silently counted as 'caught' (inner-position-drop 'caught' at exit 2 in the first probe run); only exit 1 (a named check failed) counts now, exit 2 retries once then reports INCONCLUSIVE",
+    "product gap found and fixed during verification: envelopes stored by the pre-instruction binary (accounts without $.instructions) were never re-enriched — events_missing_accounts only selected account_state IS NULL, so the half envelope stood as the final word and accounts_missing_count said 0; the debt query and the queue now share one predicate, set_accounts overwrites a half envelope (and refuses to write one), status gained accounts_partial"
+  ],
+  "e2e": {
+    "tool": "tools/e2e-accounts.mjs",
+    "checks": 22,
+    "result": "22/22 passed on the fix tree",
+    "pre_fix": {
+      "binary": "741b622",
+      "result": "16/22 — exactly the 6 new instruction/err checks fail; the 16 pre-existing checks stay green on BOTH trees (they are the false-positive guards)"
+    },
+    "cross_check": "stored envelopes (balances, instructions, outcome) equal an independent re-fetch field by field, matched=4 mismatched=0 (live mainnet, Raydium AMM v4)",
+    "deterministic_stub": [
+      "CPI shape: 2 outers + 2 CPIs, parent index and inner position pinned locally, not from live traffic",
+      "failed transaction: InstructionError [0, {Custom: 42}] carried verbatim — on successful live transactions the err comparison is null===null and would stay green if the field were dropped"
+    ]
+  },
+  "mutations": {
+    "tool": "tools/e2e-accounts-mutations.mjs",
+    "result": "6/6 caught (see probe log for the final run)",
+    "new": ["instruction-data-shift (must fail the cross-check)", "inner-position-drop (must fail the cross-check)"],
+    "harness_fix": "exit 2 no longer counts as a catch"
+  },
+  "unit_tests": "84 passed; 0 failed (was 82 with the in-flight work, 77 on base); clippy -D warnings clean (CI invocation); decoder selftest ALL PASS",
+  "regression_tests_added": [
+    "an_envelope_from_an_older_binary_is_owed_again_not_quoted_back (the partial-envelope debt is re-fetched and replaced, then genuinely complete)",
+    "an_older_binary_never_its_own_half_envelope (set_accounts refuses to write a response without instruction bytes)"
+  ],
+  "limits": [
+    "instructions are the response's base58 strings, not decoded arguments; decoding stays the consumer's job",
+    "err carried verbatim is the outcome of the transaction, not per-instruction",
+    "no outside user; harnesses and receiver are own tooling"
+  ],
+  "next": "user zero: a real outside consumer on tail or the webhook channel"
+}

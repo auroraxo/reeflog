@@ -505,12 +505,21 @@ impl Journal {
     /// but no recorded account outcome. Returns whether this call wrote. A
     /// row the journal never captured logs for stays untouched: `accounts`
     /// without logs would be half an event presented as a whole one.
+    ///
+    /// A row whose envelope PREDATES the current extractor (an older binary
+    /// stored balances but no instruction bytes) is overwritten, not
+    /// skipped: skipping it would leave a half envelope standing as the
+    /// final word forever, and every later pass would report the journal
+    /// complete over it.
     pub fn set_accounts(&self, signature: &str, accounts: &str) -> Result<bool, String> {
         let n = self
             .db
             .execute(
                 "UPDATE events SET accounts=?2, account_state='held'
-                 WHERE signature=?1 AND logs IS NOT NULL AND account_state IS NULL",
+                 WHERE signature=?1 AND logs IS NOT NULL
+                   AND (account_state IS NULL
+                        OR json_extract(accounts, '$.instructions') IS NULL)
+                    AND json_extract(?2, '$.instructions') IS NOT NULL",
                 params![signature, accounts],
             )
             .map_err(|e| e.to_string())?;
@@ -538,12 +547,25 @@ impl Journal {
     /// notification carries no balances), so enriching them costs a
     /// `getTransaction`. Ordered by `seq` — the consumer's earliest rows
     /// first.
+    /// Rows whose account envelope is still owed.
+    ///
+    /// "Owed" has two faces, not one. A row can have NO envelope at all
+    /// (socket-delivered rows never paid the `getTransaction`), and a row
+    /// can have an envelope that PREDATES a field the extractor now
+    /// extracts — a journal written by an older binary holds balances but
+    /// no instruction bytes. The second kind looks complete to every
+    /// count-based query, so a mailbox that only asked "is there an
+    /// envelope?" would deliver a half event and call it whole. Both kinds
+    /// are selected here, and the caller re-fetches and overwrites.
     pub fn events_missing_accounts(&self, limit: i64) -> Result<Vec<(i64, String)>, String> {
         let mut stmt = self
             .db
             .prepare(
                 "SELECT seq, signature FROM events
-                 WHERE logs IS NOT NULL AND account_state IS NULL
+                 WHERE logs IS NOT NULL
+                   AND (account_state IS NULL
+                        OR (accounts IS NOT NULL
+                            AND json_extract(accounts, '$.instructions') IS NULL))
                  ORDER BY seq LIMIT ?1",
             )
             .map_err(|e| e.to_string())?;
@@ -557,10 +579,20 @@ impl Journal {
         Ok(out)
     }
 
+    /// Rows the account pass still owes: no envelope at all, or an envelope
+    /// written before the current extractor existed. Deliberately the SAME
+    /// predicate as `events_missing_accounts` — a debt counter and the queue
+    /// that pays it are two views of one fact, and two hand-written copies
+    /// drift apart (this file already had that bug: the counter said 0 while
+    /// the queue kept fetching).
     pub fn accounts_missing_count(&self) -> Result<i64, String> {
         self.db
             .query_row(
-                "SELECT COUNT(*) FROM events WHERE logs IS NOT NULL AND account_state IS NULL",
+                "SELECT COUNT(*) FROM events
+                 WHERE logs IS NOT NULL
+                   AND (account_state IS NULL
+                        OR (accounts IS NOT NULL
+                            AND json_extract(accounts, '$.instructions') IS NULL))",
                 [],
                 |r| r.get(0),
             )
@@ -1191,6 +1223,21 @@ impl Journal {
                 |r| r.get(0),
             )
             .map_err(|e| e.to_string())?;
+        // Envelopes written before the instruction bytes were extracted:
+        // stored, delivered by tail, and yet missing a field the current
+        // extractor produces. Silent unless counted — a consumer reading
+        // `accounts_held` alone would believe a half envelope is a whole
+        // one, exactly the confusion `account_state` exists to prevent.
+        let accounts_partial: i64 = self
+            .db
+            .query_row(
+                "SELECT COUNT(*) FROM events
+                 WHERE accounts IS NOT NULL
+                   AND json_extract(accounts, '$.instructions') IS NULL",
+                [],
+                |r| r.get(0),
+            )
+            .map_err(|e| e.to_string())?;
         let accounts_unreachable: i64 = self
             .db
             .query_row(
@@ -1227,6 +1274,7 @@ impl Journal {
             payload_invalid,
             accounts_missing,
             accounts_held,
+            accounts_partial,
             accounts_unreachable,
         })
     }
@@ -1286,8 +1334,13 @@ pub struct Counts {
     /// socket-delivered rows, which never paid the `getTransaction` that
     /// carries balances.
     pub accounts_missing: i64,
-    /// Rows carrying an account envelope.
+    /// Rows carrying an account envelope. `accounts_partial` counts the
+    /// envelopes that predate a field the extractor now extracts (compare
+    /// against the CURRENT schema): they are stored but incomplete, and a
+    /// pass that could not tell them from complete ones would deliver half
+    /// an event presented as a whole one.
     pub accounts_held: i64,
+    pub accounts_partial: i64,
     /// Rows with a KNOWN reason for having no envelope (chain forgot the tx,
     /// refused key, no metadata): owed no longer.
     pub accounts_unreachable: i64,

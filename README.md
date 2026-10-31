@@ -205,9 +205,25 @@ extracts that into an envelope stored alongside the logs — at no extra RPC
 cost for rows the journal had to recover.
 
 The envelope contains: `lamport_changes` (index, address, before, after,
-delta) and `token_changes` (index, address, mint, owner, before, after,
-delta) — amounts as exact decimal strings, never floats. It does NOT contain
-account bytes or pre-event account state; see *Evidence and limits*.
+delta), `token_changes` (index, address, mint, owner, before, after,
+delta) — amounts as exact decimal strings, never floats — plus
+`instructions` and `err`.
+
+`instructions` is the transaction's instruction bytes: every outer
+instruction in execution order, then the CPIs each one spawned (`inner:
+true`, tagged with the parent's index in `outer` and their own position in
+`inner_index`), each with the resolved `program_id`, resolved `accounts`,
+and the verbatim base58 `data` exactly as the RPC returned it — reeflog
+never re-encodes bytes it did not produce. Account indices resolve through
+the same canonical list the balances use (so a lookup table cannot shift an
+argument to the wrong address); an index that does not resolve becomes an
+explicit `null` at its own position, because position is information and a
+shifted list would put an argument under the wrong name downstream. `err`
+is `meta.err` verbatim (`null` = success), so a consumer never has to guess
+whether a failed transaction's envelope describes an effect that happened.
+
+The envelope does NOT contain account bytes or pre-event account state; see
+*Evidence and limits*.
 
 Two correctness traps the extractor is built against, each pinned by a test:
 
@@ -238,13 +254,27 @@ Delivery and enrichment:
 - `status` counts `accounts_held` / `accounts_missing` /
   `accounts_unreachable`.
 
-Verified live (`tools/e2e-accounts.mjs`, mainnet, 15/15): envelopes from the
+Verified live (`tools/e2e-accounts.mjs`, mainnet, 22/22): envelopes from the
 free path and the paid path, idempotence, delivery shape, cursor semantics,
-and a field-by-field cross-check of every stored envelope against an
-independent re-fetch and re-parse of the same transactions from the chain.
-`tools/e2e-accounts-mutations.mjs` mutates the extractor four ways (address
-shift, dropped delta, empty delta, wrong mint) and each mutant must fail the
-live harness — a green harness that cannot go red proves nothing.
+and a field-by-field cross-check of every stored envelope — balances,
+instructions and outcome — against an independent re-fetch and re-parse of
+the same transactions from the chain. Two claims do not depend on live
+traffic, because a sample of healthy transactions cannot show them: a local
+stub serves a transaction with two CPIs (the parent tag and the position
+inside it are pinned) and a failed transaction (`InstructionError [0,
+{Custom: 42}]` must arrive verbatim; on successful transactions the live
+comparison is `null === null` and would stay green if the field were
+dropped). Against the pre-fix binary (741b622) the same harness reports
+16/19 — exactly the instruction checks go red, and the 16 checks that
+existed before stay green on both trees.
+
+`tools/e2e-accounts-mutations.mjs` mutates the extractor six ways (address
+shift, dropped delta, empty delta, wrong mint, instruction data shifted, CPI
+position dropped) and each mutant must fail the live harness — a green
+harness that cannot go red proves nothing. The probe counts only exit 1 (a
+named check failed) as a catch: exit 2 is the harness failing to set up
+against the rate-limited public endpoint, and counting that as a catch
+would report a mutant as caught by a verdict that never ran.
 
 ## First external consumer: a fill watcher
 
@@ -726,9 +756,12 @@ end to end.
    2026-10-29) and against a planted signature on live mainnet — but no
    mainnet fork has been caught while watching. The daemon's loop makes that
    plausible to catch; only an observed one closes it.
-4. An account envelope says what an event *did* to balances. A consumer that
-   wants to *know* an account (its state before the event, its authority, its
-   data) still needs the chain: the envelope answers "what changed", not
-   "what is". The next envelope would carry the account list a transaction
-   touched — addresses, owners, writable flags — so a consumer can decide
-   which accounts it cares about without a second RPC round trip.
+4. An account envelope says what an event *did* to balances, and the
+   `instructions` field now carries the bytes a decoder needs to say *why*
+   (outer instructions, CPIs, verbatim data, outcome). A consumer that
+   wants to *know* an account (its state before the event, its authority,
+   its data) still needs the chain: the envelope answers "what changed",
+   not "what is". The next envelope would carry the account list a
+   transaction touched — addresses, owners, writable flags — so a consumer
+   can decide which accounts it cares about without a second RPC round
+   trip.

@@ -1,5 +1,5 @@
-//! What a transaction did to ACCOUNTS, extracted from the response reeflog
-//! already pays for.
+//! What a transaction did — to ACCOUNTS and to the PROGRAM IT RAN — extracted
+//! from the response reeflog already pays for.
 //!
 //! Why this exists
 //! ---------------
@@ -14,10 +14,14 @@
 //! What this module claims
 //! -----------------------
 //! It extracts the ACCOUNT CHANGES a transaction made — the accounts whose
-//! lamport balance moved, and the token balances that changed — from the
-//! transaction's own metadata. It does NOT recover account state: the bytes
-//! an account held BEFORE the event are a different problem, and reeflog
-//! does not solve it (see the README's limits).
+//! lamport balance moved, and the token balances that changed — plus the
+//! transaction's INSTRUCTION BYTES (outer instructions and the CPIs they
+//! spawned), from the transaction's own metadata. The instruction bytes are
+//! what a decoder downstream needs to turn an event into meaning; they were
+//! being fetched a second time by every consumer that wanted them. It does
+//! NOT recover account state: the bytes an account held BEFORE the event are
+//! a different problem, and reeflog does not solve it (see the README's
+//! limits).
 //!
 //! The hard part: account indexing
 //! ------------------------------
@@ -48,9 +52,16 @@ type TokenEntry = (Option<String>, Option<String>);
 ///   "version": "legacy" | 0,
 ///   "slot": 123,
 ///   "program_id": "...",
+///   "err": null | {...},
 ///   "accounts_total": 33,
 ///   "accounts_static": 33,
 ///   "accounts_loaded": 0,
+///   "instructions": [
+///     {"inner": false, "outer": 0, "program_id": "...",
+///      "accounts": ["...", null], "data": "<base58>"},
+///     {"inner": true, "outer": 0, "program_id": "...", "accounts": [],
+///      "data": "<base58>"}
+///   ],
 ///   "lamport_changes": [
 ///     {"index": 2, "address": "...", "before": 1, "after": 2, "delta": 1}
 ///   ],
@@ -63,6 +74,17 @@ type TokenEntry = (Option<String>, Option<String>);
 /// Amounts are strings: a u64 token amount does not fit in a JSON number
 /// without losing digits, and a balance that silently loses its last digits
 /// is worse than a balance that is obviously a string.
+///
+/// `instructions` is ordered: every outer instruction in execution order
+/// first, then `meta.innerInstructions` groups in response order. `outer` on
+/// an outer entry is its own index; on an inner entry it is the top-level
+/// instruction that spawned it. `data` is the base58 string exactly as the
+/// RPC returned it — reeflog never re-encodes bytes it did not produce. An
+/// account index that does not resolve becomes an explicit `null` at its own
+/// position: position is information, and a shifted list would put an
+/// argument under the wrong name downstream. `err` is `meta.err` verbatim
+/// (`null` = the transaction succeeded), so a consumer never has to guess
+/// whether a failed transaction's logs describe an effect that happened.
 #[derive(Debug, Clone, PartialEq)]
 pub struct AccountEnvelope {
     pub value: Value,
@@ -221,6 +243,69 @@ pub fn extract(tx: &Value) -> Option<AccountEnvelope> {
                 .map(|s| s.to_string())
         });
 
+    // The instruction bytes, resolved through the SAME canonical address list
+    // the balances use: a v0 transaction with a lookup table keeps its
+    // instruction accounts on the right addresses (the index shift this
+    // module exists to prevent would corrupt arguments silently, exactly the
+    // way it corrupted balances).
+    let resolve_ix = |ix: &Value, outer: usize, inner: bool| -> Value {
+        let program_id = ix
+            .get("programIdIndex")
+            .and_then(|v| v.as_u64())
+            .and_then(|i| addresses.get(i as usize).cloned())
+            .or_else(|| {
+                ix.get("programId")
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.to_string())
+            });
+        let accounts: Vec<Value> = ix
+            .get("accounts")
+            .and_then(|v| v.as_array())
+            .map(|list| {
+                list.iter()
+                    .map(|i| {
+                        i.as_u64()
+                            .and_then(|n| addresses.get(n as usize).cloned())
+                            .map(Value::String)
+                            // An index that does not resolve keeps its SLOT:
+                            // position is information. Dropping it or
+                            // shifting the list would put an argument under
+                            // the wrong name downstream.
+                            .unwrap_or(Value::Null)
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+        json!({
+            "inner": inner,
+            "outer": outer,
+            "program_id": program_id,
+            "accounts": accounts,
+            "data": ix.get("data").cloned().unwrap_or(Value::Null),
+        })
+    };
+    let mut instructions: Vec<Value> = Vec::new();
+    if let Some(list) = msg.get("instructions").and_then(|v| v.as_array()) {
+        for (i, ix) in list.iter().enumerate() {
+            instructions.push(resolve_ix(ix, i, false));
+        }
+    }
+    if let Some(groups) = meta.get("innerInstructions").and_then(|v| v.as_array()) {
+        for g in groups {
+            let outer = g.get("index").and_then(|v| v.as_u64()).unwrap_or(0) as usize;
+            if let Some(list) = g.get("instructions").and_then(|v| v.as_array()) {
+                for (pos, ix) in list.iter().enumerate() {
+                    let mut v = resolve_ix(ix, outer, true);
+                    // Position within the parent's CPI list: a decoder reads
+                    // the Nth CPI of an instruction as its own fact, and a
+                    // lost position is a lost fact.
+                    v["inner_index"] = json!(pos);
+                    instructions.push(v);
+                }
+            }
+        }
+    }
+
     let version = match msg.get("version") {
         Some(Value::String(s)) => Value::String(s.clone()),
         Some(v) if v.is_number() => v.clone(),
@@ -232,9 +317,11 @@ pub fn extract(tx: &Value) -> Option<AccountEnvelope> {
             "version": version,
             "slot": tx.get("slot").cloned().unwrap_or(Value::Null),
             "program_id": program_id,
+            "err": meta.get("err").cloned().unwrap_or(Value::Null),
             "accounts_total": addresses.len(),
             "accounts_static": static_count,
             "accounts_loaded": loaded_count,
+            "instructions": instructions,
             "lamport_changes": lamport_changes,
             "token_changes": token_changes,
         }),
@@ -408,6 +495,102 @@ mod tests {
         assert_eq!(env.value["program_id"], "P");
         let changes = env.value["lamport_changes"].as_array().unwrap();
         assert_eq!(changes[0]["address"], "B");
+    }
+
+    #[test]
+    fn the_envelope_carries_the_instruction_bytes_of_the_response_it_was_paid_for() {
+        let env = extract(&legacy_tx()).expect("envelope");
+        let ixs = env.value["instructions"].as_array().unwrap();
+        assert_eq!(ixs.len(), 1);
+        assert_eq!(ixs[0]["inner"], false);
+        assert_eq!(ixs[0]["outer"], 0);
+        assert_eq!(ixs[0]["program_id"], "C", "programIdIndex resolves through the canonical list");
+        assert_eq!(ixs[0]["accounts"], json!(["A", "B"]));
+        assert_eq!(ixs[0]["data"], "x");
+        assert_eq!(env.value["err"], Value::Null, "a successful transaction says null, not nothing");
+    }
+
+    #[test]
+    fn meta_err_is_carried_verbatim_so_a_consumer_never_guesses() {
+        let mut tx = legacy_tx();
+        tx["meta"]["err"] = json!({"InstructionError": [0, {"Custom": 1}]});
+        let env = extract(&tx).expect("envelope");
+        assert_eq!(env.value["err"], json!({"InstructionError": [0, {"Custom": 1}]}));
+    }
+
+    #[test]
+    fn inner_instructions_are_tagged_with_the_top_level_instruction_that_spawned_them() {
+        let tx = json!({
+            "transaction": {
+                "message": {
+                    "accountKeys": ["A", "B", "C"],
+                    "instructions": [
+                        {"programIdIndex": 2, "accounts": [0, 1], "data": "outer1"},
+                        {"programIdIndex": 1, "accounts": [0], "data": "outer2"}
+                    ]
+                }
+            },
+            "meta": {
+                "preBalances": [1, 2, 3],
+                "postBalances": [1, 2, 3],
+                "innerInstructions": [
+                    {"index": 0, "instructions": [
+                        {"programIdIndex": 1, "accounts": [1], "data": "cpi-a"},
+                        {"programIdIndex": 2, "accounts": [0], "data": "cpi-b"}
+                    ]},
+                    {"index": 1, "instructions": [
+                        {"programIdIndex": 0, "accounts": [2], "data": "cpi-c"}
+                    ]}
+                ]
+            }
+        });
+        let env = extract(&tx).expect("envelope");
+        let ixs = env.value["instructions"].as_array().unwrap();
+        assert_eq!(ixs.len(), 5, "2 outer + 3 inner");
+        // Outer first, in execution order.
+        assert_eq!(ixs[0]["inner"], false);
+        assert_eq!(ixs[0]["outer"], 0);
+        assert_eq!(ixs[1]["outer"], 1);
+        // Inner entries carry the index of the instruction that spawned them,
+        // so a consumer can attribute a CPI to the call that made it.
+        assert_eq!(ixs[2]["inner"], true);
+        assert_eq!(ixs[2]["outer"], 0);
+        assert_eq!(ixs[2]["data"], "cpi-a");
+        assert_eq!(ixs[3]["outer"], 0);
+        assert_eq!(ixs[4]["inner"], true);
+        assert_eq!(ixs[4]["outer"], 1);
+    }
+
+    #[test]
+    fn an_unresolvable_account_index_stays_null_in_its_own_position() {
+        // Position is information. A list that silently drops an unknown
+        // index shifts every later argument one slot left — the decoder then
+        // reads the wrong bytes under the right names.
+        let tx = json!({
+            "transaction": {
+                "message": {"accountKeys": ["A"], "instructions": [
+                    {"programIdIndex": 0, "accounts": [0, 9, 0], "data": "d"}
+                ]}
+            },
+            "meta": {"preBalances": [1], "postBalances": [1]}
+        });
+        let env = extract(&tx).expect("envelope");
+        let ixs = env.value["instructions"].as_array().unwrap();
+        assert_eq!(ixs[0]["accounts"], json!(["A", null, "A"]));
+    }
+
+    #[test]
+    fn an_instruction_without_data_says_so_instead_of_inventing_bytes() {
+        let tx = json!({
+            "transaction": {
+                "message": {"accountKeys": ["A"], "instructions": [{"programIdIndex": 0}]}
+            },
+            "meta": {"preBalances": [1], "postBalances": [1]}
+        });
+        let env = extract(&tx).expect("envelope");
+        let ixs = env.value["instructions"].as_array().unwrap();
+        assert_eq!(ixs[0]["data"], Value::Null);
+        assert_eq!(ixs[0]["accounts"], json!([]));
     }
 
     #[test]
