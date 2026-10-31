@@ -240,6 +240,14 @@ pub fn event_body(r: &EventRow) -> String {
         Some(raw) => serde_json::from_str::<Value>(raw).unwrap_or(Value::String(raw.clone())),
         None => Value::Null,
     };
+    // The account envelope travels with the event: a consumer outside this
+    // machine gets what the transaction did to balances in the same signed
+    // body, without an RPC call of its own. `null` = the journal does not
+    // hold it yet (`hydrate --accounts`).
+    let accounts = match &r.accounts {
+        Some(raw) => serde_json::from_str::<Value>(raw).unwrap_or(Value::String(raw.clone())),
+        None => Value::Null,
+    };
     serde_json::to_string(&json!({
         "type": "event",
         "seq": r.seq,
@@ -251,6 +259,7 @@ pub fn event_body(r: &EventRow) -> String {
         "source": r.source,
         "first_seen": r.first_seen,
         "logs": logs,
+        "accounts": accounts,
     }))
     .unwrap_or_default()
 }

@@ -1,6 +1,9 @@
 # reeflog
 
-A durable local mailbox for Solana events. A daemon journals logs, account changes, and transactions for selected programs into a cursor-addressed append-only log, so a consumer resumes without gaps after a crash, disconnect, or reorg.
+A durable local mailbox for Solana events. A daemon journals logs and what
+they did to account balances for selected programs into a cursor-addressed
+append-only log, so a consumer resumes without gaps after a crash,
+disconnect, or reorg.
 
 **Status: v0 working (October 2026).** Live against mainnet-beta: see *Measured results* below. Webhook fan-out, a dead-letter queue, and archive backfill ship in this tree; Yellowstone as a second transport does not.
 
@@ -183,6 +186,65 @@ killed run never reaches a shutdown pass. A final pass runs at shutdown.
 Verified live: `tools/e2e-payload.mjs` checks all 13 conditions against
 mainnet, including independent byte-for-byte comparison of stored payloads
 against freshly fetched transactions.
+
+## What the event did to accounts
+
+Until 2026-10-31 the opening line of this README claimed the daemon journals
+"account changes" — and `grep -ci account src/*.rs` returned 0 across every
+source file. The claim was checked against the code for the first time in
+the feature's own commit message, and the code was brought up to the claim
+in the same commit.
+
+The reason this is nearly free: hydration already pays for the whole
+`getTransaction` response and kept only `meta.logMessages`. Measured with
+`tools/probe-accounts.mjs` on live mainnet (Raydium AMM v4, 4 transactions,
+2026-10-31): the discarded remainder of that same response averages 11.9 KB
+per transaction and carries ~33.5 account keys, ~5.5 lamport-delta accounts
+and ~3.5 changed SPL token balances per transaction. `src/accounts.rs`
+extracts that into an envelope stored alongside the logs — at no extra RPC
+cost for rows the journal had to recover.
+
+The envelope contains: `lamport_changes` (index, address, before, after,
+delta) and `token_changes` (index, address, mint, owner, before, after,
+delta) — amounts as exact decimal strings, never floats. It does NOT contain
+account bytes or pre-event account state; see *Evidence and limits*.
+
+Two correctness traps the extractor is built against, each pinned by a test:
+
+- **Lookup-table indexing.** `preBalances`/`postBalances` are indexed over
+  static keys ++ loaded writable ++ loaded readonly, while a versioned
+  transaction's `message.accountKeys` lists only the static keys. Indexing
+  balances by that field silently attaches every changed balance to the
+  wrong address. The account list is rebuilt in canonical order instead
+  (`a_lookup_table_does_not_shift_the_balances_onto_the_wrong_addresses`).
+- **A closed token account.** An account present in `preTokenBalances` and
+  absent from `postTokenBalances` closed mid-transaction. The first live
+  cross-check caught exactly this: the delta was encoded as an empty string.
+  Absence on one side means zero on that side, so the delta is `-before`
+  (`a_closed_token_account_reports_the_full_negative_delta`).
+
+Delivery and enrichment:
+
+- `hydrate --accounts` fetches envelopes for rows whose logs came from the
+  WebSocket (the `logsNotification` carries no balances). Same honesty
+  contract as payload: a rate limit leaves the debt, exit 3 reports it; the
+  chain forgetting a transaction is recorded as `account_state`
+  `unavailable`, never a pending-forever row and never an empty envelope.
+- `tail` delivers the envelope as `accounts` on every row; `account_state`
+  says why one is missing. `tail --with-accounts` delivers only enriched
+  rows — and prints how many it skipped instead of swallowing them (they
+  stay consumed; the cursor advances past them).
+- `webhook push` bodies carry the envelope in the same signed delivery.
+- `status` counts `accounts_held` / `accounts_missing` /
+  `accounts_unreachable`.
+
+Verified live (`tools/e2e-accounts.mjs`, mainnet, 15/15): envelopes from the
+free path and the paid path, idempotence, delivery shape, cursor semantics,
+and a field-by-field cross-check of every stored envelope against an
+independent re-fetch and re-parse of the same transactions from the chain.
+`tools/e2e-accounts-mutations.mjs` mutates the extractor four ways (address
+shift, dropped delta, empty delta, wrong mint) and each mutant must fail the
+live harness — a green harness that cannot go red proves nothing.
 
 ## First external consumer: a fill watcher
 
@@ -599,6 +661,7 @@ reeflog seal    --db reeflog.db
 reeflog verify  --db reeflog.db --pages 400 [--anchor-slot <slot>]   # detect, exit 3 if unfinished
 reeflog repair  --db reeflog.db --pages 400 [--anchor-slot <slot>]   # fill signatures verify found
 reeflog hydrate --db reeflog.db [--limit 500]      # fetch missing event content
+reeflog hydrate --db reeflog.db --accounts         # + account envelopes for socket rows
 reeflog tail    --db reeflog.db --cursor ./c.txt   # deliver events (content included)
 reeflog webhook push --db reeflog.db --config webhooks.json   # deliver to outside targets
 reeflog status  --db reeflog.db
@@ -638,7 +701,12 @@ anchored at finalized blocks for holes deeper than the tip-walk window.
 
 Checked on 2026-10-23: Solana client errors already name the failure modes, including closed WebSockets, missing subscription IDs, and corrupt iterators. Yellowstone is a strong live transport but explicitly ephemeral. The closest general-chain project, Chainhook, is archived and does not cover Solana. One developer rebuilt reliable replay into Postgres as a four-star personal pipeline.
 
-reeflog does not recover account bytes from before an event. That is a different problem. Public WebSocket endpoints are also rate-limited, so provider independence has to be real rather than assumed.
+reeflog does not recover account bytes from before an event, and the account
+envelope is balance MOVEMENTS an event caused — not the state of the accounts
+involved. `tail --with-accounts` skips rows whose envelope has not been
+fetched yet, which is honest but still a skip. That is a different problem.
+Public WebSocket endpoints are also rate-limited, so provider independence
+has to be real rather than assumed.
 
 Still open: Yellowstone as a second transport, and a real consumer other
 than my own RFQ fill polling and Whirlpool watcher. Reorg handling marks a
@@ -658,3 +726,9 @@ end to end.
    2026-10-29) and against a planted signature on live mainnet — but no
    mainnet fork has been caught while watching. The daemon's loop makes that
    plausible to catch; only an observed one closes it.
+4. An account envelope says what an event *did* to balances. A consumer that
+   wants to *know* an account (its state before the event, its authority, its
+   data) still needs the chain: the envelope answers "what changed", not
+   "what is". The next envelope would carry the account list a transaction
+   touched — addresses, owners, writable flags — so a consumer can decide
+   which accounts it cares about without a second RPC round trip.

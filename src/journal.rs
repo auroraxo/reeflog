@@ -121,7 +121,11 @@ CREATE TABLE IF NOT EXISTS webhook_dead_letters (
 /// have no `payload_state` column. The journal is a durable local file —
 /// opening an old one must upgrade it in place instead of failing or
 /// silently treating every historical row as pending.
-const MIGRATIONS: &[(&str, &str)] = &[("payload_state", "ALTER TABLE events ADD COLUMN payload_state TEXT")];
+const MIGRATIONS: &[(&str, &str)] = &[
+    ("payload_state", "ALTER TABLE events ADD COLUMN payload_state TEXT"),
+    ("accounts", "ALTER TABLE events ADD COLUMN accounts TEXT"),
+    ("account_state", "ALTER TABLE events ADD COLUMN account_state TEXT"),
+];
 
 pub struct Journal {
     pub db: Connection,
@@ -142,6 +146,17 @@ pub struct EventRow {
     /// Why payload is absent, when it is: 'unavailable' = the chain does not
     /// know this transaction. None while still pending (unknown, not empty).
     pub payload_state: Option<String>,
+    /// What the transaction did to ACCOUNTS, as a JSON envelope: static
+    /// account keys, lamport balance deltas, and changed SPL token balances.
+    /// Carried in the same `getTransaction` response the logs come from —
+    /// paid for once, kept instead of discarded. None when unknown.
+    pub accounts: Option<String>,
+    /// Why no account envelope is present, when that is a KNOWN fact:
+    /// 'unavailable' = the chain no longer knows the transaction,
+    /// 'invalid' = the endpoint refuses the key, 'no_metadata' = the response
+    /// carried no usable account metadata. None while still pending —
+    /// unknown, not empty. Same contract as `payload_state`.
+    pub account_state: Option<String>,
 }
 
 /// A recorded reorg: an event the chain no longer knows.
@@ -405,7 +420,7 @@ impl Journal {
             .db
             .prepare(
                 "SELECT seq, signature, slot, err, source, first_seen, seal_status,
-                        logs, payload_state
+                        logs, payload_state, accounts, account_state
                  FROM events WHERE seq > ?1 ORDER BY seq LIMIT ?2",
             )
             .map_err(|e| e.to_string())?;
@@ -421,6 +436,8 @@ impl Journal {
                     seal_status: r.get(6)?,
                     logs: r.get(7)?,
                     payload_state: r.get(8)?,
+                    accounts: r.get(9)?,
+                    account_state: r.get(10)?,
                 })
             })
             .map_err(|e| e.to_string())?;
@@ -465,16 +482,89 @@ impl Journal {
     /// Store the payload of a row that does not have one yet. Returns whether
     /// this call actually wrote — a row the socket already delivered is left
     /// untouched, so a hydration pass can never overwrite captured content.
-    pub fn set_payload(&self, signature: &str, logs: &str) -> Result<bool, String> {
+    /// `accounts` rides along when known: it comes from the same response as
+    /// the logs, so storing one and dropping the other would pay the same
+    /// RPC twice for half the content. A row with logs but no accounts yet
+    /// (pre-existing journal, or a socket row) can gain them without
+    /// touching its logs.
+    pub fn set_payload(&self, signature: &str, logs: &str, accounts: Option<&str>) -> Result<bool, String> {
         let n = self
             .db
             .execute(
-                "UPDATE events SET logs=?2, payload_state='held'
+                "UPDATE events SET logs=?2, payload_state='held',
+                        accounts=COALESCE(accounts, ?3),
+                        account_state=COALESCE(account_state, CASE WHEN ?3 IS NOT NULL THEN 'held' END)
                  WHERE signature=?1 AND logs IS NULL",
-                params![signature, logs],
+                params![signature, logs, accounts],
             )
             .map_err(|e| e.to_string())?;
         Ok(n > 0)
+    }
+
+    /// Fill in the account envelope for a row that already has its payload
+    /// but no recorded account outcome. Returns whether this call wrote. A
+    /// row the journal never captured logs for stays untouched: `accounts`
+    /// without logs would be half an event presented as a whole one.
+    pub fn set_accounts(&self, signature: &str, accounts: &str) -> Result<bool, String> {
+        let n = self
+            .db
+            .execute(
+                "UPDATE events SET accounts=?2, account_state='held'
+                 WHERE signature=?1 AND logs IS NOT NULL AND account_state IS NULL",
+                params![signature, accounts],
+            )
+            .map_err(|e| e.to_string())?;
+        Ok(n > 0)
+    }
+
+    /// Record a KNOWN reason why no account envelope exists: the chain no
+    /// longer knows the transaction, the endpoint refuses the key, or the
+    /// response carried no usable metadata. Without this, "chain forgot it"
+    /// and "not fetched yet" look identical, and every pass would report the
+    /// same rows as owed forever — the defect payload_state already fixed.
+    pub fn mark_account_outcome(&self, signature: &str, state: &str) -> Result<(), String> {
+        self.db
+            .execute(
+                "UPDATE events SET account_state=?2
+                 WHERE signature=?1 AND logs IS NOT NULL AND account_state IS NULL",
+                params![signature, state],
+            )
+            .map_err(|e| e.to_string())?;
+        Ok(())
+    }
+
+    /// Rows that hold their payload but not yet an account envelope AND no
+    /// recorded reason why not: the socket delivered their logs (the
+    /// notification carries no balances), so enriching them costs a
+    /// `getTransaction`. Ordered by `seq` — the consumer's earliest rows
+    /// first.
+    pub fn events_missing_accounts(&self, limit: i64) -> Result<Vec<(i64, String)>, String> {
+        let mut stmt = self
+            .db
+            .prepare(
+                "SELECT seq, signature FROM events
+                 WHERE logs IS NOT NULL AND account_state IS NULL
+                 ORDER BY seq LIMIT ?1",
+            )
+            .map_err(|e| e.to_string())?;
+        let rows = stmt
+            .query_map(params![limit], |r| Ok((r.get(0)?, r.get(1)?)))
+            .map_err(|e| e.to_string())?;
+        let mut out = Vec::new();
+        for row in rows {
+            out.push(row.map_err(|e| e.to_string())?);
+        }
+        Ok(out)
+    }
+
+    pub fn accounts_missing_count(&self) -> Result<i64, String> {
+        self.db
+            .query_row(
+                "SELECT COUNT(*) FROM events WHERE logs IS NOT NULL AND account_state IS NULL",
+                [],
+                |r| r.get(0),
+            )
+            .map_err(|e| e.to_string())
     }
 
     /// Record that the chain does not know this transaction. Payload stays
@@ -1085,6 +1175,30 @@ impl Journal {
                 |r| r.get(0),
             )
             .map_err(|e| e.to_string())?;
+        let accounts_missing: i64 = self
+            .db
+            .query_row(
+                "SELECT COUNT(*) FROM events WHERE logs IS NOT NULL AND account_state IS NULL",
+                [],
+                |r| r.get(0),
+            )
+            .map_err(|e| e.to_string())?;
+        let accounts_held: i64 = self
+            .db
+            .query_row(
+                "SELECT COUNT(*) FROM events WHERE accounts IS NOT NULL",
+                [],
+                |r| r.get(0),
+            )
+            .map_err(|e| e.to_string())?;
+        let accounts_unreachable: i64 = self
+            .db
+            .query_row(
+                "SELECT COUNT(*) FROM events WHERE account_state IS NOT NULL AND accounts IS NULL",
+                [],
+                |r| r.get(0),
+            )
+            .map_err(|e| e.to_string())?;
         let blind_ms: i64 = self
             .db
             .query_row(
@@ -1111,6 +1225,9 @@ impl Journal {
             payload_pending,
             payload_unavailable,
             payload_invalid,
+            accounts_missing,
+            accounts_held,
+            accounts_unreachable,
         })
     }
 }
@@ -1165,6 +1282,15 @@ pub struct Counts {
     pub payload_unavailable: i64,
     /// Rows whose key the endpoint refuses: a corrupted row.
     pub payload_invalid: i64,
+    /// Rows whose payload is held but that have no account envelope yet —
+    /// socket-delivered rows, which never paid the `getTransaction` that
+    /// carries balances.
+    pub accounts_missing: i64,
+    /// Rows carrying an account envelope.
+    pub accounts_held: i64,
+    /// Rows with a KNOWN reason for having no envelope (chain forgot the tx,
+    /// refused key, no metadata): owed no longer.
+    pub accounts_unreachable: i64,
 }
 
 #[cfg(test)]
@@ -1284,7 +1410,7 @@ mod tests {
         j.append("sig", 10, None, Some(r#"["socket content"]"#), "ws")
             .unwrap();
         assert!(
-            !j.set_payload("sig", r#"["hydrated content"]"#).unwrap(),
+            !j.set_payload("sig", r#"["hydrated content"]"#, None).unwrap(),
             "a socket-delivered payload must not be replaced"
         );
         let rows = j.events_after(0, 10).unwrap();
@@ -1306,7 +1432,7 @@ mod tests {
             "an unavailable row is known, no longer pending"
         );
 
-        assert!(j.set_payload("pending", r#"["y"]"#).unwrap());
+        assert!(j.set_payload("pending", r#"["y"]"#, None).unwrap());
         assert_eq!(j.payload_pending_count().unwrap(), 0);
 
         let missing = j.events_missing_payload(10).unwrap();

@@ -37,6 +37,7 @@
 //! incomplete passes exit non-zero (same honesty rule as `verify` and
 //! `repair`).
 
+use crate::accounts;
 use crate::journal::Journal;
 use crate::backfill::Fetcher;
 use serde_json::{json, Value};
@@ -47,6 +48,10 @@ pub struct PayloadReport {
     pub considered: i64,
     /// Rows that received their payload from the chain.
     pub hydrated: i64,
+    /// Rows that gained an account envelope alongside their logs. The
+    /// envelope rides in the same `getTransaction` response, so this never
+    /// costs an extra RPC call.
+    pub accounts_stored: i64,
     /// Rows the chain does not know (forked out or pruned).
     pub unavailable: i64,
     /// Rows whose key the endpoint refuses as not-a-signature: a corrupted
@@ -151,8 +156,17 @@ pub fn hydrate_payloads<F: Fetcher>(
         };
         // `set_payload` only writes rows still missing payload, so a row the
         // socket already delivered is never overwritten.
-        if j.set_payload(signature, &stored)? {
+        //
+        // The account envelope comes out of THIS SAME response: the metadata
+        // reeflog pays for already names every account the transaction
+        // touched and how each balance moved. Keeping it costs no extra call;
+        // dropping it (what reeflog did until now) threw the content away.
+        let envelope = accounts::extract(&result).map(|e| e.value.to_string());
+        if j.set_payload(signature, &stored, envelope.as_deref())? {
             r.hydrated += 1;
+            if envelope.is_some() {
+                r.accounts_stored += 1;
+            }
             if r.hydrated_sample.len() < 5 {
                 r.hydrated_sample.push(signature.clone());
             }
@@ -161,6 +175,114 @@ pub fn hydrate_payloads<F: Fetcher>(
 
     r.pending_left = j.payload_pending_count()?;
     Ok(r)
+}
+
+/// Fill in the account envelope for rows whose payload is already held but
+/// whose account data was never fetched.
+///
+/// Two kinds of rows exist: rows this pass (or `hydrate`) recovered from
+/// `getTransaction` — those keep their envelope from the same response, free
+/// — and rows the WEBSOCKET delivered. The socket's `logsNotification`
+/// carries only logs: it has no balances, no account keys. So the socket
+/// rows are the rows that cost a `getTransaction` to enrich, and
+/// `hydrate --accounts` is the bounded pass that pays it.
+///
+/// The honesty rules are the same as for payload: a rate limit leaves the
+/// row without an envelope (never an empty one) and makes the pass
+/// incomplete; a transaction the chain does not know is recorded as such.
+pub fn hydrate_accounts<F: Fetcher>(
+    j: &Journal,
+    f: &mut F,
+    limit: i64,
+) -> Result<AccountReport, String> {
+    let mut r = AccountReport::default();
+    let rows = j.events_missing_accounts(limit + 1)?;
+    if rows.is_empty() {
+        return Ok(r);
+    }
+    let take = limit.max(0).min(rows.len() as i64) as usize;
+    let batch = &rows[..take];
+    r.considered = batch.len() as i64;
+
+    for (seq, signature) in batch {
+        let _ = seq;
+        let result = match f.call(
+            "getTransaction",
+            json!([
+                signature,
+                {"encoding": "json", "maxSupportedTransactionVersion": 1, "commitment": "finalized"}
+            ]),
+        ) {
+            Ok(v) => v,
+            Err(e) => {
+                if is_refused_key(&e) {
+                    j.mark_account_outcome(signature, "invalid")?;
+                    r.invalid += 1;
+                    if r.invalid_sample.len() < 5 {
+                        r.invalid_sample.push(signature.clone());
+                    }
+                    continue;
+                }
+                r.failed += 1;
+                r.error = Some(e);
+                break;
+            }
+        };
+        if result.is_null() {
+            // The logs are already held — the socket delivered them — but the
+            // transaction is gone from the chain now. The account data the
+            // response would have carried is unreachable, not empty.
+            // Recorded, not retried forever: an unrecoverable row must not
+            // make every future pass exit 3 (the lesson payload_state taught).
+            j.mark_account_outcome(signature, "unavailable")?;
+            r.unavailable += 1;
+            if r.unavailable_sample.len() < 5 {
+                r.unavailable_sample.push(signature.clone());
+            }
+            continue;
+        }
+        let Some(envelope) = accounts::extract(&result) else {
+            // A response without usable metadata: no envelope, no claim — and
+            // a recorded reason, so the row is not "owed" forever.
+            j.mark_account_outcome(signature, "no_metadata")?;
+            r.no_metadata += 1;
+            continue;
+        };
+        if j.set_accounts(signature, &envelope.value.to_string())? {
+            r.stored += 1;
+            if r.stored_sample.len() < 5 {
+                r.stored_sample.push(signature.clone());
+            }
+        }
+    }
+
+    r.left = j.accounts_missing_count()?;
+    Ok(r)
+}
+
+/// What an `hydrate --accounts` pass did, in the same shape the payload
+/// pass reports: considered / stored / known-unreachable / failed / left.
+#[derive(Debug, Default, Clone)]
+pub struct AccountReport {
+    pub considered: i64,
+    pub stored: i64,
+    pub unavailable: i64,
+    pub invalid: i64,
+    pub no_metadata: i64,
+    pub failed: i64,
+    pub left: i64,
+    pub error: Option<String>,
+    pub stored_sample: Vec<String>,
+    pub unavailable_sample: Vec<String>,
+    pub invalid_sample: Vec<String>,
+}
+
+impl AccountReport {
+    /// Same rule as the payload pass: a recorded outcome is an outcome, a
+    /// rate limit is not, and a pass cut short is not clean.
+    pub fn complete(&self) -> bool {
+        self.error.is_none() && self.failed == 0 && self.left == 0
+    }
 }
 
 /// `HttpFetcher` formats a JSON-RPC error as
@@ -391,5 +513,165 @@ mod tests {
         assert_eq!(r.invalid, 0, "a rate limit is not a refused key");
         assert!(!r.complete());
         assert_eq!(j.payload_pending_count().unwrap(), 1);
+    }
+
+    // -------------------------------------------------------------------
+    // Account envelopes
+    // -------------------------------------------------------------------
+
+    /// A full `getTransaction`-shaped response: logs AND account metadata.
+    /// This is what the RPC actually returns and what reeflog already paid
+    /// for before the envelope was stored — see `src/accounts.rs`.
+    fn full_tx_response() -> Value {
+        json!({
+            "slot": 10,
+            "transaction": {
+                "message": {
+                    "accountKeys": ["Payer", "Vault", "Program"],
+                    "instructions": [{"programIdIndex": 2}]
+                }
+            },
+            "meta": {
+                "logMessages": ["Program invoke"],
+                "preBalances": [1000, 500, 0],
+                "postBalances": [900, 600, 0],
+                "preTokenBalances": [
+                    {"accountIndex": 1, "mint": "M", "owner": "O", "uiTokenAmount": {"amount": "7"}}
+                ],
+                "postTokenBalances": [
+                    {"accountIndex": 1, "mint": "M", "owner": "O", "uiTokenAmount": {"amount": "9"}}
+                ]
+            }
+        })
+    }
+
+    struct FullRpc {
+        calls: usize,
+        fail_after: Option<usize>,
+    }
+
+    impl Fetcher for FullRpc {
+        fn call(&mut self, method: &str, _params: Value) -> Result<Value, String> {
+            assert_eq!(method, "getTransaction");
+            if let Some(n) = self.fail_after {
+                if self.calls >= n {
+                    return Err("getTransaction: http 429 rate limited".into());
+                }
+            }
+            self.calls += 1;
+            Ok(full_tx_response())
+        }
+    }
+
+    #[test]
+    fn hydration_stores_the_account_envelope_from_the_same_paid_response() {
+        let j = tmp("free-envelope");
+        j.append("recovered", 10, None, None, "repair").unwrap();
+        let mut rpc = FullRpc { calls: 0, fail_after: None };
+        let r = hydrate_payloads(&j, &mut rpc, 10).unwrap();
+        assert_eq!(r.hydrated, 1);
+        assert_eq!(
+            r.accounts_stored, 1,
+            "the envelope rides in the same response — stored, not discarded"
+        );
+        assert_eq!(rpc.calls, 1, "one call paid for logs AND accounts");
+
+        let rows = j.events_after(0, 10).unwrap();
+        let env: Value = serde_json::from_str(rows[0].accounts.as_ref().expect("envelope held"))
+            .expect("valid JSON");
+        assert_eq!(env["lamport_changes"].as_array().unwrap().len(), 2);
+        assert_eq!(env["lamport_changes"][0]["address"], "Payer");
+        assert_eq!(env["lamport_changes"][0]["delta"], -100);
+        assert_eq!(env["token_changes"][0]["delta"], "2");
+    }
+
+    #[test]
+    fn account_pass_enriches_a_socket_row_without_touching_its_logs() {
+        // The socket delivered the logs — but `logsNotification` carries no
+        // balances. The envelope is owed by a separate paid fetch.
+        let j = tmp("socket-row");
+        j.append("from-socket", 10, None, Some(r#"["Program invoke"]"#), "ws")
+            .unwrap();
+        assert_eq!(j.accounts_missing_count().unwrap(), 1);
+
+        let mut rpc = FullRpc { calls: 0, fail_after: None };
+        let r = hydrate_accounts(&j, &mut rpc, 10).unwrap();
+        assert_eq!(r.stored, 1);
+        assert!(r.complete(), "a stored envelope is an outcome");
+        assert_eq!(rpc.calls, 1);
+
+        let rows = j.events_after(0, 10).unwrap();
+        assert_eq!(
+            rows[0].logs.as_deref(),
+            Some(r#"["Program invoke"]"#),
+            "the captured logs must not be overwritten by the enrichment pass"
+        );
+        assert!(rows[0].accounts.is_some());
+        assert_eq!(j.accounts_missing_count().unwrap(), 0);
+    }
+
+    #[test]
+    fn account_pass_is_idempotent_and_costs_nothing_the_second_time() {
+        let j = tmp("idempotent-accts");
+        j.append("row", 10, None, Some(r#"["x"]"#), "ws").unwrap();
+        let mut rpc = FullRpc { calls: 0, fail_after: None };
+        hydrate_accounts(&j, &mut rpc, 10).unwrap();
+        let before = rpc.calls;
+        let r = hydrate_accounts(&j, &mut rpc, 10).unwrap();
+        assert_eq!(r.considered, 0, "a row already holding an envelope is not refetched");
+        assert_eq!(rpc.calls, before, "the second pass must cost no RPC");
+    }
+
+    #[test]
+    fn a_rate_limit_leaves_no_envelope_and_the_pass_incomplete() {
+        // The rule that keeps the mailbox honest: an endpoint failure must
+        // never look like "nothing changed".
+        let j = tmp("acct-rate-limit");
+        j.append("row", 10, None, Some(r#"["x"]"#), "ws").unwrap();
+        let mut rpc = FullRpc { calls: 0, fail_after: Some(0) };
+        let r = hydrate_accounts(&j, &mut rpc, 10).unwrap();
+        assert_eq!(r.failed, 1);
+        assert_eq!(r.stored, 0);
+        assert!(!r.complete(), "a rate limit must never look like a clean pass");
+        assert_eq!(j.accounts_missing_count().unwrap(), 1, "the debt stays");
+    }
+
+    #[test]
+    fn a_row_without_logs_never_gains_an_account_envelope_alone() {
+        // A recovered signature with no content: accounts without logs would
+        // be half an event presented as a whole one.
+        let j = tmp("no-logs-accts");
+        j.append("recovered", 10, None, None, "repair").unwrap();
+        let mut rpc = FullRpc { calls: 0, fail_after: None };
+        let r = hydrate_accounts(&j, &mut rpc, 10).unwrap();
+        assert_eq!(r.considered, 0, "rows without payload are the payload pass's job");
+        assert_eq!(r.stored, 0);
+        assert_eq!(rpc.calls, 0);
+    }
+
+    #[test]
+    fn a_transaction_the_chain_no_longer_knows_is_unavailable_not_empty() {
+        let j = tmp("acct-unavailable");
+        j.append("row", 10, None, Some(r#"["x"]"#), "ws").unwrap();
+        struct EmptyRpc;
+        impl Fetcher for EmptyRpc {
+            fn call(&mut self, _m: &str, _p: Value) -> Result<Value, String> {
+                Ok(Value::Null)
+            }
+        }
+        let r = hydrate_accounts(&j, &mut EmptyRpc, 10).unwrap();
+        assert_eq!(r.unavailable, 1);
+        assert_eq!(r.stored, 0, "no metadata, no envelope — never an empty claim");
+        assert!(r.complete(), "a recorded outcome is a known outcome");
+        let row = &j.events_after(0, 10).unwrap()[0];
+        assert!(row.accounts.is_none());
+        assert_eq!(
+            row.account_state.as_deref(),
+            Some("unavailable"),
+            "known-unreachable, not pending forever"
+        );
+        // The next pass must not refetch it.
+        let again = hydrate_accounts(&j, &mut EmptyRpc, 10).unwrap();
+        assert_eq!(again.considered, 0, "a recorded outcome is never retried");
     }
 }

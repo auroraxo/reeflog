@@ -4,6 +4,7 @@
 //! one program over WebSocket → append-only journal with monotone seq →
 //! CLI cursor resume → gaps are reported, never swallowed.
 
+mod accounts;
 mod backfill;
 mod journal;
 mod payload;
@@ -1097,9 +1098,25 @@ fn run_tail(args: &[String]) {
     // signature, not an event. `--no-logs` keeps the old compact shape for
     // callers that only need identities (the kill-test harness does).
     let with_logs = !args.iter().any(|a| a == "--no-logs");
+    // Deliver only rows that carry an account envelope. A consumer that acts
+    // on balance moves (a vault watcher, an arbitrage check) can use this to
+    // avoid rows it cannot read yet — and the count it DID NOT receive is
+    // printed, so a filtered row is reported, never swallowed.
+    let only_with_accounts = args.iter().any(|a| a == "--with-accounts");
     let after: i64 = read_cursor(&cursor_path);
     let rows: Vec<EventRow> = j.events_after(after, limit).unwrap_or_else(|e| die(e));
+    let mut delivered = 0usize;
+    let mut skipped_no_accounts = 0usize;
+    let mut last_delivered_seq: Option<i64> = None;
+    let mut max_seq_seen = after;
     for r in &rows {
+        max_seq_seen = max_seq_seen.max(r.seq);
+        if only_with_accounts && r.accounts.is_none() {
+            skipped_no_accounts += 1;
+            continue;
+        }
+        delivered += 1;
+        last_delivered_seq = Some(r.seq);
         let mut v = json!({
             "seq": r.seq, "signature": r.signature, "slot": r.slot,
             "err": r.err, "source": r.source, "seal": r.seal_status,
@@ -1118,16 +1135,41 @@ fn run_tail(args: &[String]) {
                 Some(s) => Value::String(s.into()),
                 None => Value::Null,
             };
+            // What the transaction did to accounts: lamport and token balance
+            // changes, extracted from the same `getTransaction` response the
+            // logs were stored from. `null` = not fetched yet
+            // (`hydrate --accounts` owes it; `status` counts the debt).
+            v["accounts"] = match &r.accounts {
+                Some(raw) => serde_json::from_str::<Value>(raw).unwrap_or(Value::String(raw.clone())),
+                None => Value::Null,
+            };
+            // Why there is no envelope: 'unavailable' = the chain forgot the
+            // transaction, 'invalid' = refused key, 'no_metadata' = the
+            // response carried no account data. `null` = still owed.
+            v["account_state"] = match r.account_state.as_deref() {
+                Some(s) => Value::String(s.into()),
+                None => Value::Null,
+            };
         }
         println!("{}", serde_json::to_string(&v).unwrap());
     }
-    if let Some(last) = rows.last() {
-        write_cursor(&cursor_path, last.seq);
+    // The cursor advances to the NEWEST row the delivery scanned, not the
+    // last one it printed: a filtered row was seen, and re-delivering it on
+    // the next call would turn the filter into a replay loop. The skipped
+    // count is reported so nothing disappears silently.
+    let advance_to = if only_with_accounts { max_seq_seen } else { last_delivered_seq.unwrap_or(after) };
+    if advance_to > after {
+        write_cursor(&cursor_path, advance_to);
     }
     eprintln!(
-        "reeflog: {} events after cursor {after} → cursor now {}",
-        rows.len(),
-        read_cursor(&cursor_path)
+        "reeflog: {} events after cursor {after} → cursor now {}{}",
+        if only_with_accounts { delivered } else { rows.len() },
+        read_cursor(&cursor_path),
+        if skipped_no_accounts > 0 {
+            format!(" ({skipped_no_accounts} row(s) skipped: no account envelope yet — `hydrate --accounts` fills them; they stay consumed)")
+        } else {
+            String::new()
+        }
     );
 }
 
@@ -1386,6 +1428,12 @@ fn run_status(args: &[String]) {
             // operator can pin which two chain positions the claim spans.
             "oldest_signature": j.oldest_signature().unwrap_or(None),
             "newest_signature": j.newest_signature().unwrap_or(None),
+            // Account coverage: which rows carry what the transaction did to
+            // accounts, which still owe it (`hydrate --accounts`), and which
+            // are known-unreachable (the chain forgot the transaction).
+            "accounts_held": c.accounts_held,
+            "accounts_missing": c.accounts_missing,
+            "accounts_unreachable": c.accounts_unreachable,
         }))
         .unwrap()
     );
@@ -1411,15 +1459,44 @@ fn run_hydrate(args: &[String]) {
     let limit: i64 = arg(args, "--limit")
         .and_then(|s| s.parse().ok())
         .unwrap_or(500);
-    let mut fetcher = HttpFetcher::new(rpc_url);
+    let with_accounts = args.iter().any(|a| a == "--accounts");
+    let mut fetcher = HttpFetcher::new(rpc_url.clone());
     let r = hydrate_payloads(&j, &mut fetcher, limit).unwrap_or_else(|e| die(e));
+    // `--accounts` is a second, separately-budgeted pass: rows the socket
+    // delivered hold their logs but never fetched the balances that ride in
+    // `getTransaction`. It runs AFTER payload hydration so a row still
+    // missing content is paid for once, not twice.
+    let a = if with_accounts {
+        let mut f = HttpFetcher::new(rpc_url);
+        Some(payload::hydrate_accounts(&j, &mut f, limit).unwrap_or_else(|e| die(e)))
+    } else {
+        None
+    };
     let c = j.counts().unwrap_or_else(|e| die(e));
+    let accounts_json = match &a {
+        Some(a) => json!({
+            "complete": a.complete(),
+            "considered": a.considered,
+            "stored": a.stored,
+            "unavailable": a.unavailable,
+            "invalid": a.invalid,
+            "no_metadata": a.no_metadata,
+            "failed": a.failed,
+            "left": a.left,
+            "error": a.error,
+            "stored_sample": a.stored_sample,
+            "unavailable_sample": a.unavailable_sample,
+            "invalid_sample": a.invalid_sample,
+        }),
+        None => json!({"requested": false}),
+    };
     println!(
         "{}",
         serde_json::to_string_pretty(&json!({
-            "complete": r.complete(),
+            "complete": r.complete() && a.as_ref().map(|x| x.complete()).unwrap_or(true),
             "considered": r.considered,
             "hydrated": r.hydrated,
+            "accounts_stored_free": r.accounts_stored,
             "unavailable": r.unavailable,
             "invalid": r.invalid,
             "failed": r.failed,
@@ -1428,11 +1505,14 @@ fn run_hydrate(args: &[String]) {
             "hydrated_sample": r.hydrated_sample,
             "unavailable_sample": r.unavailable_sample,
             "invalid_sample": r.invalid_sample,
+            "accounts": accounts_json,
             "journal": {
                 "events": c.total,
                 "payload_pending": c.payload_pending,
                 "payload_unavailable": c.payload_unavailable,
                 "payload_invalid": c.payload_invalid,
+                "accounts_held": c.accounts_held,
+                "accounts_missing": c.accounts_missing,
             },
         }))
         .unwrap()
@@ -1443,6 +1523,15 @@ fn run_hydrate(args: &[String]) {
             r.error, r.failed, r.pending_left
         );
         std::process::exit(3);
+    }
+    if let Some(a) = &a {
+        if !a.complete() {
+            eprintln!(
+                "reeflog: account hydration INCOMPLETE (error={:?}, failed={}, left={}) — {} row(s) still carry no account envelope",
+                a.error, a.failed, a.left, a.left
+            );
+            std::process::exit(3);
+        }
     }
 }
 
@@ -1747,9 +1836,11 @@ fn usage() -> ! {
          \x20              [--webhook-config <file>] [--webhook-every N] [--webhook-limit N]\n\
          \x20 reeflog verify --db <file> [--pages N] [--since-slot N] [--rpc URL]\n\
          \x20 reeflog repair --db <file> [--pages N] [--since-slot N] [--rpc URL]\n\
-         \x20 reeflog hydrate --db <file> [--limit N] [--rpc URL]\n\
+         \x20 reeflog hydrate --db <file> [--limit N] [--rpc URL] [--accounts]\n\
+         \x20              [--accounts]: also fetch account-change envelopes for\n\
+         \x20              rows whose logs came from the socket (it carries no balances)\n\
          \x20 reeflog seal  --db <file> [--rpc URL]\n\
-         \x20 reeflog tail  --db <file> --cursor <file> [--limit N] [--no-logs]\n\
+         \x20 reeflog tail  --db <file> --cursor <file> [--limit N] [--no-logs] [--with-accounts]\n\
          \x20 reeflog reorg check --db <file> [--limit N] [--rpc URL]\n\
          \x20 reeflog reorg tail  --db <file> --cursor <file> [--limit N]\n\
          \x20 reeflog webhook push   --db <file> --config <file> [--limit N]\n\
