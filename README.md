@@ -675,6 +675,21 @@ which reads this mailbox over `tail` and the signed webhook, decodes Whirlpool
 `Traded` events with a layout it verified against live mainnet itself, and
 keeps a fill ledger without spending an RPC call (see the qualification list).
 
+A **second** consumer in a different repository now reads the envelope's
+instruction bytes: [auroraxo/sememe](https://github.com/auroraxo/sememe)
+harvests from this mailbox instead of paying `getSignaturesForAddress` /
+`getBlock` / `getTransaction`, with the zero-RPC claim *enforced* (its
+`fetch` is replaced by a recording rejector, and the run fails if any call
+was attempted). Measured 2026-10-31 on a fresh 45-second window (456 events,
+452 envelopes held): 156 payloads from 137 transactions with **0 network
+attempts**; against independently fetched chain transactions, 10/10 sampled
+payload-bearing transactions **byte-identical** and 10/10 sampled
+no-target transactions corroborated, 0 different, 0 unavailable. Its own
+report of the first run was wrong (it labelled v1-transaction rejections as
+rate limiting) and says so — the retraction and the reader contract (what
+was read, what was written, which counters reconciled) are in
+[issue #1](https://github.com/auroraxo/reeflog/issues/1).
+
 ## Three kinds of gap
 
 They need different tools, and conflating them is how a "we never lose events" claim turns out to be false:
@@ -755,6 +770,7 @@ end to end.
 ## Next qualification
 
 1. ~~Put my own RFQ fill polling and Whirlpool watcher on `reeflog tail`.~~ **User zero exists**: [auroraxo/whirlpool-watcher](https://github.com/auroraxo/whirlpool-watcher) (2026-10-31) is a real out-of-tree consumer — separate repository, no reeflog code linked, the `Traded` decode verified from live mainnet independently. Measured against a direct-RPC poller on the same window: 7/7 checks, including `window_superset` (0 in-window trades missing), `decoded_amounts_match` (two independently written decoders agree) and `chain_witness` (every sampled fill's amounts appear as real token-balance deltas); the watcher made **0 RPC calls** for 138 fills where the poller spent **85 calls** for 19 trade-bearing transactions. Its mutation probe goes red as required. What remains out of scope: this consumer is still the mailbox owner's own (user zero, not user one), and my own RFQ fill polling has not been moved over yet — a third party adopting it is what would close the second half of this item.
+   **A second out-of-tree consumer landed the same day** (2026-10-31): [auroraxo/sememe](https://github.com/auroraxo/sememe) harvests the envelope's `instructions[]` instead of paying RPC (0 enforced attempts; 10/10 sampled transactions byte-identical against independently fetched chain data, 10/10 no-target corroborated, mutation red at the named check), its reader contract and one retracted claim of its own in [issue #1](https://github.com/auroraxo/reeflog/issues/1). Two consumers, two different byte surfaces (logs/fills and instruction bytes), both in my own repositories — still no third party.
 2. Yellowstone source as a second transport.
 3. Observe a real **mainnet** fork end to end: the detector is now proven
    against a real fork of a real chain (`tools/e2e-fork.mjs`, 47/47 checks,
