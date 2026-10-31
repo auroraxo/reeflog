@@ -163,7 +163,38 @@ function parseIndependent(tx) {
   }
   const err = meta.err === undefined ? null : meta.err;
 
-  return { lamports, tokens, instructions, err };
+  return { lamports, tokens, instructions, err, accountList: accountList() };
+
+  // The account-list half, parsed independently: the harness derives the
+  // flags from (header + loaded groups) for the static keys and reads the
+  // loaded groups' permissions from which group they came from — it does
+  // NOT read reeflog's own output. Cross-checked against jsonParsed's
+  // authoritative flags where the RPC states them.
+  function accountList() {
+    const header = msg.header;
+    const nStatic = keys.length - (meta.loadedAddresses?.writable?.length ?? 0) - (meta.loadedAddresses?.readonly?.length ?? 0);
+    const entries = [];
+    const nSig = header?.numRequiredSignatures;
+    const nRS = header?.numReadonlySignedAccounts;
+    const nRU = header?.numReadonlyUnsignedAccounts;
+    if (!Number.isSafeInteger(nSig) || !Number.isSafeInteger(nRS) || !Number.isSafeInteger(nRU)) return { flags_source: 'unavailable', accounts: null };
+    const nWS = nSig - nRS;
+    const nWU = nStatic - nSig - nRU;
+    const fits = nSig >= 0 && nRS >= 0 && nRU >= 0 && nSig <= nStatic && nRS <= nSig && nRU <= nStatic - nSig;
+    if (!fits) return { flags_source: 'unavailable', accounts: null };
+    for (let i = 0; i < nStatic; i++) {
+      const signer = i < nSig;
+      const writable = i < nSig ? i < nWS : i - nSig < nWU;
+      entries.push({ index: i, address: keys[i], signer, writable, source: 'static' });
+    }
+    (meta.loadedAddresses?.writable ?? []).forEach((a, i) => {
+      entries.push({ index: nStatic + i, address: a, signer: false, writable: true, source: 'lookup_writable' });
+    });
+    (meta.loadedAddresses?.readonly ?? []).forEach((a, i) => {
+      entries.push({ index: nStatic + (meta.loadedAddresses?.writable?.length ?? 0) + i, address: a, signer: false, writable: false, source: 'lookup_readonly' });
+    });
+    return { flags_source: 'header', accounts: entries };
+  }
 }
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -419,12 +450,20 @@ for (const row of store) {
   // chain response rather than read back from reeflog's own numbers.
   const ixSame = canonical(indep.instructions) === canonical(mine.instructions || []);
   const errSame = canonical(indep.err) === canonical(mine.err ?? null);
-  if (!same || !tokSame || !ixSame || !errSame) {
+  // The account-list half: every address, its index, its signer/writable
+  // permissions and its source, compared against the harness's own
+  // derivation from header + loaded groups.
+  const listSame = canonical(indep.accountList.accounts) === canonical(mine.accounts ?? null);
+  const sourceSame = String(indep.accountList.flags_source) === String(mine.accounts_flags_source ?? 'missing');
+  if (!same || !tokSame || !ixSame || !errSame || !listSame || !sourceSame) {
     crossMismatch++;
     if (mismatchSamples.length < 2) {
       mismatchSamples.push({
         sig: row.signature.slice(0, 12),
         lamportsEqual: same, tokensEqual: tokSame, instructionsEqual: ixSame, errEqual: errSame,
+        accountListEqual: listSame, flagsSourceEqual: sourceSame,
+        indepFlagsSource: indep.accountList.flags_source, myFlagsSource: mine.accounts_flags_source ?? 'missing',
+        indepAccounts: indep.accountList.accounts?.length ?? null, myAccounts: mine.accounts?.length ?? null,
         indepLamports: indep.lamports.length, myLamports: (mine.lamport_changes || []).length,
         indepTokens: indep.tokens.length, myTokens: (mine.token_changes || []).length,
         indepInstructions: indep.instructions.length, myInstructions: (mine.instructions || []).length,
@@ -435,9 +474,22 @@ for (const row of store) {
   }
   await sleep(300);
 }
-check('cross-check: stored envelopes (balances, instructions, outcome) equal an independent re-fetch field by field',
+check('cross-check: stored envelopes (balances, instructions, outcome, account list) equal an independent re-fetch field by field',
   crossMismatch === 0 && crossChecked >= 2,
   `matched=${crossChecked} mismatched=${crossMismatch}${mismatchSamples.length ? ` samples=${JSON.stringify(mismatchSamples)}` : ''}`);
+
+// The consumer-facing claim, stated as its own check so a failure names it:
+// every enriched row carries an account list whose permissions are accounted
+// for, and none of them is a guess.
+const listed = rows.filter((x) => x.accounts && typeof x.accounts === 'object');
+const withList = listed.filter((x) => Array.isArray(x.accounts.accounts));
+const flagsSources = new Set(listed.map((x) => x.accounts.accounts_flags_source));
+check('account list: every enriched row states where its permissions came from, and a stated list is complete',
+  listed.length >= 2 && flagsSources.size > 0 &&
+    ![...flagsSources].some((s) => s === undefined || s === 'missing') &&
+    withList.every((x) => x.accounts.accounts.length === x.accounts.accounts_total) &&
+    withList.length >= 1,
+  `rows=${listed.length} withList=${withList.length} sources=${JSON.stringify([...flagsSources])}`);
 
 // ---------------------------------------------------------------------------
 // 4. STATUS reports coverage honestly.

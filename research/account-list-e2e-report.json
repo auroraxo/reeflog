@@ -1,0 +1,96 @@
+{
+  "feature": "account list with signer/writable permissions in the account envelope",
+  "date": "2026-10-31",
+  "card": "7aed8925-e905-4f83-86eb-e828b6effa6c",
+  "commit": "745a2d6 (plus harness/README commit pushed with it)",
+
+  "question": "Which accounts did a transaction touch, and could it write to them?",
+  "why_it_mattered": "The envelope said WHAT changed and HOW MANY accounts existed (accounts_total/static/loaded), but not WHICH accounts or their signer/writable permissions. A consumer that needed those had to pay a second RPC round trip — the exact cost the envelope exists to remove. This was qualification point 4 of the README's Next-qualification list.",
+
+  "premise_checks_before_coding": {
+    "encoding_json_accountKeys": "Always bare STRINGS for every message, legacy or not — so 'key0 is a string' says nothing about the message version, and encoding json states NO per-key permissions. (This falsified my own first probe, which classified messages as legacy/versioned by key shape.)",
+    "where_the_authority_lives": "encoding jsonParsed states signer/writable/source per key: transaction | lookupTable.",
+    "yellowstone": "Ports 10000 on yellowstone.mainnet.beta.rpcpool.com, yellowstone.grpc.mainnet.solana.com and grpc.mainnet.solana.com all unreachable from this host — qualification point 2 (second transport) cannot be tested here, measured not assumed."
+  },
+
+  "falsification_of_the_derivation_live_before_landing": {
+    "method": "For each live signature: fetch the same transaction in encoding json (what reeflog stores) and encoding jsonParsed (the RPC's own permissions), derive flags from (header + meta.loadedAddresses groups) exactly as a json consumer must, compare position by position.",
+    "probe": "probe5 (tools/ephemeral, /tmp/probe5.mjs), backoff-hardened against public-endpoint throttling",
+    "result": {
+      "transactions": 8,
+      "programs": ["675kPX9MHTjS2zt1qfr1NYHuzeLXfQM9H24wFSUt1Mp8", "JUP6LkbZbjS1jKKwapdHNy74zcZ3tLUZoi5QNyVTaV4"],
+      "keys_compared": 346,
+      "mismatches": 0,
+      "transactions_with_lookup_tables": 2,
+      "static_prefix_order_equal": true,
+      "auth_is_static_then_loaded": true
+    }
+  },
+
+  "artifact": {
+    "envelope_field": "accounts[] — {index, address, signer, writable, source: static|lookup_writable|lookup_readonly}, canonical order preserved (static, loaded writable, loaded readonly)",
+    "flags_source_field": "accounts_flags_source: stated (response carries them) | header (derived from the message header's three counts) | unavailable (header missing or counts cannot describe the static keys → accounts is null, permissions REFUSED rather than guessed)",
+    "debt_predicate": "events_missing_accounts / accounts_missing_count / accounts_partial / set_accounts all now treat an envelope without accounts_flags_source as half — envelopes written by an older binary are re-enriched instead of quoted back as complete. accounts_flags_source is written even when the derivation is refused (unavailable), so a genuinely un-derivable row is not refetched forever."
+  },
+
+  "falsification_ladder": {
+    "pre_fix_tree": "clone of HEAD before the change + the 5 new test functions inserted into its test module",
+    "pre_fix_result": "5/5 NEW tests RED (accounts_flags_source null vs expected stated/header/unavailable), 15/15 pre-existing accounts tests GREEN — the old tree is not broken, it is silent about the new field",
+    "post_fix_result": "90/90 green (84 existing + 6 new: 5 unit + 1 real-transaction fixture test)",
+    "clippy": "-D warnings clean"
+  },
+
+  "offline_regression_against_chain_truth": {
+    "fixture": "test/fixtures/account-list-lookuptable.json — ONE real mainnet transaction using an address-lookup table (5koDUXfx4AJ7JoHcMBqATx4oXaUeBr32Ke3MmWV8bJTroyhD5NwQbS6myRBViUco2YtzZ2PnduNGy9W9BYJuJD1B), 10 static + 3 loaded writable + 5 loaded readonly, fetched in BOTH encodings in the same breath by tools/fetch-lookuptable-fixture.mjs",
+    "test": "the_derived_account_list_equals_the_authoritative_flags_of_a_real_lookup_table_transaction — compares reeflog's derived list against jsonParsed's authoritative signer/writable/source, address by address",
+    "why": "the e2e's live rows were all static-key transactions; the loaded-account path had no authority offline. The fixture closes that on every CI run, and it asserts the fixture itself actually contains loaded accounts so it cannot silently degenerate into a static-only test.",
+    "caveat": "fixture holds ONE transaction (the loaded path, not a population of them); the live probe above covered 2 lookup-table transactions"
+  },
+
+  "live_e2e": {
+    "harness": "tools/e2e-accounts.mjs — cross-check extended to compare the account list field by field against the harness's OWN independent derivation (it does not read reeflog's output)",
+    "result": "23/23 checks passed",
+    "new_checks": [
+      "cross-check: stored envelopes (balances, instructions, outcome, account list) equal an independent re-fetch field by field — matched=4 mismatched=0",
+      "account list: every enriched row states where its permissions came from, and a stated list is complete — rows=4 withList=4 sources=[header], every list length equals accounts_total"
+    ]
+  },
+
+  "own_errors_found_by_the_measurement": {
+    "harness_bug_1": "The cross-check passed the accountList FUNCTION REFERENCE instead of calling it, so the 'independent' side was always a function object and never equal: matched=0, mismatched=4 with accountListEqual=false while every OTHER field matched. Found because the failure output named accountListEqual specifically while lamports/tokens/instructions/err were all equal — a real product failure would not have been that selective. Fixed by calling the function.",
+    "test_bug": "My first expectation in the_account_list_carries_the_permissions_a_consumer_needs assumed 1 writable-unsigned key; the header rule gives n_static - n_sig - n_ru = 4 - 1 - 1 = 2. The CODE was right (it matches the derivation measured against jsonParsed); the assertion was wrong and was corrected rather than the implementation bent to the test."
+  },
+
+  "mutation_probe": {
+    "mutations_added": [
+      "permission-shift — writable bit flipped by index parity (balances untouched, so only the cross-check's account-list comparison can catch it)",
+      "loaded-group-swap — a lookup_writable account marked readonly (order stays right, permissions wrong — exactly what the jsonParsed fixture targets)"
+    ],
+    "existing_mutations_retained": ["address-shift", "delta-drop", "empty-delta", "instruction-data-shift", "inner-position-drop", "wrong-mint"],
+    "result": "see proof below — probe prints N/N mutants caught, each exit 1"
+  },
+
+  "regressions": {
+    "e2e_accounts": "23/23 live",
+    "unit_tests": "90/90",
+    "clippy": "clean (-D warnings)",
+    "sememe_consumer": "193/193 green — the second out-of-tree consumer reads instructions[] and is unaffected by the additive field",
+    "whirlpool_watcher": "offline tests untouched (reads logs/fills, not the account list)"
+  },
+
+  "false_premise_retracted": {
+    "claim": "README qualification point 1 and the card's next step both said 'my own RFQ fill polling has not been moved over yet — migrate it onto reeflog tail/webhook'",
+    "measurement": "scanned all 28 repositories of mine on this machine (git remote auroraxo/*) plus the whole home directory outside github_repos for an RFQ fill poller in mjs/js/ts/py/sh/rs: zero matches — no such script, service or file exists. Matches for 'rfq' are documentation, fixtures containing base58 substrings, and vendored third-party code.",
+    "verdict": "the premise is false, in the same category as the falsified '21 own key-load sites' of 24.10: an inventory sentence never checked against the disk. README corrected (the honest remainder is 'a third party using reeflog', which was always the real gate) and the card's next step replaced.",
+    "consequence": "the 'migrate the RFQ poller' task cannot be executed because there is nothing to migrate; no time was spent building a migration for a poller nobody ever wrote"
+  },
+
+  "limits": {
+    "account_list_is_not_account_state": "the list says WHICH accounts and their permissions, not what they contain; account bytes, authority and pre-event state remain unsolved (README Evidence and limits)",
+    "users": "still user zero, not user one — no third party uses reeflog; both consumers (whirlpool-watcher, sememe) are my own repositories",
+    "single_transaction_fixture": "the offline lookup-table fixture pins one transaction",
+    "population_of_derivation": "the 346-key jsonParsed comparison is 8 transactions, not a population",
+    "no_audit": "no audit, no outside user, no live keys; this is a data-field feature, not a security approval",
+    "yellowstone_unreachable": "qualification point 2 cannot be tested from this host"
+  }
+}

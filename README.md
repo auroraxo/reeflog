@@ -209,6 +209,32 @@ delta), `token_changes` (index, address, mint, owner, before, after,
 delta) — amounts as exact decimal strings, never floats — plus
 `instructions` and `err`.
 
+It also carries **the account list itself** (`accounts`, added 2026-10-31):
+every account the transaction touched, in the same canonical order, with
+`signer` and `writable` permissions and a `source` of `static`,
+`lookup_writable` or `lookup_readonly`. Until then the envelope said *what
+changed* and *how many* accounts there were, but not *which ones* or *whether
+the transaction could write to them* — a consumer that needed those had to
+pay for a second round trip to the chain.
+
+Where the permissions come from is stated, not hidden, in
+`accounts_flags_source`:
+
+- `stated` — the response already carries them (the object form of
+  `accountKeys` states signer/writable per static key);
+- `header` — derived from the message header's three counts (writable signed,
+  readonly signed, writable unsigned, readonly unsigned) plus the two loaded
+  groups. Measured before landing against `jsonParsed`'s authoritative flags
+  over 346 keys across 8 live mainnet transactions including two with address
+  lookup tables: 346/346 agreement, 0 mismatches, static-prefix order
+  identical. A real lookup-table transaction is pinned as
+  `test/fixtures/account-list-lookuptable.json` and re-checked offline on
+  every run (`the_derived_account_list_equals_the_authoritative_flags_of_a_real_lookup_table_transaction`);
+- `unavailable` — the header is missing or its counts cannot describe the
+  static keys, so `accounts` is `null` and the permissions are **refused**
+  rather than guessed. A guessed permission is worse than an absent one: a
+  consumer that trusts `writable` would act on it.
+
 `instructions` is the transaction's instruction bytes: every outer
 instruction in execution order, then the CPIs each one spawned (`inner:
 true`, tagged with the parent's index in `outer` and their own position in
@@ -759,7 +785,7 @@ Public WebSocket endpoints are also rate-limited, so provider independence
 has to be real rather than assumed.
 
 Still open: Yellowstone as a second transport, and a real consumer other
-than my own RFQ fill polling and Whirlpool watcher. Reorg handling marks a
+than my own two repositories (the Whirlpool watcher and sememe). Reorg handling marks a
 retracted event, delivers the retraction, runs the check inside the daemon,
 and joins retractions against the fill watcher's ledger — and it has now been
 proven against a REAL fork of a real chain, not only against a planted
@@ -769,7 +795,8 @@ end to end.
 
 ## Next qualification
 
-1. ~~Put my own RFQ fill polling and Whirlpool watcher on `reeflog tail`.~~ **User zero exists**: [auroraxo/whirlpool-watcher](https://github.com/auroraxo/whirlpool-watcher) (2026-10-31) is a real out-of-tree consumer — separate repository, no reeflog code linked, the `Traded` decode verified from live mainnet independently. Measured against a direct-RPC poller on the same window: 7/7 checks, including `window_superset` (0 in-window trades missing), `decoded_amounts_match` (two independently written decoders agree) and `chain_witness` (every sampled fill's amounts appear as real token-balance deltas); the watcher made **0 RPC calls** for 138 fills where the poller spent **85 calls** for 19 trade-bearing transactions. Its mutation probe goes red as required. What remains out of scope: this consumer is still the mailbox owner's own (user zero, not user one), and my own RFQ fill polling has not been moved over yet — a third party adopting it is what would close the second half of this item.
+1. ~~Put my own RFQ fill polling and Whirlpool watcher on `reeflog tail`.~~ **User zero exists**: [auroraxo/whirlpool-watcher](https://github.com/auroraxo/whirlpool-watcher) (2026-10-31) is a real out-of-tree consumer — separate repository, no reeflog code linked, the `Traded` decode verified from live mainnet independently. Measured against a direct-RPC poller on the same window: 7/7 checks, including `window_superset` (0 in-window trades missing), `decoded_amounts_match` (two independently written decoders agree) and `chain_witness` (every sampled fill's amounts appear as real token-balance deltas); the watcher made **0 RPC calls** for 138 fills where the poller spent **85 calls** for 19 trade-bearing transactions. Its mutation probe goes red as required. What remains out of scope: this consumer is still the mailbox owner's own (user zero, not user one), and a third party adopting it is what would close this item.
+   **Correction, measured 2026-10-31**: the second half of this item as originally written ("my own RFQ fill polling has not been moved over yet") named work that does not exist. A scan of all 28 repositories of mine on this machine plus the home directory for an RFQ fill poller found none — no such script, service or file exists. The premise behind that sentence was the falsified "21 own key-load sites" claim from 24.10, the same category of error: a sentence that repeated a plausible-sounding inventory without checking it against the disk. The honest remainder of this item is the one that was always the real gate: **a third party using reeflog**, not the migration of a poller nobody ever wrote.
    **A second out-of-tree consumer landed the same day** (2026-10-31): [auroraxo/sememe](https://github.com/auroraxo/sememe) harvests the envelope's `instructions[]` instead of paying RPC (0 enforced attempts; 10/10 sampled transactions byte-identical against independently fetched chain data, 10/10 no-target corroborated, mutation red at the named check), its reader contract and one retracted claim of its own in [issue #1](https://github.com/auroraxo/reeflog/issues/1). Two consumers, two different byte surfaces (logs/fills and instruction bytes), both in my own repositories — still no third party.
 2. Yellowstone source as a second transport.
 3. Observe a real **mainnet** fork end to end: the detector is now proven
@@ -777,12 +804,4 @@ end to end.
    2026-10-29) and against a planted signature on live mainnet — but no
    mainnet fork has been caught while watching. The daemon's loop makes that
    plausible to catch; only an observed one closes it.
-4. An account envelope says what an event *did* to balances, and the
-   `instructions` field now carries the bytes a decoder needs to say *why*
-   (outer instructions, CPIs, verbatim data, outcome). A consumer that
-   wants to *know* an account (its state before the event, its authority,
-   its data) still needs the chain: the envelope answers "what changed",
-   not "what is". The next envelope would carry the account list a
-   transaction touched — addresses, owners, writable flags — so a consumer
-   can decide which accounts it cares about without a second RPC round
-   trip.
+4. ~~An account envelope says what an event *did* to balances… The next envelope would carry the account list a transaction touched — addresses, owners, writable flags — so a consumer can decide which accounts it cares about without a second RPC round trip.~~ **Landed 2026-10-31**: `accounts[]` carries every account a transaction touched with `signer`, `writable` and `source`, derived from the message header and the two loaded groups (or stated by the response where it says so), with `accounts_flags_source` recording which. Falsified live against `jsonParsed`'s authoritative flags: 346/346 keys over 8 transactions including lookup tables, 0 mismatches; the loaded path is pinned offline by a real transaction fixture. The remainder of this item is what the envelope still cannot answer: *what is* (account bytes, authority, pre-event state) — that remains a different problem, see *Evidence and limits*.

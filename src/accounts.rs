@@ -651,6 +651,74 @@ mod tests {
     }
 
     #[test]
+    fn the_derived_account_list_equals_the_authoritative_flags_of_a_real_lookup_table_transaction() {
+        // The chain's own word on signer/writable lives in the jsonParsed
+        // encoding (`source: transaction | lookupTable`). reeflog stores the
+        // json encoding and DERIVES the flags. This fixture pins one real
+        // mainnet transaction that uses an address-lookup table, fetched in
+        // both encodings in the same breath, so every run re-proves that the
+        // derivation reproduces the RPC's stated flags — including the loaded
+        // accounts, which no other test observes.
+        //
+        // If the derivation ever shifts a permission onto the wrong account,
+        // this test goes red on real data instead of on a guess.
+        const FIXTURE: &str = include_str!("../test/fixtures/account-list-lookuptable.json");
+        let fixture: Value = serde_json::from_str(FIXTURE).expect("fixture parses");
+        let raw = fixture.get("raw").expect("raw response");
+        let authoritative = fixture.get("auth").expect("jsonParsed accountKeys");
+        let auth_keys = authoritative.as_array().expect("array");
+
+        let env = extract(raw).expect("envelope");
+        let derived = env.value["accounts"].as_array().expect("account list");
+        assert_eq!(
+            env.value["accounts_flags_source"], "header",
+            "the stored encoding does not state the flags, so they must come from the header"
+        );
+        assert_eq!(
+            derived.len(),
+            auth_keys.len(),
+            "the list must cover static AND loaded accounts"
+        );
+        for (i, auth) in auth_keys.iter().enumerate() {
+            let mine = &derived[i];
+            assert_eq!(
+                mine["address"], auth["pubkey"],
+                "account {i} address differs"
+            );
+            assert_eq!(
+                mine["signer"], auth["signer"],
+                "account {i} signer flag differs"
+            );
+            assert_eq!(
+                mine["writable"], auth["writable"],
+                "account {i} writable flag differs"
+            );
+            let source = auth["source"].as_str().unwrap_or("?");
+            let mine_source = mine["source"].as_str().unwrap_or("?");
+            let expected = match source {
+                "transaction" => "static",
+                "lookupTable" => {
+                    if auth["writable"].as_bool().unwrap_or(false) { "lookup_writable" } else { "lookup_readonly" }
+                }
+                other => other,
+            };
+            assert_eq!(mine_source, expected, "account {i} source differs");
+        }
+        // The fixture must actually exercise what it claims: a lookup table
+        // with real loaded accounts, otherwise this test would silently pass
+        // against a static-only transaction.
+        let loaded = fixture["loadedWritable"].as_i64().unwrap_or(0) + fixture["loadedReadonly"].as_i64().unwrap_or(0);
+        assert!(
+            loaded > 0,
+            "fixture must contain loaded accounts (loaded={loaded})"
+        );
+        assert!(
+            derived.iter().any(|a| a["source"] != "static"),
+            "the loaded path must be exercised"
+        );
+    }
+
+    #[test]
     fn the_account_list_carries_the_permissions_a_consumer_needs() {
         // The gap this closes: the envelope said WHAT changed and HOW MANY
         // accounts there were, but not WHICH accounts the transaction touched

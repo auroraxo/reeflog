@@ -65,6 +65,24 @@ const MUTATIONS = [
     find: '            "mint": mint,',
     replace: '            "mint": format!("{}x", mint),',
   },
+  {
+    // The account-list half: a permission shifted onto the wrong account.
+    // A consumer that trusts "writable" would then act on the wrong one —
+    // and the balance cross-check would not notice, because the balances are
+    // untouched by this mutation.
+    name: 'permission-shift',
+    find: '                    entries.push(json!({\n                        "index": i,\n                        "address": addresses.get(i as usize).cloned(),\n                        "signer": signer,\n                        "writable": writable,\n                        "source": "static",\n                    }));',
+    replace: '                    entries.push(json!({\n                        "index": i,\n                        "address": addresses.get(i as usize).cloned(),\n                        "signer": signer,\n                        "writable": i % 2 == 0,\n                        "source": "static",\n                    }));',
+  },
+  {
+    // The loaded groups swapped: a lookup-table account that the chain
+    // calls writable becomes readonly (and the other way round). The
+    // canonical ORDER stays right, so only the permissions are wrong —
+    // exactly the defect the jsonParsed fixture is there to catch.
+    name: 'loaded-group-swap',
+    find: '                for i in 0..lw {\n                    entries.push(json!({\n                        "index": static_count + i as usize,\n                        "address": addresses.get(static_count + i as usize).cloned(),\n                        "signer": false,\n                        "writable": true,\n                        "source": "lookup_writable",\n                    }));',
+    replace: '                for i in 0..lw {\n                    entries.push(json!({\n                        "index": static_count + i as usize,\n                        "address": addresses.get(static_count + i as usize).cloned(),\n                        "signer": false,\n                        "writable": false,\n                        "source": "lookup_writable",\n                    }));',
+  },
 ];
 
 function run(cmd, args, opts = {}) {
