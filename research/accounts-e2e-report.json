@@ -1,0 +1,82 @@
+{
+  "generated_at": "2026-10-31T12:19:39.777Z",
+  "commit": "28f45a9",
+  "feature": "account envelopes: journals what each event did to balances, not just what it logged",
+  "claim_fixed": "README claimed \"account changes\"; grep -ci account src/*.rs was 0 before this commit",
+  "unit_tests": "77 passed; 0 failed (cargo test), clippy -D warnings clean, release build ok",
+  "e2e": {
+    "tool": "tools/e2e-accounts.mjs",
+    "result": "17/17 checks passed, ACCOUNT E2E PASSED",
+    "runs_today": 5,
+    "checks": [
+      "PASS free path: hydrate complete (exit 0) — exit=0 out={   \"accounts\": {     \"requested\": false   },   \"accounts_stored_free\": 2,   \"complete\": true,   \"considered\": 3,   \"err",
+      "PASS free path: the unknown signature is recorded, not pending — complete=true unavailable=0 invalid=1 pending_left=0",
+      "PASS free path: envelope stored with the logs from one paid response — accounts_stored_free=2",
+      "PASS paid path: --accounts flag exists and reports (old binary has no such block) — accounts block: {\"complete\":true,\"considered\":2,\"error\":null,\"failed\":0,\"invalid\":0,\"invalid_sample\":[],\"left\":0,\"no_metadata\":0,\"stored\":2,\"stored_sample\":[\"5jTTJevsXjHDmU2a97fCuUmMsYeBNj2WBNGqX7LwGQS9nikJ464vsW9mWA",
+      "PASS paid path: both planted socket rows enriched — stored=2 left=0 unavailable=0",
+      "PASS idempotence: second pass stores nothing new and completes — stored=0 complete=true left=0",
+      "PASS delivery: all rows emitted — rows=5",
+      "PASS delivery: the accounts and account_state fields exist on every row — field coverage on 5 rows",
+      "PASS delivery: every row without an envelope either states a reason or is a counted socket-row debt — no-envelope rows=1: explained=1 owed=0",
+      "PASS delivery: the chain-refused row states invalid/unavailable, not a blank pending — states=invalid",
+      "PASS cursor: second read delivers nothing — second read lines=0",
+      "PASS --with-accounts: delivers only rows carrying an envelope — delivered=4, expected=4",
+      "PASS --with-accounts: skips are reported on stderr, not swallowed — stderr=reeflog: 4 events after cursor 0 → cursor now 5 (1 row(s) skipped: no account envelope yet — `hydrate --accounts` fills them; they stay consumed)",
+      "PASS closed account: the stub-served row gets its envelope — token_changes=[{\"address\":\"StubAcct22222222222222222222222222222222222222\",\"after\":\"0\",\"before\":\"1331874357100\",\"delta\":\"-1331874357100\",\"index\":1,\"mint\":\"StubMint111111111111111111111111111111111111\",\"owner\":\"StubOwnr111111111111111111111111111111111111\"}]",
+      "PASS closed account: absence from post means delta = -before, never an empty string — before=1331874357100 after=0 delta=-1331874357100",
+      "PASS cross-check: stored envelopes equal an independent re-fetch field by field — matched=4 mismatched=0",
+      "PASS status: accounts_held covers exactly the rows with envelopes — accounts_held=5, envelopes_in_journal=5, accounts_missing=0, unreachable=0"
+    ],
+    "includes": [
+      "field-by-field cross-check of every stored envelope against an independent re-fetch and re-parse of the same transactions from the chain",
+      "deterministic closed-account check via local RPC stub (live traffic only closes token accounts sometimes)",
+      "free path (envelope from already-paid getTransaction) and paid path (hydrate --accounts)",
+      "idempotence, delivery shape (accounts + account_state on every row), --with-accounts skip reporting, cursor semantics"
+    ]
+  },
+  "mutation_probe": {
+    "tool": "tools/e2e-accounts-mutations.mjs",
+    "baseline": "17/17 PASS (retried once after a 429 transient)",
+    "mutants": [
+      {
+        "name": "address-shift",
+        "caught": true,
+        "failed_check": "closed account: stub-served row gets its envelope"
+      },
+      {
+        "name": "delta-drop",
+        "caught": true,
+        "failed_check": "closed account + cross-check"
+      },
+      {
+        "name": "empty-delta",
+        "caught": true,
+        "failed_check": "closed account: absence from post means delta = -before, never an empty string"
+      },
+      {
+        "name": "wrong-mint",
+        "caught": true,
+        "failed_check": "cross-check: stored envelopes equal an independent re-fetch field by field"
+      }
+    ],
+    "result": "4/4 mutants caught"
+  },
+  "prefix_falsification": {
+    "binary": "95bf34f (previous main)",
+    "result": "4/14 checks passed on the pre-fix tree; 10 new checks failed as expected"
+  },
+  "real_bugs_found_by_cross_check": [
+    "lookup-table indexing would attach balances to wrong addresses (canonical account list rebuilt; test pinned)",
+    "closed token account produced delta \"\" — now -before (absence = zero on that side); found live, 3 regression tests added"
+  ],
+  "probe_numbers": {
+    "source": "tools/probe-accounts.mjs, live mainnet Raydium AMM v4, 4 transactions, 2026-10-31",
+    "values": {
+      "avg_discarded_response_kb": 11.9,
+      "avg_account_keys": 33.5,
+      "avg_lamport_changes": 5.5,
+      "avg_token_changes": 3.5
+    },
+    "honesty_note": "probe re-run at report time hit HTTP 429 on the public endpoint; values above are from the earlier same-day run recorded in the README"
+  }
+}
