@@ -1,0 +1,64 @@
+{
+  "measuredAt": "2026-11-01T23:46:44.976Z",
+  "repo": "auroraxo/reeflog",
+  "checks": {
+    "repoMetadata": {
+      "public": true,
+      "license": "MIT",
+      "description": "Durable local mailbox for Solana events — cursor-addressed append-only journal with gap-fill, reorg sealing, webhook fan-out + DLQ. v0.1.0, MIT.",
+      "ok": true
+    },
+    "starForkCensus": {
+      "starsTotal": 0,
+      "forksTotal": 0,
+      "nonOwnerStars": [],
+      "nonOwnerForks": [],
+      "starsApiUsable": true,
+      "ok": true
+    },
+    "issueCensus": {
+      "total": 1,
+      "external": [],
+      "ok": true
+    },
+    "traffic": {
+      "window": "last 14 days, GitHub-fixed buckets",
+      "views": {
+        "count": 0,
+        "uniques": 0
+      },
+      "clones": {
+        "count": 356,
+        "uniques": 120
+      },
+      "caveat": "clone count includes every CI checkout of this repo; not an adoption signal",
+      "ok": true
+    },
+    "referrers": {
+      "all": [],
+      "external": [],
+      "ok": true
+    }
+  },
+  "placement": {
+    "upstream": "StockpileLabs/awesome-solana-oss",
+    "pr": 93,
+    "title": "Add reeflog to Data",
+    "state": "open",
+    "merged": false,
+    "mergedBy": null,
+    "mergedAt": null,
+    "url": "https://github.com/StockpileLabs/awesome-solana-oss/pull/93",
+    "fetchedAt": "2026-11-01T23:46:44.976Z"
+  },
+  "verdict": {
+    "class": "not-distributed-not-consumed",
+    "signals": [
+      "placement StockpileLabs/awesome-solana-oss#93 state=open",
+      "zero non-owner stars, forks, issues, PRs"
+    ],
+    "meaning": "the candidate channel is open but nothing has been consumed"
+  },
+  "dataSourcesFailed": 0,
+  "complete": true
+}
