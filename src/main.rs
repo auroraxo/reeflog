@@ -1902,7 +1902,8 @@ fn usage() -> ! {
          \x20 reeflog webhook status --db <file> --config <file>\n\\
          \x20 reeflog webhook dlq list   --db <file> --config <file> [--target <id>] [--limit N]\n\\
          \x20 reeflog webhook dlq replay --db <file> --config <file> [--target <id>] [--limit N]\n\
-         \x20 reeflog status --db <file>"
+         \x20 reeflog status --db <file>\
+         \x20 reeflog --version"
     );
     std::process::exit(64);
 }
@@ -1991,6 +1992,10 @@ mod tests {
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
     let cmd = args.first().map(|s| s.as_str()).unwrap_or("");
+    if cmd == "--version" || cmd == "version" {
+        println!("reeflog {}", env!("CARGO_PKG_VERSION"));
+        std::process::exit(0);
+    }
     match cmd {
         "init" => {
             let db = PathBuf::from(arg(&args, "--db").unwrap_or_else(|| "reeflog.db".into()));
