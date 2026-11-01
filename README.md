@@ -5,7 +5,7 @@ they did to account balances for selected programs into a cursor-addressed
 append-only log, so a consumer resumes without gaps after a crash,
 disconnect, or reorg.
 
-**Status: v0 working (October 2026).** Live against mainnet-beta: see *Measured results* below. Webhook fan-out, a dead-letter queue, and archive backfill ship in this tree; Yellowstone as a second transport does not.
+**Status: v0.1.0 shipped (2026-11-01), v0 working.** Live against mainnet-beta: see *Measured results* below. Install from the release tag: `cargo install --git https://github.com/auroraxo/reeflog --tag v0.1.0`. Webhook fan-out, a dead-letter queue, and archive backfill ship in this tree; Yellowstone as a second transport does not.
 
 ## The idea
 
