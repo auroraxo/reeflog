@@ -1,0 +1,74 @@
+{
+  "rpc": "https://api.mainnet-beta.solana.com",
+  "program": "675kPX9MHTjS2zt1qfr1NYHuzeLXfQM9H24wFSUt1Mp8",
+  "n_tx": 30,
+  "batch_size": 100,
+  "measured_at": "2026-11-01T16:06:51.717Z",
+  "checks": {
+    "canonical_index_matches_jsonParsed": {
+      "checked": 5,
+      "mismatch": 0,
+      "ok": true,
+      "detail": "canonical static++loaded order equals jsonParsed accountKeys (incl. loaded, in order)"
+    }
+  },
+  "probes": {
+    "owner_fetch": {
+      "unique_addresses": 406,
+      "address_slots_over_txs": 1455,
+      "repeat_factor": 3.58,
+      "calls_one_per_address": 1455,
+      "calls_per_row_batched": 30,
+      "calls_global_batched": 5,
+      "saved_vs_naive": 291,
+      "response_bytes_owner_only": 56237,
+      "bytes_per_address": 138.5,
+      "accounts_missing_at_fetch": 63,
+      "missing_fraction": 0.155,
+      "missing_addresses": [
+        "HY7CNrtQCQ6w6KwwrQJW2qFaQq3v1xTYGE862LRwHBdg",
+        "H62evJFWJg1EdJsGzv6ZGFXL8yAbjkEJwKemSYarXYVy",
+        "HEVJdPXeKz4XsYTWvAUzzB186qmyKppqn3pgjBkTJgNr",
+        "8BBXikwjTzA8dQsRbTnYXGqyrmxBUTeMZjTxXmF9a2p1",
+        "9YSLGLzRHpwquLEzQ3stM5HdSc8A9bcvNevZBHUsYMgL",
+        "AZWyh3hMc1KzHdRnhpkpo25f1fmzJ2TCEXaLn8iyJan6",
+        "GiyMgdc5QxBKBDME4tT67X44QdwmWiR8DC8CFwSwApsi",
+        "FFig5Hq2ivtSpfnVoFdWdm5LJ7SgXSkZAESSqkWS7W1m",
+        "65DJoXRgbKDqymfLoRjjJyQ5cjkmUuQhVf35PwiQ3yGp",
+        "67iRyEdiFWBQ4DNMFWgLaFB9G1byB274TNcpyGvw6p7A"
+      ],
+      "batch_size_accepted": true
+    },
+    "three_way_authority": {
+      "all3": 12,
+      "stated_vs_bytes": 12,
+      "stated_vs_map": 12,
+      "checked": 12,
+      "mismatches": [],
+      "program": {
+        "token_program_owned": 12,
+        "mint_agrees": 12,
+        "checked": 12
+      }
+    },
+    "negative_control": {
+      "ok": true,
+      "absent_account_is_null": true,
+      "absent_account_absent_from_owner_map": true,
+      "absent_address": "jitodontfronttitanssoLfLare1111111111111111",
+      "a_live_address_carries_an_owner": true,
+      "live_example": {
+        "address": "66666y3RmL6gNyttNKXNhF5awxAWbBdGSfpKuaTLrjRH",
+        "owner": "11111111111111111111111111111111"
+      },
+      "detail": "a well-formed but nonexistent address must yield null and NO owner entry; a live address must carry one"
+    }
+  },
+  "verdict": {
+    "p1_cost_saves_10x": true,
+    "p2_authority_three_way": true,
+    "negative_control_holds": true,
+    "premise_holds": true,
+    "statement": "premise HOLDS: 12/12 token accounts agree across stated/decoded/map owners; 5 batched calls replace 1455 naive ones (291x); 63 of 406 addresses are gone at fetch time and stay explicitly missing"
+  }
+}

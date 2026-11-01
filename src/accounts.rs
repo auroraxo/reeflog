@@ -286,6 +286,31 @@ pub fn extract(tx: &Value) -> Option<AccountEnvelope> {
     // reported, rather than reported against a guessed address.
     let address_at = |i: usize| -> Option<String> { addresses.get(i).cloned() };
 
+    // TX-TIME AUTHORITY, free: pre/postTokenBalances state, per entry, WHICH
+    // SPL token program the balance is held by (`programId`) — measured live
+    // 2026-11-01 (tools/probe-owners.mjs): 16/16 entries on a Whirlpool-adjacent
+    // Raydium AMM v4 transaction carry it, so the owning program of a changed
+    // token account is already inside the response this module reads. Keyed by
+    // `accountIndex` — the same index the balances themselves use — post wins
+    // over pre (the final state is the one a consumer reads).
+    //
+    // This is NOT the account's owner program in general: only token accounts
+    // name their token program in this response, and only in these arrays.
+    // The general owner of ANY account — `getMultipleAccounts`, batched — is
+    // a separate, explicitly-budgeted pass (`hydrate --owners`, src/owners.rs);
+    // its result is stored per envelope as `account_owners`.
+    let mut tx_time_program: std::collections::BTreeMap<usize, String> =
+        std::collections::BTreeMap::new();
+    for list in [pre_tok, post_tok].into_iter().flatten() {
+        for t in list {
+            let idx = t.get("accountIndex").and_then(|v| v.as_u64());
+            let prog = t.get("programId").and_then(|v| v.as_str());
+            if let (Some(idx), Some(prog)) = (idx, prog) {
+                tx_time_program.insert(idx as usize, prog.to_string());
+            }
+        }
+    }
+
     // Lamport balance changes.
     let mut lamport_changes: Vec<Value> = Vec::new();
     let n_balances = pre.map(|p| p.len()).unwrap_or(0).max(post.map(|p| p.len()).unwrap_or(0));
@@ -296,13 +321,21 @@ pub fn extract(tx: &Value) -> Option<AccountEnvelope> {
             continue;
         }
         let Some(address) = address_at(i) else { continue };
-        lamport_changes.push(json!({
+        // The token program the transaction itself named for this account, if
+        // it is a token account the response describes. Absent when the
+        // response does not say — never guessed.
+        let owner_program = tx_time_program.get(&i);
+        let mut lamport = json!({
             "index": i,
             "address": address,
             "before": b,
             "after": a,
             "delta": a - b,
-        }));
+        });
+        if let Some(p) = owner_program {
+            lamport["owner_program"] = json!(p);
+        }
+        lamport_changes.push(lamport);
     }
 
     // Token balance changes, keyed by (account index, mint, owner).
@@ -358,7 +391,7 @@ pub fn extract(tx: &Value) -> Option<AccountEnvelope> {
         // The delta is computed on the exact decimal strings, so a u64
         // amount never round-trips through a double.
         let delta = decimal_sub(&after_eff, &before_eff);
-        token_changes.push(json!({
+        let mut token = json!({
             "index": idx,
             "address": address,
             "mint": mint,
@@ -366,7 +399,13 @@ pub fn extract(tx: &Value) -> Option<AccountEnvelope> {
             "before": before_eff,
             "after": after_eff,
             "delta": delta,
-        }));
+        });
+        // The SPL token program the balances named for this account — the
+        // same tx-time authority the lamport entries carry when applicable.
+        if let Some(p) = tx_time_program.get(&idx) {
+            token["token_program"] = json!(p);
+        }
+        token_changes.push(token);
     }
 
     // The invoked program: the outer instruction's program id. On a legacy

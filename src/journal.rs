@@ -588,6 +588,115 @@ impl Journal {
         Ok(out)
     }
 
+    /// Rows the OWNERS pass owes: a complete envelope (with an enumerable
+    /// account list) whose `account_owners` map is not there yet.
+    ///
+    /// The guard chain matters, and each clause is a measured defect class:
+    ///   - `logs IS NOT NULL` — owners hang off an envelope that hangs off
+    ///     content; a bare signature row has nothing to attach them to.
+    ///   - `account_state='held'` — only a HELD envelope counts; a row the
+    ///     account pass resolved as unreachable (chain forgot it) can never
+    ///     carry owners and must not sit in the queue forever. Same lesson
+    ///     as `accounts_partial`: an unreachable row must be known, not owed.
+    ///   - `json_extract(accounts,'$.accounts') IS NOT NULL` — an envelope
+    ///     whose flag derivation was refused ("unavailable") names NO set of
+    ///     addresses; there is nothing to look up, not something to guess.
+    ///   - `json_extract(accounts,'$.account_owners') IS NULL` — the owners
+    ///     map itself; resolved rows leave the queue.
+    pub fn events_missing_owners(&self, limit: i64) -> Result<Vec<(i64, String, String)>, String> {
+        let mut stmt = self
+            .db
+            .prepare(
+                "SELECT seq, signature, accounts FROM events
+                 WHERE logs IS NOT NULL
+                   AND account_state='held'
+                   AND json_extract(accounts, '$.accounts') IS NOT NULL
+                   AND json_extract(accounts, '$.account_owners') IS NULL
+                 ORDER BY seq LIMIT ?1",
+            )
+            .map_err(|e| e.to_string())?;
+        let rows = stmt
+            .query_map(params![limit], |r| {
+                Ok((
+                    r.get(0)?,
+                    r.get(1)?,
+                    r.get::<_, Option<String>>(2)?.unwrap_or_default(),
+                ))
+            })
+            .map_err(|e| e.to_string())?;
+        let mut out = Vec::new();
+        for row in rows {
+            out.push(row.map_err(|e| e.to_string())?);
+        }
+        Ok(out)
+    }
+
+    /// The owners debt counter — the SAME predicate as `events_missing_owners`,
+    /// for the reason stated on `accounts_missing_count`: two hand-written
+    /// copies of one fact drift apart.
+    pub fn owners_missing_count(&self) -> Result<i64, String> {
+        self.db
+            .query_row(
+                "SELECT COUNT(*) FROM events
+                 WHERE logs IS NOT NULL
+                   AND account_state='held'
+                   AND json_extract(accounts, '$.accounts') IS NOT NULL
+                   AND json_extract(accounts, '$.account_owners') IS NULL",
+                [],
+                |r| r.get(0),
+            )
+            .map_err(|e| e.to_string())
+    }
+
+    /// Test-only row insert with explicit content (the public `append`
+    /// carries no per-row envelope slot; the owners tests need rows whose
+    /// envelope is written separately via `set_accounts`).
+    #[cfg(test)]
+    pub fn insert_for_test(
+        &self,
+        signature: &str,
+        slot: i64,
+        logs: Option<&str>,
+        err: Option<&str>,
+    ) -> Result<(i64, bool), String> {
+        self.append(signature, slot, err, logs, "ws")
+    }
+
+    /// Test-only: read a row's stored envelope JSON back.
+    #[cfg(test)]
+    pub fn row_envelope_for_test(&self, signature: &str) -> Result<(String, String), String> {
+        self.db
+            .query_row(
+                "SELECT signature, accounts FROM events WHERE signature=?1",
+                params![signature],
+                |r| Ok((r.get(0)?, r.get::<_, Option<String>>(1)?.unwrap_or_default())),
+            )
+            .map_err(|e| e.to_string())
+    }
+
+    /// Store a resolved owners map INSIDE the envelope (a `json_set` on the
+    /// stored envelope, not a replace): the owners ride the account list
+    /// they resolve, and `tail`/webhook deliver them with the envelope they
+    /// belong to. Guards mirror `set_accounts`: only a row that holds its
+    /// envelope may gain owners, and a row that already has them is never
+    /// rewritten — a second run must be a no-op, not a second opinion.
+    /// Returns whether this call wrote.
+    pub fn set_owners(&self, signature: &str, owners: &str) -> Result<bool, String> {
+        let n = self
+            .db
+            .execute(
+                "UPDATE events SET accounts=json_set(accounts, '$.account_owners', json(?2))
+                 WHERE signature=?1
+                   AND logs IS NOT NULL
+                   AND account_state='held'
+                   AND accounts IS NOT NULL
+                   AND json_extract(accounts, '$.account_owners') IS NULL",
+                params![signature, owners],
+            )
+            .map_err(|e| e.to_string())?;
+        Ok(n > 0)
+    }
+
     /// Rows the account pass still owes: no envelope at all, or an envelope
     /// written before the current extractor existed. Deliberately the SAME
     /// predicate as `events_missing_accounts` — a debt counter and the queue
@@ -1270,6 +1379,16 @@ impl Journal {
                 |r| r.get(0),
             )
             .map_err(|e| e.to_string())?;
+        let owners_held: i64 = self
+            .db
+            .query_row(
+                "SELECT COUNT(*) FROM events
+                 WHERE json_extract(accounts, '$.account_owners') IS NOT NULL",
+                [],
+                |r| r.get(0),
+            )
+            .map_err(|e| e.to_string())?;
+        let owners_missing: i64 = self.owners_missing_count()?;
         Ok(Counts {
             total,
             with_err,
@@ -1290,6 +1409,8 @@ impl Journal {
             accounts_held,
             accounts_partial,
             accounts_unreachable,
+            owners_held,
+            owners_missing,
         })
     }
 }
@@ -1358,6 +1479,10 @@ pub struct Counts {
     /// Rows with a KNOWN reason for having no envelope (chain forgot the tx,
     /// refused key, no metadata): owed no longer.
     pub accounts_unreachable: i64,
+    /// Rows whose envelope carries a resolved owners map.
+    pub owners_held: i64,
+    /// Rows whose envelope is complete but whose owners map is still owed.
+    pub owners_missing: i64,
 }
 
 #[cfg(test)]

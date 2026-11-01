@@ -251,6 +251,62 @@ whether a failed transaction's envelope describes an effect that happened.
 The envelope does NOT contain account bytes or pre-event account state; see
 *Evidence and limits*.
 
+### Which program owns what
+
+Ownership answers a different question than the ones above — *what program
+controls this account* — and unlike everything else in the envelope, `owner`
+is **not** in the `getTransaction` response (measured 2026-11-01 with
+`tools/probe-owners.mjs`: the response names a token account's `programId`
+inside `pre/postTokenBalances`, but nothing states the owner of an arbitrary
+account). So reeflog treats it as its own budget rather than pretending it is
+free:
+
+- **Free tx-time half:** every changed token account and lamport-change
+  entry of a token account carries the SPL token program the transaction
+  itself named (`token_program` / `owner_program` on the delta entry), read
+  from the same response hydration already pays for.
+- **Paid owner map:** `hydrate --owners` collects every address the held
+  envelopes enumerate **across all owed rows first**, then batch-fetches
+  `getMultipleAccounts` (100 addresses per call, owner-only dataSlice) and
+  stores `account_owners` inside each envelope: an `owners` map for addresses
+  the chain still has, and an explicit `missing` list for addresses it does
+  not.
+
+Measured on live mainnet (Raydium AMM v4, 2026-11-01):
+
+| Measurement | Result |
+|---|---|
+| Probe: distinct addresses → batched calls | 406 addresses, 5 calls (291× vs 1 per address) |
+| Probe: addresses gone at fetch time | 63 / 406 = **15.5 %**, recorded as missing |
+| Probe: authority agreement (stated vs decoded from bytes vs map) | **12 / 12** token accounts, all three paths |
+| E2E: stored owners vs an independent re-fetch | **412 / 412** agree |
+| E2E: missing addresses re-fetch as null **and carry no owner** | **57 / 57** |
+| E2E: batched cost | **12 calls for 1,111 distinct addresses** |
+| E2E: tx-time token program vs chain | **20 / 20** statable entries |
+| E2E: `owner_program` vs re-fetched account owner | **13 / 13** |
+| Idempotence | second run: 0 rows, 0 calls |
+| Unit tests | **97 / 97** |
+
+Three honesty rules the implementation is built against, each pinned by a
+test and by the live harness:
+
+- **A gone address is a fact, never a guess.** ~15 % of addresses no longer
+  exist when owners are fetched (accounts closed after the transaction).
+  They land in `missing` with **no** owner entry — writing `null`, omitting
+  the key, or filling in a plausible program would all be indistinguishable
+  from "fetched" to a consumer.
+- **No half-written rows.** A row is written only when *every* address it
+  enumerates has an answer; a failed batch leaves the row owed instead of
+  storing a map with a silent hole in it.
+- **Owners are read at fetch time, not at event time.** An account can change
+  owner after the transaction; the map's `source` says which pass wrote it,
+  and nothing here claims historical state (see *Evidence and limits*).
+
+The two pre-existing correctness traps above — lookup-table indexing and a
+closed token account — apply to the owner map for the same reason: it is keyed
+by the canonical address list, and the negative control in the probe proves an
+absent account produces no entry rather than a fabricated one.
+
 Two correctness traps the extractor is built against, each pinned by a test:
 
 - **Lookup-table indexing.** `preBalances`/`postBalances` are indexed over
@@ -738,6 +794,7 @@ reeflog verify  --db reeflog.db --pages 400 [--anchor-slot <slot>]   # detect, e
 reeflog repair  --db reeflog.db --pages 400 [--anchor-slot <slot>]   # fill signatures verify found
 reeflog hydrate --db reeflog.db [--limit 500]      # fetch missing event content
 reeflog hydrate --db reeflog.db --accounts         # + account envelopes for socket rows
+reeflog hydrate --db reeflog.db --owners           # + owning program per address (batched)
 reeflog tail    --db reeflog.db --cursor ./c.txt   # deliver events (content included)
 reeflog webhook push --db reeflog.db --config webhooks.json   # deliver to outside targets
 reeflog status  --db reeflog.db
@@ -784,6 +841,13 @@ fetched yet, which is honest but still a skip. That is a different problem.
 Public WebSocket endpoints are also rate-limited, so provider independence
 has to be real rather than assumed.
 
+Ownership is the partial exception: `hydrate --owners` fills an `account_owners`
+map (owning program per address), and changed token accounts name their token
+program for free. Two limits remain and are stated rather than smoothed over:
+owners are read **at fetch time**, not at event time (an account may have
+changed owner since), and account **bytes / pre-event state** are still not in
+the envelope at all — that stays open, see *Next qualification* item 4.
+
 Still open: Yellowstone as a second transport, and a real consumer other
 than my own two repositories (the Whirlpool watcher and sememe). Reorg handling marks a
 retracted event, delivers the retraction, runs the check inside the daemon,
@@ -804,4 +868,5 @@ end to end.
    2026-10-29) and against a planted signature on live mainnet — but no
    mainnet fork has been caught while watching. The daemon's loop makes that
    plausible to catch; only an observed one closes it.
-4. ~~An account envelope says what an event *did* to balances… The next envelope would carry the account list a transaction touched — addresses, owners, writable flags — so a consumer can decide which accounts it cares about without a second RPC round trip.~~ **Landed 2026-10-31**: `accounts[]` carries every account a transaction touched with `signer`, `writable` and `source`, derived from the message header and the two loaded groups (or stated by the response where it says so), with `accounts_flags_source` recording which. Falsified live against `jsonParsed`'s authoritative flags: 346/346 keys over 8 transactions including lookup tables, 0 mismatches; the loaded path is pinned offline by a real transaction fixture. The remainder of this item is what the envelope still cannot answer: *what is* (account bytes, authority, pre-event state) — that remains a different problem, see *Evidence and limits*.
+4. ~~An account envelope says what an event *did* to balances… The next envelope would carry the account list a transaction touched — addresses, owners, writable flags — so a consumer can decide which accounts it cares about without a second RPC round trip.~~ **Landed 2026-10-31**: `accounts[]` carries every account a transaction touched with `signer`, `writable` and `source`, derived from the message header and the two loaded groups (or stated by the response where it says so), with `accounts_flags_source` recording which. Falsified live against `jsonParsed`'s authoritative flags: 346/346 keys over 8 transactions including lookup tables, 0 mismatches; the loaded path is pinned offline by a real transaction fixture.
+   **Ownership landed 2026-11-01**: `hydrate --owners` resolves the owning program of every address the envelope enumerates (batched `getMultipleAccounts`, 12 calls for 1,111 addresses in the live e2e), and changed token accounts name their token program for free inside the transaction response. Falsified live: 412/412 stored owners agree with an independent re-fetch, 57/57 addresses the chain no longer has are recorded in an explicit `missing` list with **no** owner entry (never guessed), and the probe pins the authority three ways (stated vs decoded from the account's own bytes vs the map): 12/12. The remainder of this item is the part that is still open: **account bytes and historical authority** — who owned an account *at event time* — which is a different problem (the owner map is read at fetch time), see *Evidence and limits*.

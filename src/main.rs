@@ -7,6 +7,7 @@
 mod accounts;
 mod backfill;
 mod journal;
+mod owners;
 mod payload;
 mod reorg;
 mod webhook;
@@ -1435,6 +1436,10 @@ fn run_status(args: &[String]) {
             "accounts_partial": c.accounts_partial,
             "accounts_missing": c.accounts_missing,
             "accounts_unreachable": c.accounts_unreachable,
+            // Owner coverage: which rows carry the resolved owner map
+            // (`hydrate --owners`) and which still owe it.
+            "owners_held": c.owners_held,
+            "owners_missing": c.owners_missing,
         }))
         .unwrap()
     );
@@ -1468,8 +1473,26 @@ fn run_hydrate(args: &[String]) {
     // `getTransaction`. It runs AFTER payload hydration so a row still
     // missing content is paid for once, not twice.
     let a = if with_accounts {
-        let mut f = HttpFetcher::new(rpc_url);
+        let mut f = HttpFetcher::new(rpc_url.clone());
         Some(payload::hydrate_accounts(&j, &mut f, limit).unwrap_or_else(|e| die(e)))
+    } else {
+        None
+    };
+    // `--owners` is a THIRD budget, on purpose: ownership does not ride in
+    // the `getTransaction` response at all (measured 2026-11-01,
+    // tools/probe-owners.mjs), so it cannot be folded into the passes above
+    // without hiding a real cost inside a "free" one. It collects addresses
+    // across ALL owed rows first and batch-fetches owners — 291× fewer calls
+    // than per-address fetching on the measured window. 0 disables.
+    let owners_batch: usize = arg(args, "--owners-batch")
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(100);
+    let o = if args.iter().any(|a| a == "--owners") {
+        let mut f = HttpFetcher::new(rpc_url);
+        Some(
+            owners::hydrate_owners(&j, &mut f, limit, owners_batch)
+                .unwrap_or_else(|e| die(e)),
+        )
     } else {
         None
     };
@@ -1491,6 +1514,21 @@ fn run_hydrate(args: &[String]) {
         }),
         None => json!({"requested": false}),
     };
+    let owners_json = match &o {
+        Some(o) => json!({
+            "complete": o.complete(),
+            "considered": o.considered,
+            "stored": o.stored,
+            "addresses_owned": o.addresses_owned,
+            "addresses_missing": o.addresses_missing,
+            "rpc_calls": o.calls,
+            "failed_batches": o.failed_batches,
+            "left": o.left,
+            "error": o.error,
+            "stored_sample": o.stored_sample,
+        }),
+        None => json!({"requested": false}),
+    };
     println!(
         "{}",
         serde_json::to_string_pretty(&json!({
@@ -1507,6 +1545,7 @@ fn run_hydrate(args: &[String]) {
             "unavailable_sample": r.unavailable_sample,
             "invalid_sample": r.invalid_sample,
             "accounts": accounts_json,
+            "owners": owners_json,
             "journal": {
                 "events": c.total,
                 "payload_pending": c.payload_pending,
@@ -1515,6 +1554,8 @@ fn run_hydrate(args: &[String]) {
                 "accounts_held": c.accounts_held,
                 "accounts_partial": c.accounts_partial,
                 "accounts_missing": c.accounts_missing,
+                "owners_held": c.owners_held,
+                "owners_missing": c.owners_missing,
             },
         }))
         .unwrap()
@@ -1531,6 +1572,15 @@ fn run_hydrate(args: &[String]) {
             eprintln!(
                 "reeflog: account hydration INCOMPLETE (error={:?}, failed={}, left={}) — {} row(s) still carry no account envelope",
                 a.error, a.failed, a.left, a.left
+            );
+            std::process::exit(3);
+        }
+    }
+    if let Some(o) = &o {
+        if !o.complete() {
+            eprintln!(
+                "reeflog: owner hydration INCOMPLETE (error={:?}, failed_batches={}, left={}) — {} row(s) still carry no owner map",
+                o.error, o.failed_batches, o.left, o.left
             );
             std::process::exit(3);
         }
@@ -1838,9 +1888,12 @@ fn usage() -> ! {
          \x20              [--webhook-config <file>] [--webhook-every N] [--webhook-limit N]\n\
          \x20 reeflog verify --db <file> [--pages N] [--since-slot N] [--rpc URL]\n\
          \x20 reeflog repair --db <file> [--pages N] [--since-slot N] [--rpc URL]\n\
-         \x20 reeflog hydrate --db <file> [--limit N] [--rpc URL] [--accounts]\n\
+         \x20 reeflog hydrate --db <file> [--limit N] [--rpc URL] [--accounts] [--owners]\n\
          \x20              [--accounts]: also fetch account-change envelopes for\n\
          \x20              rows whose logs came from the socket (it carries no balances)\n\
+         \x20              [--owners]: also resolve the owning program of every account\n\
+         \x20              the envelope enumerates (batched getMultipleAccounts;\n\
+         \x20              addresses the chain no longer has are recorded missing)\n\
          \x20 reeflog seal  --db <file> [--rpc URL]\n\
          \x20 reeflog tail  --db <file> --cursor <file> [--limit N] [--no-logs] [--with-accounts]\n\
          \x20 reeflog reorg check --db <file> [--limit N] [--rpc URL]\n\
