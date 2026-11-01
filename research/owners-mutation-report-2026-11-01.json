@@ -1,0 +1,28 @@
+{
+  "feature": "owners (owning program per account) in the envelope",
+  "measured_at": "2026-11-01",
+  "e2e_harness": "tools/e2e-owners.mjs",
+  "mutation_harness": "tools/e2e-owners-mutations.mjs",
+  "probe": "tools/probe-owners.mjs",
+  "probe_report": "research/owners-probe-2026-11-01.json",
+  "baseline": "PASSED (harness green on the working product)",
+  "mutants": [
+    {
+      "name": "guess-the-missing",
+      "caught": true,
+      "detail": "exit=1, 7/8 checks \u2014 the missing-address check went red"
+    },
+    {
+      "name": "address-shift",
+      "caught": true,
+      "detail": "exit=1, 3/7 checks \u2014 cross-check and delivery went red"
+    },
+    {
+      "name": "free-authority-drop",
+      "caught": true,
+      "detail": "exit=1, 7/8 checks \u2014 the free tx-time token program check went red"
+    }
+  ],
+  "verdict": "3/3 mutants caught",
+  "log": "baseline: building unmutated binary...\nbaseline PASSED \u2014 the harness is green on the working product\n\nmutant guess-the-missing: building...\n  CAUGHT: exit=1 \u2014 PASS idempotence: second --owners run stores nothing and costs 0 calls \u2014 considered=0 stored=0 calls=0 |  | 7/8 checks passed | E2E FAILED\nmutant address-shift: building...\n  CAUGHT: exit=1 \u2014 FAIL idempotence: second --owners run stores nothing and costs 0 calls \u2014 considered=60 stored=0 calls=7 |  | 3/7 checks passed | E2E FAILED\nmutant free-authority-drop: building...\n  CAUGHT: exit=1 \u2014 PASS idempotence: second --owners run stores nothing and costs 0 calls \u2014 considered=0 stored=0 calls=0 |  | 7/8 checks passed | E2E FAILED\n\n3/3 mutants caught\nMUTATION PROBE PASSED\n"
+}
