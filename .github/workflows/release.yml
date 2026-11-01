@@ -1,0 +1,59 @@
+name: Release
+
+# Builds the binary for a tagged release on each platform and attaches the
+# archives to a GitHub release. A tag is the release artifact: the tag name,
+# the crate version and the binary's own `--version` must all agree.
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            artifact: reeflog-linux-amd64.tar.gz
+          - os: macos-latest
+            target: aarch64-apple-darwin
+            artifact: reeflog-macos-arm64.tar.gz
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - uses: Swatinem/rust-cache@v2
+      - name: Build
+        run: cargo build --release --locked --target ${{ matrix.target }}
+      - name: The tag must match the binary version
+        run: |
+          tag="${GITHUB_REF_NAME}"
+          version="$(./target/${{ matrix.target }}/release/reeflog --version | awk '{print $2}')"
+          if [ "v${version}" != "${tag}" ]; then
+            echo "tag ${tag} does not match binary version ${version}" >&2
+            exit 1
+          fi
+      - name: Package
+        run: |
+          tar -czf "${{ matrix.artifact }}" -C target/${{ matrix.target }}/release reeflog
+      - name: Publish release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ${{ matrix.artifact }}
+          generate_release_notes: true
+          body: |
+            reeflog — a durable local mailbox for Solana events.
+
+            Install from source:
+            ```
+            cargo install --git https://github.com/auroraxo/reeflog --tag ${{ github.ref_name }}
+            ```
+
+            The binary is self-contained (SQLite is compiled in); it needs a
+            Solana RPC/WebSocket endpoint, nothing else.
