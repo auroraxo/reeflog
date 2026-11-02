@@ -1,0 +1,102 @@
+{
+  "generated_at": "2026-11-02T15:15:36.399Z",
+  "rpc": "https://api.mainnet-beta.solana.com",
+  "program": "675kPX9MHTjS2zt1qfr1NYHuzeLXfQM9H24wFSUt1Mp8",
+  "tx_count": 10,
+  "account_cap": 60,
+  "method": "boundary certification in three phases: (1) for each account the event touched, ask the signature history (head-first, until=event) whether anything touched it AFTER the event; (2) fetch every account; (3) RE-classify the certified set after the fetch — a certification can expire in the classify->fetch gap on a live chain, and expired rows are counted, never witnessed. Only rows still certified at fetch time are witnessed against the event's own postBalances/postTokenBalances",
+  "events": [
+    {
+      "signature": "3d1uMUYEM9FzzbbuyLAibs9UzM2CH3XCiXjMPmNcze6xUPtf9U2xbykaSrWTgTQ8aT55WKDAvoNPXe9o71BHN8GQ",
+      "slot": 464542126,
+      "writable_accounts": 28
+    },
+    {
+      "signature": "5UE7hn6EZWEtF78RdytSQnyYtFaCcogMnd8s25MkG7cb1idAmnRxJYQfeF4PsZDBjJdaodC8uusL12LsAmoXcumj",
+      "slot": 464542126,
+      "writable_accounts": 18
+    },
+    {
+      "signature": "4prZnvW3wat1nWejbbH1jGJdDfWzEJGDFF7gUAyQNt5xvAyqHC4ET8XexsE7eVEKPuYT5N6txR9KgyiCpiZ8hAdr",
+      "slot": 464542126,
+      "writable_accounts": 19
+    },
+    {
+      "signature": "BnKTJJHWMeBsCZsCebyAxR4LVKXe7AmW3JxAB66RDTayh31tWzTd45z6f2SkdSdYSrznrrXkZGNWy5FboJfnRcq",
+      "slot": 464542126,
+      "writable_accounts": 37
+    },
+    {
+      "signature": "5N13627p8vf7rKMj4v8Mqi3SM4imYLJD2GjNKhNK8qk2Ji86DDsiNTfEjwKwfarEu6chBgPXyihdarExntDq84tr",
+      "slot": 464542126,
+      "writable_accounts": 20
+    },
+    {
+      "signature": "4jAMgKzUYkuFrx4Cn7C8m17FCJTHiW6HJzb1AudhNNjoQZwZ3z2DjzZkj1MBh7aPBzqDWYgo29fgWJKbUhNke8c1",
+      "slot": 464542126,
+      "writable_accounts": 20
+    },
+    {
+      "signature": "3mxxpNeukhQhMQZbXDb3c2hamXTt43HP9DFgsMjqEWfCEPWucYt1484depPj7yK2pJRJwjKTZbhNrysUJg3oAr2e",
+      "slot": 464542125,
+      "writable_accounts": 18
+    },
+    {
+      "signature": "2HzDV976QEZ7QhVyr1wX5L3iHX2RyNm7bea85fUQpc1i32TYTLXunKdnr3mJsnMVSfyvBJ3uEUUq5Art9GzdZQ68",
+      "slot": 464542125,
+      "writable_accounts": 20
+    },
+    {
+      "signature": "tkYNkcuHFN6bKZsrWCECRiGsDH3azW495ks9LUfd36tKn3QeJw8fxzC7GBaPRDH1CMYSFGj4zS3BiBswF96PpAT",
+      "slot": 464542125,
+      "writable_accounts": 37
+    },
+    {
+      "signature": "2tLS5QKP7SQYuqBA6mdU7pKRCGwQArzR63WCkKXPZcYC64t9kMhHfQC5FguvZuAwb15vw6HpfGd7tUWYgWZ6uG8a",
+      "slot": 464542125,
+      "writable_accounts": 20
+    }
+  ],
+  "totals": {
+    "accounts_considered": 60,
+    "classified_certified": 7,
+    "classified_touched_after": 53,
+    "classify_errors": 0,
+    "witness_post_lamport_agreement": 4,
+    "witness_post_lamport_disagreement": 0,
+    "expired_between_phases": 0,
+    "witness_skipped_fetch_null": 3,
+    "witness_pre_must_fail_hit": 3,
+    "witness_pre_must_fail_agreed": 0,
+    "token_decode_cases": 2,
+    "token_decode_agreement": 2,
+    "token_decode_disagreement": 0,
+    "historical_read_requests": 1,
+    "historical_read_anchored_current": 1,
+    "historical_read_anchored_requested": 0,
+    "predecessor_scans": 6,
+    "predecessor_account_state_payloads": 0,
+    "predecessor_instruction_data_fields": 56
+  },
+  "offlist_guard": {
+    "refused": true,
+    "note": "HARNESS INVARIANT (not a chain measurement): the classifier refuses an address that is not in the event's own account list — without it an unrelated address would certify as if it were the event's state"
+  },
+  "limits": [
+    "certification covers the interval AFTER the event only: fetch-time bytes equal the POST-event state, never the pre-event state — the pre-event half of the item stays open by construction and is not claimed",
+    "certification is a property of a moment: rows whose newer-touch re-check fires between phase 1 and phase 3 land in expired_between_phases and are excluded from every witness denominator (counted, not hidden)",
+    "a certified account fetchable at witness time only; accounts that vanished by fetch time cannot be witnessed (count them via fetch nulls, not claimed here)",
+    "getSignaturesForAddress head-first with limit 100: an account with >100 newer signatures classifies conservatively as touched_after",
+    "one endpoint, one program window, ACCOUNT_CAP-bounded — a measurement window, not a population census",
+    "no audit, no external consumer, User Zero only"
+  ],
+  "verdict": {
+    "code": "CERTIFIED",
+    "text": "7/60 touched accounts have no touch after the event; fetch-time lamports agree with the event's own post-state in 4 of 4 certified accounts that still exist and were still certified at fetch time (0 certifications expired between classify and fetch and 3 certified accounts are gone already — none of them are witnessed) (token bytes 2/2; wrong-side guard: pre-side agreed only 0/3); historical read anchored at current slot in 1/1; predecessor responses carried 0 account-state payloads across 6 scans"
+  },
+  "historical_read": {
+    "requested_slot": 464542126,
+    "response_context_slot": 464542734,
+    "interpretation": "context anchored elsewhere: the parameter is a FLOOR, not a time machine — past-slot question answered with current state and no error"
+  }
+}

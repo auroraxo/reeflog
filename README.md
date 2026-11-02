@@ -336,7 +336,40 @@ The bytes are read AT FETCH TIME, not at event time — measured on the
 probe window, 16–18 % of enumerated addresses no longer existed by the
 time the pass ran. The envelope's slot and the `source` tag say when the
 facts were true; historical state (the bytes AS OF the event) remains
-open and is a different problem.
+open. Its boundary was measured on 2026-11-02 (`tools/probe-pre-event-bytes.mjs`,
+report `research/pre-event-bytes-probe-2026-11-02.json`, 60 touched
+accounts over 10 live transactions):
+
+- **A past-slot question does not reach the past.** `getAccountInfo` with
+  `minContextSlot` set to the event's slot answered with the current state
+  and no error (requested slot 464542126, response context 464542734) —
+  the parameter is a floor, not a time machine, and a caller who reads it
+  as one silently receives today's bytes.
+- **The transaction history carries no account bytes either.** 6 nearest
+  predecessor transactions were fetched and walked: 0 account-state
+  payloads anywhere in the responses; the 56 `data` fields found are
+  instruction bytes, not account state. The "recurse over predecessor
+  transactions" route this item carried is refuted, measured — the
+  history cannot serve what it does not contain.
+- **What the history does certify is the other direction.** For 7 of the
+  60 touched accounts nothing touched them after the event, so the bytes a
+  fetch returns now ARE the post-event bytes; the event's own post-state
+  witnesses that claim — lamports 4/4, token mint/owner/amount decoded
+  from the fetched bytes 2/2 — and on the 3 witnessed accounts the event
+  had moved, the pre-side witness agreed 0/3, which is what keeps the
+  check from being vacuous (wrong-side guard). 3 more certified accounts
+  were already gone by fetch time and stay counted but unwitnessed.
+  Certification is checked AFTER the fetch for a reason: an earlier
+  classify-then-fetch run hit the race it implies (1 witness disagreement,
+  root-caused to an account touched between the two calls), so the probe
+  re-checks the boundary post-fetch and counts expiring certifications
+  instead of hiding them.
+
+Pre-event bytes therefore need a data source this RPC class does not
+have (geyser with history, snapshot replay, an indexer) — not a second
+fetch and not the chain's history, both measured here rather than argued.
+The certification half is measured and NOT built into the envelope: no
+field claims it.
 
 ### Which program owns what
 
@@ -950,6 +983,22 @@ an account held **at fetch time**, not what it held when the event happened.
 time the pass runs (measured on two live windows), and a hot token
 account's balance moves between two reads. Historical state — the bytes AS
 OF the event — remains open, and no envelope field claims otherwise.
+Measured 2026-11-02 (`tools/probe-pre-event-bytes.mjs`,
+`research/pre-event-bytes-probe-2026-11-02.json`): both free routes to
+pre-event bytes are dead — a past-slot `getAccountInfo` parameter answers
+anchored at the current context slot (requested 464542126, got 464542734),
+and predecessor transactions carry instruction bytes but no account-state
+payload (0 across 6 scans) — so the boundary is "no data source on this RPC
+class", not "a second fetch" and not "the chain's history". What history
+does prove, measured on the same window: 7/60 touched accounts had no
+touch after the event, for which fetch-time bytes ARE the post-event bytes
+(witness: lamports 4/4, token mint/owner/amount 2/2; wrong-side guard on
+moved accounts 0/3; 3 certified accounts already gone at fetch time are
+counted, never witnessed). That certification is checked after the fetch,
+not before: a certification can expire mid-run (an earlier
+classify-then-fetch run showed exactly one such disagreement,
+root-caused) — and it is measured, not shipped: no envelope field claims
+it, and it covers the post-event side only.
 
 Still open: Yellowstone as a second transport, and a real consumer other
 than my own two repositories (the Whirlpool watcher and sememe). Reorg handling marks a
@@ -976,5 +1025,5 @@ end to end.
 4. ~~An account envelope says what an event *did* to balances… The next envelope would carry the account list a transaction touched — addresses, owners, writable flags — so a consumer can decide which accounts it cares about without a second RPC round trip.~~ **Landed 2026-10-31**: `accounts[]` carries every account a transaction touched with `signer`, `writable` and `source`, derived from the message header and the two loaded groups (or stated by the response where it says so), with `accounts_flags_source` recording which. Falsified live against `jsonParsed`'s authoritative flags: 346/346 keys over 8 transactions including lookup tables, 0 mismatches; the loaded path is pinned offline by a real transaction fixture.
    **Ownership landed 2026-11-01**: `hydrate --owners` resolves the owning program of every address the envelope enumerates (batched `getMultipleAccounts`, 12 calls for 1,111 addresses in the live e2e), and changed token accounts name their token program for free inside the transaction response. Falsified live: 412/412 stored owners agree with an independent re-fetch, 57/57 addresses the chain no longer has are recorded in an explicit `missing` list with **no** owner entry (never guessed), and the probe pins the authority three ways (stated vs decoded from the account's own bytes vs the map): 12/12.
    **Account bytes landed 2026-11-02**: `hydrate --account-data` stores what each enumerated account HELD — the bytes, not just the owner — batched (11 calls for 964 distinct addresses in the live e2e), capped at 16 KiB per address with the real size and a verified truncation flag, program code flagged instead of stored, and absence recorded as `missing`. Premise measured before building (`tools/probe-account-data.mjs`, 428 distinct addresses over 30 live transactions): p50 165 B, p95 4483 B, 5 addresses over the cap, and a 1,048,588-byte slab — which is why the cap exists and why program binaries are not journalled as event data. Falsified live: 258/258 stored sizes equal the chain's byte length; 232 of 258 re-reads byte-identical, 17 live-moving, 4 in the mutable region of a classic token account, 5 unattributed (no immutability claimed — reported, not waved through); the mint/owner decoded from the stored bytes matched the transaction's own token metadata 12/12; 82/82 program accounts flagged byte-free with correct sizes; 47/47 recorded-missing addresses confirmed absent on an independent read; a second run stored nothing and cost 0 calls.
-   **What remains open is the half that is genuinely different**: account bytes AS OF the event (historical state), not bytes at fetch time. That is a different problem — it needs the chain's history, not a second fetch — and it stays open.
+   **What remains open is the half that is genuinely different**: account bytes AS OF the event (historical state), not bytes at fetch time. That is a different problem, and it was last written here as "needs the chain's history, not a second fetch" — **measured 2026-11-02, that sentence was wrong in its remedy**: the history has no account bytes to serve (6 predecessor transactions, 0 account-state payloads), and a past-slot parameter on a public RPC answers with current state, not the requested slot. Pre-event bytes need a data source this RPC class does not offer; the two dead routes and the measured boundary are in *Evidence and limits* (`tools/probe-pre-event-bytes.mjs`). The same probe found the one thing history does prove — for 7/60 touched accounts with no later touch, fetch-time bytes ARE the post-event bytes (witness 4/4 lamports, 2/2 token fields, wrong-side guard 0/3; 3 certified accounts already gone stay counted but unwitnessed) — measured, deliberately not shipped as an envelope field, and it certifies the post-event side only.
    **Released as v0.2.0 (2026-11-02)**: this owners + account-bytes envelope is the release. The historical-state half above remains the open item it was the day before.
