@@ -1,0 +1,776 @@
+{
+  "generated_at": "2026-11-02T11:53:16.483Z",
+  "rpc": "https://api.mainnet-beta.solana.com",
+  "program": "675kPX9MHTjS2zt1qfr1NYHuzeLXfQM9H24wFSUt1Mp8",
+  "tx_count": 8,
+  "pagination": {
+    "page": 100,
+    "max_pages": 4
+  },
+  "method": "nearest prior transaction touching the account (paginated history, any outcome); its post-balances compared against the event transaction's own meta.preBalances witness; failed priors measured for the fee-only lamport change that a \"skip failed\" rule misses",
+  "totals": {
+    "tx_considered": 8,
+    "accounts_considered": 38,
+    "prior_found": 18,
+    "prior_not_found": 20,
+    "pages_used": 99,
+    "lamport_agree_all": 15,
+    "lamport_agree_success": 15,
+    "lamport_decided": 18,
+    "token_agree": 8,
+    "token_decided": 9,
+    "failed_priors": 1,
+    "failed_priors_fee_only": 1,
+    "failed_priors_fee_delta_sum": 0,
+    "rpc_calls": 287
+  },
+  "transactions": [
+    {
+      "signature": "5vdw4XocHB7rKSsQ4AgV2YMutY2Qy9De5F84tAASDwt8GoX57fPtiq1GXFxonK9dooDfVYNMt9z3NGAVGqYnEVV7",
+      "slot": 464485533,
+      "lamport_moved": 9,
+      "token_moved": 2,
+      "cases": [
+        {
+          "kind": "lamport",
+          "address": "Eb1kkLk6VxE6vE7iUfQ9xbaXkmhjfZyqL4zgUrbNAgWG",
+          "witness_pre": 2665921706,
+          "candidate_all": 2665921706,
+          "candidate_success": 2665921706,
+          "prior": "HyoAugVKHcKQiWnaUj3BtVH5BNDeEYG6PaWL9DcsHcCDjrhQ4N8pkz5zZgJMBMXzmbkoaa2TPJaFvRv81Nmx5Vj",
+          "prior_err": false,
+          "pages": 1,
+          "verdict": "agree_all",
+          "prior_slot": 464465675
+        },
+        {
+          "kind": "lamport",
+          "address": "KfHbT5Jrr5SV3CDkQVCLiSNWyVv5DmuVaCzbAHrzMFQ",
+          "witness_pre": 9060945229,
+          "candidate_all": 9060446673,
+          "candidate_success": 9060446673,
+          "prior": "4v3ZvpqCng911bb4GBy9hwbbAShUUA2w4GRZYCzgS1vJqaN4zC9qHFUp3bk7rMBZQyzCFPk9DBBv8BhvRdcEPv34",
+          "prior_err": false,
+          "pages": 1,
+          "verdict": "disagree",
+          "prior_slot": 464485531
+        },
+        {
+          "kind": "lamport",
+          "address": "2ZGadW1HohWYiKjEk1vjDbDQWy4QAN716G5nxzZ8pMNG",
+          "witness_pre": 0,
+          "candidate_all": null,
+          "candidate_success": null,
+          "prior": null,
+          "prior_err": false,
+          "pages": 2,
+          "verdict": "no_prior_touch"
+        },
+        {
+          "kind": "lamport",
+          "address": "2nyhqdwKcJZR2vcqCyrYsaPVdAnFoJjiksCXJ7hfEYgD",
+          "witness_pre": 5907695694,
+          "candidate_all": 5907690694,
+          "candidate_success": 5907690694,
+          "prior": "5JNVxoxi3c7ffxULTkQPqLyUr5U96fDD45EdqttaHnToCtcDXGymgdMbHks7gGEPgzMtkDkk49voU79w8a46apQP",
+          "prior_err": true,
+          "pages": 3,
+          "verdict": "disagree",
+          "prior_slot": 464485532
+        },
+        {
+          "kind": "lamport",
+          "address": "67ej6WBf9b2B1PZTAnzaqEVGH76xDEMNrspdheK6reSj",
+          "witness_pre": 14496123888,
+          "candidate_all": 14608316636,
+          "candidate_success": 14608316636,
+          "prior": "4v3ZvpqCng911bb4GBy9hwbbAShUUA2w4GRZYCzgS1vJqaN4zC9qHFUp3bk7rMBZQyzCFPk9DBBv8BhvRdcEPv34",
+          "prior_err": false,
+          "pages": 1,
+          "verdict": "disagree",
+          "prior_slot": 464485531
+        },
+        {
+          "kind": "token",
+          "address": "2ZGadW1HohWYiKjEk1vjDbDQWy4QAN716G5nxzZ8pMNG",
+          "mint": "AcdqWSoQy96wLtCYB2255VHrgH7WNbzcfAT9RoDboeuz",
+          "witness_pre": "0",
+          "candidate": null,
+          "prior": null,
+          "prior_err": false,
+          "pages": 2,
+          "verdict": "no_prior_touch"
+        },
+        {
+          "kind": "token",
+          "address": "HSGsmCj9cDj9jYmLoimewcPBtZSMFSLyTw9YcsPKDhse",
+          "mint": "AcdqWSoQy96wLtCYB2255VHrgH7WNbzcfAT9RoDboeuz",
+          "witness_pre": "650697470371363",
+          "candidate": "648876663575429",
+          "prior": "4v3ZvpqCng911bb4GBy9hwbbAShUUA2w4GRZYCzgS1vJqaN4zC9qHFUp3bk7rMBZQyzCFPk9DBBv8BhvRdcEPv34",
+          "prior_err": false,
+          "pages": 1,
+          "verdict": "disagree",
+          "prior_slot": 464485531
+        }
+      ]
+    },
+    {
+      "signature": "61hkUytmnrhKM2iM7tZe6Q2Zx8vahtAf6zRrhkbSw3jX1ot5MF18218KXZpiVHWEY8MYkUy3CzWAeNxpHgzXFKqn",
+      "slot": 464485533,
+      "lamport_moved": 7,
+      "token_moved": 2,
+      "cases": [
+        {
+          "kind": "lamport",
+          "address": "9rH5tHinNbsjbR7wbRn9G9GVsppiTz1tgMMEJP9D4JrU",
+          "witness_pre": 1143077080,
+          "candidate_all": 1143077080,
+          "candidate_success": 1143077080,
+          "prior": "4Yg2YyBXGEH3EbiUPpX7diSAo1n4yQpdY7cj2kV5B6TAxZduWbpppiWYwDCwzBy1AMxWbadfTNytXzDZsJ4u7p5q",
+          "prior_err": false,
+          "pages": 1,
+          "verdict": "agree_all",
+          "prior_slot": 464485292
+        },
+        {
+          "kind": "lamport",
+          "address": "KfHbT5Jrr5SV3CDkQVCLiSNWyVv5DmuVaCzbAHrzMFQ",
+          "witness_pre": 9060446673,
+          "candidate_all": 9060446673,
+          "candidate_success": 9060446673,
+          "prior": "4v3ZvpqCng911bb4GBy9hwbbAShUUA2w4GRZYCzgS1vJqaN4zC9qHFUp3bk7rMBZQyzCFPk9DBBv8BhvRdcEPv34",
+          "prior_err": false,
+          "pages": 3,
+          "verdict": "agree_all",
+          "prior_slot": 464485531
+        },
+        {
+          "kind": "lamport",
+          "address": "pfnSbG36fCGpT8WsB1NEbQ2BH11iog6qjFqMEVCZZgV",
+          "witness_pre": 2260240,
+          "candidate_all": 2260240,
+          "candidate_success": 2260240,
+          "prior": "4BRwRXvqymV5Cnh9xW6rpz6cTUyYUJukcKjfALCkpASPnbDsUk3CqUE8tiGb2UcKWfdMRgCQGq7BYN9JaM5YqL9Q",
+          "prior_err": false,
+          "pages": 1,
+          "verdict": "agree_all",
+          "prior_slot": 464485526
+        },
+        {
+          "kind": "lamport",
+          "address": "5cjcW9wExnJJiqgLjq7DEG75Pm6JBgE1hNv4B2vHXUW6",
+          "witness_pre": 2002988329,
+          "candidate_all": null,
+          "candidate_success": null,
+          "prior": null,
+          "prior_err": false,
+          "pages": 4,
+          "verdict": "no_prior_touch"
+        },
+        {
+          "kind": "lamport",
+          "address": "67ej6WBf9b2B1PZTAnzaqEVGH76xDEMNrspdheK6reSj",
+          "witness_pre": 14608316636,
+          "candidate_all": 14608316636,
+          "candidate_success": 14608316636,
+          "prior": "4v3ZvpqCng911bb4GBy9hwbbAShUUA2w4GRZYCzgS1vJqaN4zC9qHFUp3bk7rMBZQyzCFPk9DBBv8BhvRdcEPv34",
+          "prior_err": false,
+          "pages": 1,
+          "verdict": "agree_all",
+          "prior_slot": 464485531
+        },
+        {
+          "kind": "token",
+          "address": "8K28NLMZxUW8A9JLpBUncrN6XXkBJ8LtGr7jTvEc9HZp",
+          "mint": "AcdqWSoQy96wLtCYB2255VHrgH7WNbzcfAT9RoDboeuz",
+          "witness_pre": "1820806795934",
+          "candidate": "1820806795934",
+          "prior": "4Yg2YyBXGEH3EbiUPpX7diSAo1n4yQpdY7cj2kV5B6TAxZduWbpppiWYwDCwzBy1AMxWbadfTNytXzDZsJ4u7p5q",
+          "prior_err": false,
+          "pages": 1,
+          "verdict": "agree",
+          "prior_slot": 464485292
+        },
+        {
+          "kind": "token",
+          "address": "HSGsmCj9cDj9jYmLoimewcPBtZSMFSLyTw9YcsPKDhse",
+          "mint": "AcdqWSoQy96wLtCYB2255VHrgH7WNbzcfAT9RoDboeuz",
+          "witness_pre": "648876663575429",
+          "candidate": "648876663575429",
+          "prior": "4v3ZvpqCng911bb4GBy9hwbbAShUUA2w4GRZYCzgS1vJqaN4zC9qHFUp3bk7rMBZQyzCFPk9DBBv8BhvRdcEPv34",
+          "prior_err": false,
+          "pages": 1,
+          "verdict": "agree",
+          "prior_slot": 464485531
+        }
+      ]
+    },
+    {
+      "signature": "gZimmT2D6dsvqR4qXoCLdWkpxdhZP8w5i1jknyS5iYoNy3VxDWxoXg3iKvMpcc9Tzx5NUw5jpBzfjEXvFEcnr8w",
+      "slot": 464485533,
+      "lamport_moved": 3,
+      "token_moved": 3,
+      "cases": [
+        {
+          "kind": "lamport",
+          "address": "HQNWBK2xsfz2c74MM7EJqvkKVFDaURpVF38G4ja6Q5Xa",
+          "witness_pre": 22047785,
+          "candidate_all": 22047785,
+          "candidate_success": 22047785,
+          "prior": "2HpubCZoJSuhwRa6esapvVzaEueBsoYPURTW2e1BuWY6xKjGaXkpyNLVFmJF4DCXyQUnmhaYU4D68eXFu6hpKNEi",
+          "prior_err": false,
+          "pages": 1,
+          "verdict": "agree_all",
+          "prior_slot": 464485116
+        },
+        {
+          "kind": "lamport",
+          "address": "BJJFaQP7Ayzqog9vHjPhbXWab7LHh82r46XLtXWBo6Bt",
+          "witness_pre": 0,
+          "candidate_all": null,
+          "candidate_success": null,
+          "prior": null,
+          "prior_err": false,
+          "pages": 2,
+          "verdict": "no_prior_touch"
+        },
+        {
+          "kind": "lamport",
+          "address": "9n1UkbX8GhnLFv8Y7quEKyzoFW1cEdnsS1VAYmidMpvc",
+          "witness_pre": 28006845559,
+          "candidate_all": 28006845559,
+          "candidate_success": 28006845559,
+          "prior": "27zh4c5rptS77giSue3UFUFLjdnejf2AToum4GFjiCzuzKscm164xPVQnRk98FPcrsTUDmzPux75PjGQKoF78r7J",
+          "prior_err": false,
+          "pages": 1,
+          "verdict": "agree_all",
+          "prior_slot": 464485478
+        },
+        {
+          "kind": "token",
+          "address": "BJJFaQP7Ayzqog9vHjPhbXWab7LHh82r46XLtXWBo6Bt",
+          "mint": "AF33BoV4upqDefUvQQRWoHQRMa9teGc5EGVFYUzGpump",
+          "witness_pre": "0",
+          "candidate": null,
+          "prior": null,
+          "prior_err": false,
+          "pages": 2,
+          "verdict": "no_prior_touch"
+        },
+        {
+          "kind": "token",
+          "address": "7T8hYqJpUpeLE8U2rUnBvFAFz11n1t5y4nZJ2fUjwbWd",
+          "mint": "AF33BoV4upqDefUvQQRWoHQRMa9teGc5EGVFYUzGpump",
+          "witness_pre": "672134874436075",
+          "candidate": "672134874436075",
+          "prior": "27zh4c5rptS77giSue3UFUFLjdnejf2AToum4GFjiCzuzKscm164xPVQnRk98FPcrsTUDmzPux75PjGQKoF78r7J",
+          "prior_err": false,
+          "pages": 1,
+          "verdict": "agree",
+          "prior_slot": 464485478
+        },
+        {
+          "kind": "token",
+          "address": "9n1UkbX8GhnLFv8Y7quEKyzoFW1cEdnsS1VAYmidMpvc",
+          "mint": "So11111111111111111111111111111111111111112",
+          "witness_pre": "28005357119",
+          "candidate": "28005357119",
+          "prior": "27zh4c5rptS77giSue3UFUFLjdnejf2AToum4GFjiCzuzKscm164xPVQnRk98FPcrsTUDmzPux75PjGQKoF78r7J",
+          "prior_err": false,
+          "pages": 1,
+          "verdict": "agree",
+          "prior_slot": 464485478
+        }
+      ]
+    },
+    {
+      "signature": "4v3ZvpqCng911bb4GBy9hwbbAShUUA2w4GRZYCzgS1vJqaN4zC9qHFUp3bk7rMBZQyzCFPk9DBBv8BhvRdcEPv34",
+      "slot": 464485531,
+      "lamport_moved": 7,
+      "token_moved": 2,
+      "cases": [
+        {
+          "kind": "lamport",
+          "address": "Hwyuiw4hL9UKY9GDCTURQ9WYPHQYi8rwtaoMELUwJ24Z",
+          "witness_pre": 4197987,
+          "candidate_all": 4197987,
+          "candidate_success": 4197987,
+          "prior": "3SdjMNwgs1vx5VDB1XzLTNHzLMy4ZyZ1dRfuwvtnzJ8tnAHRuceeQWeWDhztBauo4vchw2cLbeAHW1SR4rjY2hKw",
+          "prior_err": false,
+          "pages": 1,
+          "verdict": "agree_all",
+          "prior_slot": 464485164
+        },
+        {
+          "kind": "lamport",
+          "address": "KfHbT5Jrr5SV3CDkQVCLiSNWyVv5DmuVaCzbAHrzMFQ",
+          "witness_pre": 9059234569,
+          "candidate_all": null,
+          "candidate_success": null,
+          "prior": null,
+          "prior_err": false,
+          "pages": 4,
+          "verdict": "no_prior_touch"
+        },
+        {
+          "kind": "lamport",
+          "address": "pfnXi2FdpFUUn6VyoxUohNyWk2Nup3ruguTgK8jaZaF",
+          "witness_pre": 4170240,
+          "candidate_all": 4170240,
+          "candidate_success": 4170240,
+          "prior": "NepDhVGJGfBSTjkmgLUTgd2Wmuh8rDfPyJrt9JsBXV1Cf3eZtVMX1WMoDcrhf2XsnNNaaJtG7hSXD6Zd9NDMVzg",
+          "prior_err": false,
+          "pages": 1,
+          "verdict": "agree_all",
+          "prior_slot": 464485513
+        },
+        {
+          "kind": "lamport",
+          "address": "3BpXnfJaUTiwXnJNe7Ej1rcbzqTTQUvLShZaWazebsVR",
+          "witness_pre": 1773980317,
+          "candidate_all": null,
+          "candidate_success": null,
+          "prior": null,
+          "prior_err": false,
+          "pages": 4,
+          "verdict": "no_prior_touch"
+        },
+        {
+          "kind": "lamport",
+          "address": "62qc2CNXwrYqQScmEdiZFFAnJR262PxWEuNQtxfafNgV",
+          "witness_pre": 22511332414204,
+          "candidate_all": null,
+          "candidate_success": null,
+          "prior": null,
+          "prior_err": false,
+          "pages": 4,
+          "verdict": "no_prior_touch"
+        },
+        {
+          "kind": "token",
+          "address": "ETZM3jUC9nzSoi99xFBAiJGRjkYGJ444ij6wcRRnAbKS",
+          "mint": "AcdqWSoQy96wLtCYB2255VHrgH7WNbzcfAT9RoDboeuz",
+          "witness_pre": "4388813893407",
+          "candidate": "4388813893407",
+          "prior": "3SdjMNwgs1vx5VDB1XzLTNHzLMy4ZyZ1dRfuwvtnzJ8tnAHRuceeQWeWDhztBauo4vchw2cLbeAHW1SR4rjY2hKw",
+          "prior_err": false,
+          "pages": 1,
+          "verdict": "agree",
+          "prior_slot": 464485164
+        },
+        {
+          "kind": "token",
+          "address": "HSGsmCj9cDj9jYmLoimewcPBtZSMFSLyTw9YcsPKDhse",
+          "mint": "AcdqWSoQy96wLtCYB2255VHrgH7WNbzcfAT9RoDboeuz",
+          "witness_pre": "644487849682022",
+          "candidate": "644487849682022",
+          "prior": "4HxM6FAEXPzLJcjw6oWL2GuwH2dqjAgFQE4kPrt43Ny47yEMtwHKRBvLk7GdMSKUNNsppWKxL5tXgRFxMoPAzJNo",
+          "prior_err": false,
+          "pages": 1,
+          "verdict": "agree",
+          "prior_slot": 464485523
+        }
+      ]
+    },
+    {
+      "signature": "5Ld3zCVK7g9vMaXC5rDKWvh9qWmabMedWdHbbgdLDKB4nGuQi98YxFXeNxAZpxTvZ51Cj1JXZ1Vh7f5BF5x8NoeQ",
+      "slot": 464485531,
+      "lamport_moved": 9,
+      "token_moved": 6,
+      "cases": [
+        {
+          "kind": "lamport",
+          "address": "14rykqDpB4Zv6Y3f94v74XpRqzpTFFoZpwQ8wQLB7tvq",
+          "witness_pre": 395525897,
+          "candidate_all": 395525897,
+          "candidate_success": 395525897,
+          "prior": "63M6ShmH17uLhVyBHfvWk6pwtgeF6b2Sg364tjK1VfupccbFWPJQMApASgN5WCcdMg3Cttop1D4U8iwypb9YjVRh",
+          "prior_err": false,
+          "pages": 1,
+          "verdict": "agree_all",
+          "prior_slot": 464485215
+        },
+        {
+          "kind": "lamport",
+          "address": "141jLZbtodtTgJ6BCC4Un7aLrQBKmLiWWduuqx6DhTZ5",
+          "witness_pre": 50230054699,
+          "candidate_all": null,
+          "candidate_success": null,
+          "prior": null,
+          "prior_err": false,
+          "pages": 4,
+          "verdict": "no_prior_touch"
+        },
+        {
+          "kind": "lamport",
+          "address": "KfHbT5Jrr5SV3CDkQVCLiSNWyVv5DmuVaCzbAHrzMFQ",
+          "witness_pre": 9058968616,
+          "candidate_all": null,
+          "candidate_success": null,
+          "prior": null,
+          "prior_err": false,
+          "pages": 4,
+          "verdict": "no_prior_touch"
+        },
+        {
+          "kind": "lamport",
+          "address": "3vvSVCGNYyDWMiZMUCN5txF9GFv2YhmQ3R1ho6RRLESy",
+          "witness_pre": 5663437906,
+          "candidate_all": null,
+          "candidate_success": null,
+          "prior": null,
+          "prior_err": false,
+          "pages": 4,
+          "verdict": "no_prior_touch"
+        },
+        {
+          "kind": "lamport",
+          "address": "4TQLFNWK8AovT1gFvda5jfw2oJeRMKEmw7aH6MGBJ3or",
+          "witness_pre": 5478522622,
+          "candidate_all": null,
+          "candidate_success": null,
+          "prior": null,
+          "prior_err": false,
+          "pages": 4,
+          "verdict": "no_prior_touch"
+        },
+        {
+          "kind": "token",
+          "address": "141jLZbtodtTgJ6BCC4Un7aLrQBKmLiWWduuqx6DhTZ5",
+          "mint": "So11111111111111111111111111111111111111112",
+          "witness_pre": "50228566259",
+          "candidate": null,
+          "prior": null,
+          "prior_err": false,
+          "pages": 4,
+          "verdict": "no_prior_touch"
+        },
+        {
+          "kind": "token",
+          "address": "3vvSVCGNYyDWMiZMUCN5txF9GFv2YhmQ3R1ho6RRLESy",
+          "mint": "So11111111111111111111111111111111111111112",
+          "witness_pre": "5661949466",
+          "candidate": null,
+          "prior": null,
+          "prior_err": false,
+          "pages": 4,
+          "verdict": "no_prior_touch"
+        },
+        {
+          "kind": "token",
+          "address": "7GFUN3bWzJMKMRZ34JLsvcqdssDbXnp589SiE33KVwcC",
+          "mint": "So11111111111111111111111111111111111111112",
+          "witness_pre": "1445875672284",
+          "candidate": null,
+          "prior": null,
+          "prior_err": false,
+          "pages": 4,
+          "verdict": "no_prior_touch"
+        }
+      ]
+    },
+    {
+      "signature": "2RWYrVcr6mnoYmccc7NJUnULiEXMsCy2oRdKdxunMjAigirX58qxmY6nrUqqbYoUv58iSgZCVw22wnPpxvYCdDgD",
+      "slot": 464485531,
+      "lamport_moved": 7,
+      "token_moved": 6,
+      "cases": [
+        {
+          "kind": "lamport",
+          "address": "J5TDZXfb8GRY2KypPhcAawU3MYVoNLaVyyr6a58YJVhL",
+          "witness_pre": 25637117,
+          "candidate_all": 25637117,
+          "candidate_success": 25637117,
+          "prior": "3KUZPsjydx2ZXk7yjYj1MXmvuGmcmpK2kgv5vB7LbjvqCsxVSiEpGmG6Gk9rDPSaWZzyX2LEuNxzBjpEw1iGaCHi",
+          "prior_err": false,
+          "pages": 1,
+          "verdict": "agree_all",
+          "prior_slot": 464485360
+        },
+        {
+          "kind": "lamport",
+          "address": "141jLZbtodtTgJ6BCC4Un7aLrQBKmLiWWduuqx6DhTZ5",
+          "witness_pre": 50440721625,
+          "candidate_all": null,
+          "candidate_success": null,
+          "prior": null,
+          "prior_err": false,
+          "pages": 4,
+          "verdict": "no_prior_touch"
+        },
+        {
+          "kind": "lamport",
+          "address": "KfHbT5Jrr5SV3CDkQVCLiSNWyVv5DmuVaCzbAHrzMFQ",
+          "witness_pre": 9058873964,
+          "candidate_all": null,
+          "candidate_success": null,
+          "prior": null,
+          "prior_err": false,
+          "pages": 4,
+          "verdict": "no_prior_touch"
+        },
+        {
+          "kind": "lamport",
+          "address": "X5QPJcpph4mBAJDzc4hRziFftSbcygV59kRb2Fu6Je1",
+          "witness_pre": 2059214362500,
+          "candidate_all": null,
+          "candidate_success": null,
+          "prior": null,
+          "prior_err": false,
+          "pages": 4,
+          "verdict": "no_prior_touch"
+        },
+        {
+          "kind": "lamport",
+          "address": "2nyhqdwKcJZR2vcqCyrYsaPVdAnFoJjiksCXJ7hfEYgD",
+          "witness_pre": 5907680694,
+          "candidate_all": null,
+          "candidate_success": null,
+          "prior": null,
+          "prior_err": false,
+          "pages": 4,
+          "verdict": "no_prior_touch"
+        },
+        {
+          "kind": "token",
+          "address": "141jLZbtodtTgJ6BCC4Un7aLrQBKmLiWWduuqx6DhTZ5",
+          "mint": "So11111111111111111111111111111111111111112",
+          "witness_pre": "50439233185",
+          "candidate": null,
+          "prior": null,
+          "prior_err": false,
+          "pages": 4,
+          "verdict": "no_prior_touch"
+        },
+        {
+          "kind": "token",
+          "address": "X5QPJcpph4mBAJDzc4hRziFftSbcygV59kRb2Fu6Je1",
+          "mint": "So11111111111111111111111111111111111111112",
+          "witness_pre": "2059212874060",
+          "candidate": null,
+          "prior": null,
+          "prior_err": false,
+          "pages": 4,
+          "verdict": "no_prior_touch"
+        },
+        {
+          "kind": "token",
+          "address": "3vvSVCGNYyDWMiZMUCN5txF9GFv2YhmQ3R1ho6RRLESy",
+          "mint": "So11111111111111111111111111111111111111112",
+          "witness_pre": "5661887424",
+          "candidate": null,
+          "prior": null,
+          "prior_err": false,
+          "pages": 4,
+          "verdict": "no_prior_touch"
+        }
+      ]
+    },
+    {
+      "signature": "5JsPV25vzuTaVCJmya9hL5L3S2RfMXJPYviTJZ5AichEivHQQN9zkULyYsjrgHR5TaBLwZ1Qcxa4BsetpGXdYK77",
+      "slot": 464485530,
+      "lamport_moved": 6,
+      "token_moved": 6,
+      "cases": [
+        {
+          "kind": "lamport",
+          "address": "DRb98KNnzSVqEiikbyXit2z5eDqzpbUn4Nu6qQH3bPGf",
+          "witness_pre": 207379188,
+          "candidate_all": 207379188,
+          "candidate_success": 207379188,
+          "prior": "5nyZvx7mpd3jrSpg4ThJNLCdrffN7RDpcUoqa7AbKE1p68e2N2s69FGunjaBBp95XvsSanv9G8euRzQMDvWEUXwk",
+          "prior_err": false,
+          "pages": 1,
+          "verdict": "agree_all",
+          "prior_slot": 464484217
+        },
+        {
+          "kind": "lamport",
+          "address": "141jLZbtodtTgJ6BCC4Un7aLrQBKmLiWWduuqx6DhTZ5",
+          "witness_pre": 50557205649,
+          "candidate_all": null,
+          "candidate_success": null,
+          "prior": null,
+          "prior_err": false,
+          "pages": 4,
+          "verdict": "no_prior_touch"
+        },
+        {
+          "kind": "lamport",
+          "address": "KfHbT5Jrr5SV3CDkQVCLiSNWyVv5DmuVaCzbAHrzMFQ",
+          "witness_pre": 9058738180,
+          "candidate_all": null,
+          "candidate_success": null,
+          "prior": null,
+          "prior_err": false,
+          "pages": 4,
+          "verdict": "no_prior_touch"
+        },
+        {
+          "kind": "lamport",
+          "address": "3vvSVCGNYyDWMiZMUCN5txF9GFv2YhmQ3R1ho6RRLESy",
+          "witness_pre": 5663280387,
+          "candidate_all": null,
+          "candidate_success": null,
+          "prior": null,
+          "prior_err": false,
+          "pages": 4,
+          "verdict": "no_prior_touch"
+        },
+        {
+          "kind": "lamport",
+          "address": "Bvtgim23rfocUzxVX9j9QFxTbBnH8JZxnaGLCEkXvjKS",
+          "witness_pre": 1436308765449,
+          "candidate_all": null,
+          "candidate_success": null,
+          "prior": null,
+          "prior_err": false,
+          "pages": 4,
+          "verdict": "no_prior_touch"
+        },
+        {
+          "kind": "token",
+          "address": "141jLZbtodtTgJ6BCC4Un7aLrQBKmLiWWduuqx6DhTZ5",
+          "mint": "So11111111111111111111111111111111111111112",
+          "witness_pre": "50555717209",
+          "candidate": null,
+          "prior": null,
+          "prior_err": false,
+          "pages": 4,
+          "verdict": "no_prior_touch"
+        },
+        {
+          "kind": "token",
+          "address": "3vvSVCGNYyDWMiZMUCN5txF9GFv2YhmQ3R1ho6RRLESy",
+          "mint": "So11111111111111111111111111111111111111112",
+          "witness_pre": "5661791947",
+          "candidate": null,
+          "prior": null,
+          "prior_err": false,
+          "pages": 4,
+          "verdict": "no_prior_touch"
+        },
+        {
+          "kind": "token",
+          "address": "AQGnVXFK9nuxYreSsiA5T1tpf8FBgoRvnLkZukhPDjFc",
+          "mint": "539mKjC5Mwt7Q1ov72djoyYkQpiUTshbxFNDAbZ5pump",
+          "witness_pre": "262865067301882",
+          "candidate": null,
+          "prior": null,
+          "prior_err": false,
+          "pages": 4,
+          "verdict": "no_prior_touch"
+        }
+      ]
+    },
+    {
+      "signature": "2YBGsTjQXiDATKV7JK4nVtx3gR37ACvgWBFBxESqVTwcuw8tWtCQ8GrQ23sKRpXEu63zW9USoZkZs2cNhJv1hijf",
+      "slot": 464485530,
+      "lamport_moved": 6,
+      "token_moved": 2,
+      "cases": [
+        {
+          "kind": "lamport",
+          "address": "ArLugmai8XHkZY4cvz3hM3jPeEwz7FA7CgZUSXQtZq1X",
+          "witness_pre": 54874260860,
+          "candidate_all": 54874260860,
+          "candidate_success": 54874260860,
+          "prior": "2BHnyya3ETtQ5ywU9yBA9mBxnvg98VVtZncL43a7vd6jo1p457CDXSJw48Q3FMJmKiYvgm9YVQDDuBqgjFEnChZ6",
+          "prior_err": false,
+          "pages": 1,
+          "verdict": "agree_all",
+          "prior_slot": 464485508
+        },
+        {
+          "kind": "lamport",
+          "address": "KfHbT5Jrr5SV3CDkQVCLiSNWyVv5DmuVaCzbAHrzMFQ",
+          "witness_pre": 9058142524,
+          "candidate_all": null,
+          "candidate_success": null,
+          "prior": null,
+          "prior_err": false,
+          "pages": 4,
+          "verdict": "no_prior_touch"
+        },
+        {
+          "kind": "lamport",
+          "address": "4ACfpUFoaSD9bfPdeu6DBt89gB6ENTeHBXCAi87NhDEE",
+          "witness_pre": 5948055657,
+          "candidate_all": null,
+          "candidate_success": null,
+          "prior": null,
+          "prior_err": false,
+          "pages": 4,
+          "verdict": "no_prior_touch"
+        },
+        {
+          "kind": "lamport",
+          "address": "4KsCKLGtkNCcDGsEmRXmujNkPrnwcmSNQizko4MC1AwS",
+          "witness_pre": 2806477,
+          "candidate_all": 2806477,
+          "candidate_success": 2806477,
+          "prior": "31KkTYEwGWZ5n2ZTuX8HNi6RUMJA7aHHE7B2n9Pj3Y7fRbReTZEN9Xoea29dFu21SBp2zkt1dhXAgs1JdB9iLyAH",
+          "prior_err": false,
+          "pages": 1,
+          "verdict": "agree_all",
+          "prior_slot": 464485526
+        },
+        {
+          "kind": "lamport",
+          "address": "8sNeir4QsLsJdYpc9RZacohhK1Y5FLU3nC5LXgYB4aa6",
+          "witness_pre": 20379687384,
+          "candidate_all": 20379687384,
+          "candidate_success": 20379687384,
+          "prior": "N1c2rYucPKABApMZMjW9oD8ndUAHutV4VictbSzBAGJTxD8tFwKU8U8GuVLa5MyBDstQwSoTeyL2LtzqnXzM12b",
+          "prior_err": false,
+          "pages": 2,
+          "verdict": "agree_all",
+          "prior_slot": 464485529
+        },
+        {
+          "kind": "token",
+          "address": "Gu9UJXN44TpjXMr3BP7fx8aH3aSz1bh7v8q4fWf35Ru4",
+          "mint": "35YMAXu64rk8up1kzswYvGXvawbLFNnEwomudzpkpump",
+          "witness_pre": "3470075086473",
+          "candidate": "3470075086473",
+          "prior": "2BHnyya3ETtQ5ywU9yBA9mBxnvg98VVtZncL43a7vd6jo1p457CDXSJw48Q3FMJmKiYvgm9YVQDDuBqgjFEnChZ6",
+          "prior_err": false,
+          "pages": 1,
+          "verdict": "agree",
+          "prior_slot": 464485508
+        },
+        {
+          "kind": "token",
+          "address": "Hj1wbSTVwVwPPRCptrfhJKR8nLG1wEbgT57BNNGpsAiW",
+          "mint": "35YMAXu64rk8up1kzswYvGXvawbLFNnEwomudzpkpump",
+          "witness_pre": "995155567883515",
+          "candidate": "995155567883515",
+          "prior": "31KkTYEwGWZ5n2ZTuX8HNi6RUMJA7aHHE7B2n9Pj3Y7fRbReTZEN9Xoea29dFu21SBp2zkt1dhXAgs1JdB9iLyAH",
+          "prior_err": false,
+          "pages": 1,
+          "verdict": "agree",
+          "prior_slot": 464485526
+        }
+      ]
+    }
+  ],
+  "limits": [
+    "A candidate is derived from the nearest prior TRANSACTION, not from an account-state query: nothing here reads account state at a past slot.",
+    "Agreement is only claimed where both witness and candidate exist; accounts with no reachable prior transaction are reported as such and are not counted as agreement.",
+    "The reconstruction covers LAMPORT balances and TOKEN amounts, never account BYTES: a mutable account's bytes at event time are not derivable from balances, and this probe says nothing about them.",
+    "Paginated history search is bounded by MAX_PAGES signatures pages per account; beyond that the account is reported as not-found.",
+    "Only one program (Raydium AMM v4) on one date; the numbers are a sample of that window, not a population claim."
+  ],
+  "verdict": {
+    "prior_found_rate": 0.4737,
+    "lamport_agreement_nearest_any_outcome": 0.8333,
+    "lamport_agreement_nearest_successful_only": 0.8333,
+    "token_agreement": 0.8889,
+    "failed_priors_seen": 1,
+    "failed_priors_that_were_fee_only": 1,
+    "rpc_calls_per_decided_case": 10.6296,
+    "premise_archival_required": "NOT REFUTED — reconstruction did not reach the pre-registered 90% agreement threshold",
+    "scope": "This refutes the archival premise for LAMPORT and TOKEN balances only. Account BYTES as of the event are a separate, still-open question: bytes are not derivable from balances, and nothing here claims otherwise."
+  }
+}

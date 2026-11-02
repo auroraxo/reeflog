@@ -1,0 +1,639 @@
+{
+  "generated_at": "2026-11-02T11:48:18.262Z",
+  "rpc": "https://api.mainnet-beta.solana.com",
+  "program": "675kPX9MHTjS2zt1qfr1NYHuzeLXfQM9H24wFSUt1Mp8",
+  "tx_count": 10,
+  "method": "pre-event state reconstructed from the chain transaction history: the most recent PRIOR transaction touching the account gives its post-state, verified against the event transaction's own meta.preBalances witness",
+  "transactions": [
+    {
+      "signature": "5GbM3dCVjofkRQNiTrQcSmM1qHAd1vhguar1qFJCWrdUAbcYx4mu2rCUYnFpjPf2D87Hm7N7DncJXCkLVhTTvEmL",
+      "slot": 464484143,
+      "accounts_total": 37,
+      "lamport_moved": 5,
+      "token_moved": 2,
+      "accounts": [
+        {
+          "address": "FqssGmnjm82BKSwfwraJtbix3S4ZsxaFDHhSp8XHrQuY",
+          "witness_pre_lamports": 4569000,
+          "candidate": 4569000,
+          "verdict": "agree",
+          "prior_signature": "2KtZzfdKERywHADKrN6tUtqGPLQ8rZsXgG1Tkgmd5hoC2DvUGs2amPGCpboctpHhh3zxZAKcnQudZhFy8Mie9UGa",
+          "prior_slot": 464483976,
+          "prior_err": false
+        },
+        {
+          "address": "KfHbT5Jrr5SV3CDkQVCLiSNWyVv5DmuVaCzbAHrzMFQ",
+          "witness_pre_lamports": 6662054014,
+          "candidate": 6662054014,
+          "verdict": "agree",
+          "prior_signature": "DgWigJjpPRAZaWRurTXv38FJ4dhpvtdRF8Kkba4qwJbwjR2T3Dh2nAQu1fEYwhTZafSxkHUpCgERKL7VuzqKCqs",
+          "prior_slot": 464484142,
+          "prior_err": false
+        },
+        {
+          "address": "Fh9HmeLNUMVCvejxCtCL2DbYaRyBFVJ5xrWkLnMH6fdk",
+          "witness_pre_lamports": 21313906555,
+          "candidate": 21313906555,
+          "verdict": "agree",
+          "prior_signature": "33JZMrhmURWzh54uXNqt6baWWZxzPLNSqCPNrFxmTEu9zYdFLFhBZgspFJSwWRuFzsbv4TFXM75xVNpEccxQyQky",
+          "prior_slot": 464484136,
+          "prior_err": false
+        },
+        {
+          "address": "H7XesYThS8Pnwz92iZJEXjnFjk2631ZZsQ5b8c7AVpeM",
+          "witness_pre_lamports": 3593299,
+          "candidate": 3593299,
+          "verdict": "agree",
+          "prior_signature": "2KtZzfdKERywHADKrN6tUtqGPLQ8rZsXgG1Tkgmd5hoC2DvUGs2amPGCpboctpHhh3zxZAKcnQudZhFy8Mie9UGa",
+          "prior_slot": 464483976,
+          "prior_err": false
+        },
+        {
+          "address": "HRCFU1uVspKoUhoVv49YncAPPva5rk1atzQpaNPr8zsA",
+          "witness_pre_lamports": 11838144,
+          "candidate": 11838144,
+          "verdict": "agree",
+          "prior_signature": "2zozoi33F3nTQS3eJr6xUxkyfoq4UuxgXqyWVM3b16b8dwLmZnM9m5DfACo7DTqCMDJgHwUqWKV82TuJZdtrkppd",
+          "prior_slot": 464484141,
+          "prior_err": false
+        },
+        {
+          "address": "87UF5NsQdGuEtyREKWiv66n2KnVMV9AUqKdmuLNaqFKL",
+          "mint": "8NUGcZvGRr7qorztC8kfB3eCB7M9Um9cbMDpDU1ppump",
+          "witness_pre_amount": "21080108417",
+          "candidate": "21080108417",
+          "verdict": "agree",
+          "prior_signature": "2KtZzfdKERywHADKrN6tUtqGPLQ8rZsXgG1Tkgmd5hoC2DvUGs2amPGCpboctpHhh3zxZAKcnQudZhFy8Mie9UGa"
+        },
+        {
+          "address": "9sr3f3wEUyBtqAieGYTk4Bt6sssV3Yq6o7QQWQKE5o55",
+          "mint": "8NUGcZvGRr7qorztC8kfB3eCB7M9Um9cbMDpDU1ppump",
+          "witness_pre_amount": "996858678686074",
+          "candidate": "996858678686074",
+          "verdict": "agree",
+          "prior_signature": "2KtZzfdKERywHADKrN6tUtqGPLQ8rZsXgG1Tkgmd5hoC2DvUGs2amPGCpboctpHhh3zxZAKcnQudZhFy8Mie9UGa"
+        }
+      ]
+    },
+    {
+      "signature": "5YJ2KC53NXNef4W6qma541QbeAdKugCw7eHHzmf3zBwJ8oY736kDMuHxE8gS8XSdrzqvw3x3odGiYwpTsddQnWP1",
+      "slot": 464484143,
+      "accounts_total": 39,
+      "lamport_moved": 2,
+      "token_moved": 0,
+      "accounts": [
+        {
+          "address": "BLVQfBHVndQDnjahQpGRncfV1ZrMpWCBqZAuShuDLhD6",
+          "witness_pre_lamports": 449542156,
+          "candidate": 449542156,
+          "verdict": "agree",
+          "prior_signature": "2daxhy7LV2Xxv3UomU4qogA1Y4e4b3dFhSFaz19WeCwRUrL636J76yLH5h9KT9WEdphiS7mN22ejv7K6TmdZjBU",
+          "prior_slot": 464484142,
+          "prior_err": false
+        },
+        {
+          "address": "ADuUkR4vqLUMWXxW9gh6D6L8pMSawimctcNZ5pGwDcEt",
+          "witness_pre_lamports": 804758,
+          "candidate": null,
+          "verdict": "no_prior_touch"
+        }
+      ]
+    },
+    {
+      "signature": "DgWigJjpPRAZaWRurTXv38FJ4dhpvtdRF8Kkba4qwJbwjR2T3Dh2nAQu1fEYwhTZafSxkHUpCgERKL7VuzqKCqs",
+      "slot": 464484142,
+      "accounts_total": 40,
+      "lamport_moved": 8,
+      "token_moved": 2,
+      "accounts": [
+        {
+          "address": "Fd6R6e3ZtfdmRJKkc8WfKHMrXGqx5UgCvC6xDUbobuJQ",
+          "witness_pre_lamports": 601481466,
+          "candidate": 601481466,
+          "verdict": "agree",
+          "prior_signature": "43ukx9ytkSCz7rm5nzoRihBPa3DqSR2VmVt9ModFfcnZNwtak1bHeVmF4x7ZD9yxt97HFYwvG56ZR46kyzT3KQnq",
+          "prior_slot": 464457574,
+          "prior_err": false
+        },
+        {
+          "address": "9M4giFFMxmFGXtc3feFzRai56WbBqehoSeRE5GK7gf7",
+          "witness_pre_lamports": 544898378,
+          "candidate": null,
+          "verdict": "no_prior_touch"
+        },
+        {
+          "address": "KfHbT5Jrr5SV3CDkQVCLiSNWyVv5DmuVaCzbAHrzMFQ",
+          "witness_pre_lamports": 6661958272,
+          "candidate": null,
+          "verdict": "no_prior_touch"
+        },
+        {
+          "address": "pfnUxCuZcfP6yidkG3EsqyR5DTbyie3R74fGoA5oB3J",
+          "witness_pre_lamports": 3470240,
+          "candidate": 3470240,
+          "verdict": "agree",
+          "prior_signature": "3QWvYvbqkcuvi8Ph9qUU2PPZHGVQZ5GKyWwdb93tLaQSM86NpVR8uuMYatRN8RJ5SeUJA8pxqnE159tefrytbsB1",
+          "prior_slot": 464484140,
+          "prior_err": false
+        },
+        {
+          "address": "2axVX4McUPUKLhDdNZ6AubMdar49ftYf8kCA4EbPXvLU",
+          "witness_pre_lamports": 40979167184,
+          "candidate": 40979167184,
+          "verdict": "agree",
+          "prior_signature": "4PZdTdc8KPVGYkzXFnoSCPUcM5L1KM892p8jR3z1THHDLKwhVEhhaT1jKEwRog5rt596FsAs3XbYPWR8VcSQSSbL",
+          "prior_slot": 464484136,
+          "prior_err": false
+        },
+        {
+          "address": "7hTckgnGnLQR6sdH7YkqFTAA7VwTfYFaZ6EhEsU3saCX",
+          "witness_pre_lamports": 9917365333270,
+          "candidate": null,
+          "verdict": "no_prior_touch"
+        },
+        {
+          "address": "CVUwn75sb5SR897qYizm49vvmMxQbusjG33QXk7DWQKM",
+          "mint": "998FxqxPDiJc7vr5FBDyZMHdxDmPpGXS5cr1UMHXpump",
+          "witness_pre_amount": "391506307720679",
+          "candidate": "391506307720679",
+          "verdict": "agree",
+          "prior_signature": "4PZdTdc8KPVGYkzXFnoSCPUcM5L1KM892p8jR3z1THHDLKwhVEhhaT1jKEwRog5rt596FsAs3XbYPWR8VcSQSSbL"
+        },
+        {
+          "address": "Cts3fx1s1cYFMaQRj28EugM8zxg1ApyorkkRsAcm7Ys8",
+          "mint": "998FxqxPDiJc7vr5FBDyZMHdxDmPpGXS5cr1UMHXpump",
+          "witness_pre_amount": "0",
+          "candidate": null,
+          "verdict": "no_prior_touch"
+        }
+      ]
+    },
+    {
+      "signature": "2HzUZskbq7LfwXFXopmXzwskeEiGZFTVDaq4suMdWxzoaLPdHeerynSqs3yYdGXFhBqYSCyghMJPCrRsaEbewEsd",
+      "slot": 464484140,
+      "accounts_total": 40,
+      "lamport_moved": 8,
+      "token_moved": 2,
+      "accounts": [
+        {
+          "address": "8DcT2MCT4WMUU9kWSuDyKsYxGZ6eVTK8LBMvRyJz5nK4",
+          "witness_pre_lamports": 66118891,
+          "candidate": 66118891,
+          "verdict": "agree",
+          "prior_signature": "3abgXQjBhfkQpECE5onahsXCEnPjPjNm8B2pFYBtuj8BVtp8XbNofsYkQGNEVXM62yMv5AzC1Kqiqd3gMQXAyXq",
+          "prior_slot": 464484051,
+          "prior_err": false
+        },
+        {
+          "address": "KfHbT5Jrr5SV3CDkQVCLiSNWyVv5DmuVaCzbAHrzMFQ",
+          "witness_pre_lamports": 6661776862,
+          "candidate": null,
+          "verdict": "no_prior_touch"
+        },
+        {
+          "address": "2q5pghRs6arqVjRvT5gfgWfWcHWmw1ZuCzphgd5KfWGJ",
+          "witness_pre_lamports": 5318137540,
+          "candidate": null,
+          "verdict": "no_prior_touch"
+        },
+        {
+          "address": "2ymaYABZgdiCGhdmaizAWHZUqB2CmpATDMukCoqGDHot",
+          "witness_pre_lamports": 645048506,
+          "candidate": 645048506,
+          "verdict": "agree",
+          "prior_signature": "4TU1oze8qp62oBWYnFvBL6gVZd6C8LCjHSXNo4YvKLz6kkh6YMhPG16wpjcmkF2AVZNFG7XusoatUaX3PcTRc4WC",
+          "prior_slot": 464484112,
+          "prior_err": false
+        },
+        {
+          "address": "3BpXnfJaUTiwXnJNe7Ej1rcbzqTTQUvLShZaWazebsVR",
+          "witness_pre_lamports": 356118614,
+          "candidate": null,
+          "verdict": "no_prior_touch"
+        },
+        {
+          "address": "7np25jaG25m9fwCXRJw4g1PCRxLyuR6FoWFB985ZdDAf",
+          "witness_pre_lamports": 16317652255,
+          "candidate": 16317652255,
+          "verdict": "agree",
+          "prior_signature": "347sYLuookhbDTmRvos6bc5egfRrFGKYj7TsZqxo9ftwEQwyWwsHYi4bsaDEDMskgdpw5gQpyG7B9Xdj47G1DsbA",
+          "prior_slot": 464484131,
+          "prior_err": false
+        },
+        {
+          "address": "9xdJp4YJBjo94VVc6qwxW587tWyY59ky9EpcxvdScFAq",
+          "mint": "FmNsbgQAqzoraf4BPgMq39RV5C8PkNUW2qm4d7QPpump",
+          "witness_pre_amount": "0",
+          "candidate": null,
+          "verdict": "no_prior_touch"
+        },
+        {
+          "address": "A4MkofsCckYUJh7VYiumTjMFHgqKMumverfUC1x2BSUw",
+          "mint": "FmNsbgQAqzoraf4BPgMq39RV5C8PkNUW2qm4d7QPpump",
+          "witness_pre_amount": "626025911803044",
+          "candidate": "626025911803044",
+          "verdict": "agree",
+          "prior_signature": "347sYLuookhbDTmRvos6bc5egfRrFGKYj7TsZqxo9ftwEQwyWwsHYi4bsaDEDMskgdpw5gQpyG7B9Xdj47G1DsbA"
+        }
+      ]
+    },
+    {
+      "signature": "3y5LW68nHT8LeMhFzvaYYv6N9WAeoJoaHxs8DgbzxnutrCr6r22765X5RwcSK9t3bYnNzKf2zVVxYHDCP7GyhPBK",
+      "slot": 464484140,
+      "accounts_total": 49,
+      "lamport_moved": 7,
+      "token_moved": 12,
+      "accounts": [
+        {
+          "address": "9a595i2rctUaXFCnKm8nPEkDjpiwwPC9oTsmoXaHuKXE",
+          "witness_pre_lamports": 58184926,
+          "candidate": 58184926,
+          "verdict": "agree",
+          "prior_signature": "5gbD2kPQBWRtW5aucBRS6zuicaM3cEkVpYNGbFZxHESAyX5qvCoy433NFC5Wzb9yZUHFxbvm78XQ8yn33KusptG4",
+          "prior_slot": 464484074,
+          "prior_err": false
+        },
+        {
+          "address": "Ci7SdQuXarM3wKpR16CzL9K7QP75Ln9g8scSeK55Hnb",
+          "witness_pre_lamports": 607650098,
+          "candidate": 607650098,
+          "verdict": "agree",
+          "prior_signature": "errL4VvHBmNk2Pgz9YSDQSE2WMmp32NVGRPZX5coKa3GGiFhYMjoU1moeNzUp9YQwKXMCDCCNXATFtXFajHDRZD",
+          "prior_slot": 464484014,
+          "prior_err": false
+        },
+        {
+          "address": "94qWNrtmfn42h3ZjUZwWvK1MEo9uVmmrBPd2hpNjYDjb",
+          "witness_pre_lamports": 7197652334423,
+          "candidate": null,
+          "verdict": "no_prior_touch"
+        },
+        {
+          "address": "CA7v8gHfbquYXyDnDx6QxWW8hmL1H7X6Y2RYDrGLnuck",
+          "witness_pre_lamports": 356777879,
+          "candidate": null,
+          "verdict": "no_prior_touch"
+        },
+        {
+          "address": "FHpH4Tm3bfXMkEV1gVQTGpEQPwuUqd3vmi7WooCaQAwP",
+          "witness_pre_lamports": 223861739,
+          "candidate": 223861739,
+          "verdict": "agree",
+          "prior_signature": "29nAB26x4RAx7Brdhh3Z92QH7fUjB1CasAy2Cyk1tS4BF8NggRo2G1VkzXZawhVxkbsLtaiYVSSW942PW98BovuR",
+          "prior_slot": 464479898,
+          "prior_err": false
+        },
+        {
+          "address": "2eAWV8pjL5xXBWSM7dRxfoBeHuVM6ngdud8EqCSZn4rV",
+          "witness_pre_lamports": 542282065,
+          "candidate": 542282065,
+          "verdict": "agree",
+          "prior_signature": "errL4VvHBmNk2Pgz9YSDQSE2WMmp32NVGRPZX5coKa3GGiFhYMjoU1moeNzUp9YQwKXMCDCCNXATFtXFajHDRZD",
+          "prior_slot": 464484014,
+          "prior_err": false
+        },
+        {
+          "address": "GR4b1WzGpS7WgPx59r1rDE4XYQkQHihP5Dp4JnDyZLof",
+          "mint": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+          "witness_pre_amount": "5940246",
+          "candidate": "5940246",
+          "verdict": "agree",
+          "prior_signature": "5gbD2kPQBWRtW5aucBRS6zuicaM3cEkVpYNGbFZxHESAyX5qvCoy433NFC5Wzb9yZUHFxbvm78XQ8yn33KusptG4"
+        },
+        {
+          "address": "6kuTs1EgyrfJjD5bAiQLPBqxgpdmtAnkVjfRYXcF7MFd",
+          "mint": "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB",
+          "witness_pre_amount": "23497552",
+          "candidate": "23497552",
+          "verdict": "agree",
+          "prior_signature": "5gbD2kPQBWRtW5aucBRS6zuicaM3cEkVpYNGbFZxHESAyX5qvCoy433NFC5Wzb9yZUHFxbvm78XQ8yn33KusptG4"
+        },
+        {
+          "address": "Ci7SdQuXarM3wKpR16CzL9K7QP75Ln9g8scSeK55Hnb",
+          "mint": "So11111111111111111111111111111111111111112",
+          "witness_pre_amount": "606161658",
+          "candidate": "606161658",
+          "verdict": "agree",
+          "prior_signature": "errL4VvHBmNk2Pgz9YSDQSE2WMmp32NVGRPZX5coKa3GGiFhYMjoU1moeNzUp9YQwKXMCDCCNXATFtXFajHDRZD"
+        },
+        {
+          "address": "9mTCgcxmfvNiGDsx3R9vZMd8RzGEvg5y6ssqJCW1ceTh",
+          "mint": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+          "witness_pre_amount": "57055609",
+          "candidate": "57055609",
+          "verdict": "agree",
+          "prior_signature": "errL4VvHBmNk2Pgz9YSDQSE2WMmp32NVGRPZX5coKa3GGiFhYMjoU1moeNzUp9YQwKXMCDCCNXATFtXFajHDRZD"
+        }
+      ]
+    },
+    {
+      "signature": "21YhfqTvmM8W9o65cE4WK4aLQGD7nUWvcGPCmE2umdoEHTHdMLZqw7oyuCyxSKjwFairuZtffQ6XWNR8chvqT96L",
+      "slot": 464484140,
+      "accounts_total": 42,
+      "lamport_moved": 1,
+      "token_moved": 0,
+      "accounts": [
+        {
+          "address": "GezEJrtMqZw8Pa6GUheA1vcw4PTauxPBoYLkRFaL8nq5",
+          "witness_pre_lamports": 424246144,
+          "candidate": null,
+          "verdict": "no_prior_touch"
+        }
+      ]
+    },
+    {
+      "signature": "66nLoGNFiQ7AvCMUBARGV7gJnJKXNGPnXvRkaTzP3g33LdcQC3Pw541DyZrTibvxdFFVqeHomyBasMMRvcAJSCH1",
+      "slot": 464484139,
+      "accounts_total": 19,
+      "lamport_moved": 3,
+      "token_moved": 3,
+      "accounts": [
+        {
+          "address": "Bdgr5zYPxxZnzWAXBped89ndvZxV9sAhpczds7u4w4xD",
+          "witness_pre_lamports": 4845882,
+          "candidate": 4845882,
+          "verdict": "agree",
+          "prior_signature": "3dwgM5pDqo9saMPBNnWF1EcgsD1q9SfmPPYPiXBHCGMu2KNZ58nQubt3o51EuFtiAzT5Ei6Tm3KYmFxgeumAAr1n",
+          "prior_slot": 464484077,
+          "prior_err": false
+        },
+        {
+          "address": "4gQT88rvHr6ay8XvmUUriL5FTjsSuvkvH8ybz3etVLBb",
+          "witness_pre_lamports": 811847314,
+          "candidate": null,
+          "verdict": "no_prior_touch"
+        },
+        {
+          "address": "GehmCo7EgzkB4xxyviW6xdUhm1Ed2nN98QcfcRWQCfA9",
+          "witness_pre_lamports": 87516817697,
+          "candidate": 87516817697,
+          "verdict": "agree",
+          "prior_signature": "4m2PwReicQEYSDwe8L2dDPtNBNoaka2gHXzaM5uKq6Me3xRMmRFXkoDnPpfmkTzadEQUfvurgYseF7h9PMhDsBca",
+          "prior_slot": 464479274,
+          "prior_err": false
+        },
+        {
+          "address": "7KFdXKA5WkZBspxwqd9kSrDGTg9WhiX5TptUB3yRwEaE",
+          "mint": "DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263",
+          "witness_pre_amount": "288182722019593",
+          "candidate": "288182722019593",
+          "verdict": "agree",
+          "prior_signature": "4m2PwReicQEYSDwe8L2dDPtNBNoaka2gHXzaM5uKq6Me3xRMmRFXkoDnPpfmkTzadEQUfvurgYseF7h9PMhDsBca"
+        },
+        {
+          "address": "C8K8NbwXzDNzcrertfLWG4p4jETVfjyh5MAHp2BFUaKQ",
+          "mint": "DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263",
+          "witness_pre_amount": "28440",
+          "candidate": "28440",
+          "verdict": "agree",
+          "prior_signature": "5ioeX6Pe5tJqaUnhPyzy9NwEyHv8uQ6Xm75BwMeJeF5CEPRGp7M14YbjJSoZgn4CLAXEXTjoUoZHbihMnZZz2Kdc"
+        },
+        {
+          "address": "GehmCo7EgzkB4xxyviW6xdUhm1Ed2nN98QcfcRWQCfA9",
+          "mint": "So11111111111111111111111111111111111111112",
+          "witness_pre_amount": "87515329257",
+          "candidate": "87515329257",
+          "verdict": "agree",
+          "prior_signature": "4m2PwReicQEYSDwe8L2dDPtNBNoaka2gHXzaM5uKq6Me3xRMmRFXkoDnPpfmkTzadEQUfvurgYseF7h9PMhDsBca"
+        }
+      ]
+    },
+    {
+      "signature": "63qErUiXpmu5EHRvfqggKM3ZuTEm31f9Wynn61KBRev3dpRsxpUePgbZotRNjTAPHsEa2weiCpJhwYE5XqoX4MC",
+      "slot": 464484139,
+      "accounts_total": 19,
+      "lamport_moved": 1,
+      "token_moved": 4,
+      "accounts": [
+        {
+          "address": "G44YL4hedp2gWSgz6F2bXthZ841e1i1AQ3vD7dQXBDv1",
+          "witness_pre_lamports": 589332821,
+          "candidate": 589332821,
+          "verdict": "agree",
+          "prior_signature": "4BQPJ6T4Da3eLKMvsCVBy2M9HEfWDTPDLLCT1oSdKin6qNpJ41sFN3V1pCVDPE9CRcho2xjjTyN2EBc25Naccapo",
+          "prior_slot": 464484108,
+          "prior_err": false
+        },
+        {
+          "address": "56xXg9GHr6YbTPQAjShKbrPTq5XakX1DqtoTwLPBWZQF",
+          "mint": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+          "witness_pre_amount": "29608695",
+          "candidate": "29608695",
+          "verdict": "agree",
+          "prior_signature": "2WePENHsaqtqVvstaRELLuBv7TLUXWuii23dtvLbKvUaWzZbKWpz6JCz9VJ6gXfjN9koWT354d3akRnJawSHBve3"
+        },
+        {
+          "address": "7TUyMAkjMETQoNYJNQkpH6jQb1hVBaW2sXm7PEPCGrA3",
+          "mint": "Fi5AY1Y2zFgas1Sby49Cu13D72F3uLqwHBV3TjpxiFqD",
+          "witness_pre_amount": "19133250045",
+          "candidate": "19133250045",
+          "verdict": "agree",
+          "prior_signature": "2WePENHsaqtqVvstaRELLuBv7TLUXWuii23dtvLbKvUaWzZbKWpz6JCz9VJ6gXfjN9koWT354d3akRnJawSHBve3"
+        },
+        {
+          "address": "CUDmTR1HsfyHJxphKCVVNizsNXXL7JQfXL7BhaALnGaU",
+          "mint": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+          "witness_pre_amount": "119478067",
+          "candidate": "119478067",
+          "verdict": "agree",
+          "prior_signature": "4BQPJ6T4Da3eLKMvsCVBy2M9HEfWDTPDLLCT1oSdKin6qNpJ41sFN3V1pCVDPE9CRcho2xjjTyN2EBc25Naccapo"
+        },
+        {
+          "address": "3Wn2oSdCUg2XugkDEuHmyNYMLswKjpKaWMgGeta3FdKM",
+          "mint": "Fi5AY1Y2zFgas1Sby49Cu13D72F3uLqwHBV3TjpxiFqD",
+          "witness_pre_amount": "999999980866749955",
+          "candidate": "999999980866749955",
+          "verdict": "agree",
+          "prior_signature": "2WePENHsaqtqVvstaRELLuBv7TLUXWuii23dtvLbKvUaWzZbKWpz6JCz9VJ6gXfjN9koWT354d3akRnJawSHBve3"
+        }
+      ]
+    },
+    {
+      "signature": "5hg75fb4HpxY7qjva9JBw7treVs26xStzo94HzqqPu1GY9VyMbc1Z9EkrZYcY7AiB4soA4F5fvCKiczzmdb5vN2M",
+      "slot": 464484139,
+      "accounts_total": 38,
+      "lamport_moved": 7,
+      "token_moved": 6,
+      "accounts": [
+        {
+          "address": "5FD8u5yibB9TdtDmscWj1t9hYZrWGQFLSE7mDDkat5vL",
+          "witness_pre_lamports": 4584320,
+          "candidate": 4584320,
+          "verdict": "agree",
+          "prior_signature": "237gdwjjKPZHRCycoTdSibnsPRCPd75foV1uifvTy5VdvUzZC1uYXfTkzfBXWR9xZnux81v7xUDeXfQGzMaA1jBd",
+          "prior_slot": 464320392,
+          "prior_err": false
+        },
+        {
+          "address": "KfHbT5Jrr5SV3CDkQVCLiSNWyVv5DmuVaCzbAHrzMFQ",
+          "witness_pre_lamports": 6659017930,
+          "candidate": null,
+          "verdict": "no_prior_touch"
+        },
+        {
+          "address": "pfnP85qobXv2wETniKjXBhxKvgivpfT8EGAcS8sb3bq",
+          "witness_pre_lamports": 1850240,
+          "candidate": 1850240,
+          "verdict": "agree",
+          "prior_signature": "3tA9kN54ZYphqLRu3yof7QkxtJR6PNkireptdobc3q7oXJyL6XdBryGSsdRCEaxVxvL4wFFztWwQR98PU5frcUZm",
+          "prior_slot": 464484132,
+          "prior_err": false
+        },
+        {
+          "address": "6rVkF4HSgy1jrnC3HogfRgPHrq4CtLg5f11URpsC4i9D",
+          "witness_pre_lamports": 585316143,
+          "candidate": null,
+          "verdict": "no_prior_touch"
+        },
+        {
+          "address": "7GFUN3bWzJMKMRZ34JLsvcqdssDbXnp589SiE33KVwcC",
+          "witness_pre_lamports": 1445331323936,
+          "candidate": null,
+          "verdict": "no_prior_touch"
+        },
+        {
+          "address": "9jVs9KZG64gqtQe2ezKFZXr3WYMDiVY792S5PNuiga8V",
+          "witness_pre_lamports": 30506457,
+          "candidate": 30506457,
+          "verdict": "agree",
+          "prior_signature": "3y5yc2XGuwTNUeSh8b8PFvNbXX8idfYSUo4V5kXBoYRDtLMR9jNmXPiprNp9Evxfv6tk8mA3rBPaMY59v7oU1agS",
+          "prior_slot": 464475341,
+          "prior_err": false
+        },
+        {
+          "address": "5xgwQXFhEjvk3SdaXU6QZ2daEQ3WKtvpfWwQx7jU2Dmq",
+          "mint": "9sdNr1pg54yeuvLPagHZ5Qm3CfFrtuvbRv5ecLwUpump",
+          "witness_pre_amount": "862731450221134",
+          "candidate": "862731450221134",
+          "verdict": "agree",
+          "prior_signature": "3y5yc2XGuwTNUeSh8b8PFvNbXX8idfYSUo4V5kXBoYRDtLMR9jNmXPiprNp9Evxfv6tk8mA3rBPaMY59v7oU1agS"
+        },
+        {
+          "address": "6mhncN1TD6Yp4BjWNpS3wm9L7cDUmmoRAgYCGUtUP2PW",
+          "mint": "9sdNr1pg54yeuvLPagHZ5Qm3CfFrtuvbRv5ecLwUpump",
+          "witness_pre_amount": "13787143190",
+          "candidate": "13787143190",
+          "verdict": "agree",
+          "prior_signature": "237gdwjjKPZHRCycoTdSibnsPRCPd75foV1uifvTy5VdvUzZC1uYXfTkzfBXWR9xZnux81v7xUDeXfQGzMaA1jBd"
+        },
+        {
+          "address": "6rVkF4HSgy1jrnC3HogfRgPHrq4CtLg5f11URpsC4i9D",
+          "mint": "So11111111111111111111111111111111111111112",
+          "witness_pre_amount": "583827703",
+          "candidate": null,
+          "verdict": "no_prior_touch"
+        },
+        {
+          "address": "7GFUN3bWzJMKMRZ34JLsvcqdssDbXnp589SiE33KVwcC",
+          "mint": "So11111111111111111111111111111111111111112",
+          "witness_pre_amount": "1445329835496",
+          "candidate": null,
+          "verdict": "no_prior_touch"
+        }
+      ]
+    },
+    {
+      "signature": "43beTPQ8SVbwEWkQYq25DjWrupiqVSGYomFYcthHwso2CJ1oupwdGrjHicMbPJ2snShmsqZ5eW9gm5H8pXFCkiTr",
+      "slot": 464484139,
+      "accounts_total": 38,
+      "lamport_moved": 7,
+      "token_moved": 6,
+      "accounts": [
+        {
+          "address": "GxYQmHFCVwxZfZnB8P1wkGA7pwYKwepso9X6Em5gLtxy",
+          "witness_pre_lamports": 574866387,
+          "candidate": 574866387,
+          "verdict": "agree",
+          "prior_signature": "5AsqKeFthAkoKC6bxXZZb2ueuinV3rpH5DqnjLLLZYhjS87grDr26JmkzAaVe4wLX2bk2KgrgxNxiTQrSPgPZzUe",
+          "prior_slot": 464482030,
+          "prior_err": false
+        },
+        {
+          "address": "KfHbT5Jrr5SV3CDkQVCLiSNWyVv5DmuVaCzbAHrzMFQ",
+          "witness_pre_lamports": 6644907119,
+          "candidate": null,
+          "verdict": "no_prior_touch"
+        },
+        {
+          "address": "5VY91ws6B2hMmBFRsXkoAAdsPHBJwRfBht4DXox3xkwn",
+          "witness_pre_lamports": 6087527344,
+          "candidate": null,
+          "verdict": "no_prior_touch"
+        },
+        {
+          "address": "AktftA98kSWAxn6kVSoqBXBELUArjKu2H9WmKB48ULFY",
+          "witness_pre_lamports": 281097669,
+          "candidate": null,
+          "verdict": "no_prior_touch"
+        },
+        {
+          "address": "EzNrEhpMGsiJoBgY2xu2m1svEQ4h92UYDRFqoNaNGyjU",
+          "witness_pre_lamports": 1931457535,
+          "candidate": null,
+          "verdict": "no_prior_touch"
+        },
+        {
+          "address": "FGptqdxjahafaCzpZ1T6EDtCzYMv7Dyn5MgBLyB3VUFW",
+          "witness_pre_lamports": 1505133080421,
+          "candidate": null,
+          "verdict": "no_prior_touch"
+        },
+        {
+          "address": "8XZRenkYAaLKxqzyCL5TnkaGkvHpHjkPVj5AW82FLjc7",
+          "mint": "GD52VfoPZdad4hiNPg4UnjtDGsS4WiM3mqS8j1czpump",
+          "witness_pre_amount": "100110181917",
+          "candidate": "100110181917",
+          "verdict": "agree",
+          "prior_signature": "5AsqKeFthAkoKC6bxXZZb2ueuinV3rpH5DqnjLLLZYhjS87grDr26JmkzAaVe4wLX2bk2KgrgxNxiTQrSPgPZzUe"
+        },
+        {
+          "address": "AktftA98kSWAxn6kVSoqBXBELUArjKu2H9WmKB48ULFY",
+          "mint": "So11111111111111111111111111111111111111112",
+          "witness_pre_amount": "279609229",
+          "candidate": null,
+          "verdict": "no_prior_touch"
+        },
+        {
+          "address": "EzNrEhpMGsiJoBgY2xu2m1svEQ4h92UYDRFqoNaNGyjU",
+          "mint": "So11111111111111111111111111111111111111112",
+          "witness_pre_amount": "1929418255",
+          "candidate": null,
+          "verdict": "no_prior_touch"
+        },
+        {
+          "address": "FGptqdxjahafaCzpZ1T6EDtCzYMv7Dyn5MgBLyB3VUFW",
+          "mint": "So11111111111111111111111111111111111111112",
+          "witness_pre_amount": "1505131591981",
+          "candidate": null,
+          "verdict": "no_prior_touch"
+        }
+      ]
+    }
+  ],
+  "totals": {
+    "tx_considered": 10,
+    "accounts_considered": 42,
+    "prior_found": 23,
+    "prior_missing": 19,
+    "lamport_agree": 23,
+    "lamport_disagree": 0,
+    "token_agree": 18,
+    "token_disagree": 0,
+    "token_cases": 25,
+    "rpc_calls": 174
+  },
+  "limits": [
+    "A prior touching transaction is found via getSignaturesForAddress; a tx that was rolled back (meta.err) contributes its PRE balances as the state after it.",
+    "The reconstruction only holds if no OTHER transaction touched the account between the prior tx and the event tx; the witness (meta.preBalances) detects exactly that case and reports disagreement.",
+    "Only lamport and token balances are compared. Account BYTES as of the event are not reconstructed here — bytes of a mutable account cannot be derived from balances alone.",
+    "Prior-history search is bounded by PRIOR_LIMIT signatures per account, so an account touched long ago may be reported as prior_missing."
+  ],
+  "verdict": {
+    "prior_found_rate": 0.5476,
+    "lamport_agreement_rate": 1,
+    "token_agreement_rate": 1,
+    "rpc_calls_per_decided_account": 7.57,
+    "premise_archival_required": "REFUTED — pre-event balance state was reconstructed from chain transaction history and verified against the transaction's own witness, with no archival RPC involved",
+    "note": "A refutation of the archival premise is about BALANCES. Account BYTES as of the event remain a separate question: a mutable account's bytes are not derivable from its balances, and this probe says nothing about them."
+  }
+}

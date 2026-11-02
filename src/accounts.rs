@@ -301,6 +301,41 @@ pub fn extract(tx: &Value) -> Option<AccountEnvelope> {
     // its result is stored per envelope as `account_owners`.
     let mut tx_time_program: std::collections::BTreeMap<usize, String> =
         std::collections::BTreeMap::new();
+    // The EVENT-TIME authority of every token account the transaction
+    // touched: `preTokenBalances[].owner` is the authority that held the
+    // token account BEFORE the transaction, and `preTokenBalances[].programId`
+    // is the SPL token program that owned it. These are the chain's own
+    // statements at event time — free, already inside the response reeflog
+    // pays for — and they are the ONLY place the authority of an account
+    // that the transaction did not change is ever written down. A
+    // fetch-time read answers with NOW, which is a different fact: the
+    // authority may have changed since, and a closed account is simply
+    // absent, so the fetch-time pass answers "missing" for exactly the
+    // accounts whose event-time authority is known.
+    //
+    // Measured 2026-11-02 (tools/probe-tx-time-authority.mjs, live Raydium
+    // AMM v4): 125 token accounts over 10 transactions; 103 (82.4%) carry an
+    // amount that did not change and were dropped by the previous envelope
+    // shape; 1 of them is gone now, so no fetch-time read can answer for it
+    // at all. Authority skew where a live read WAS possible: 0/124 — the
+    // event-time and fetch-time authorities agreed in this window, which is
+    // a measurement, not a guarantee.
+    struct TxTimeAuthority {
+        authority: String,
+        program: String,
+    }
+    let mut tx_time_authority: std::collections::BTreeMap<usize, TxTimeAuthority> =
+        std::collections::BTreeMap::new();
+    let mut token_state: Vec<Value> = Vec::new();
+    for t in pre_tok.into_iter().flatten() {
+        let Some(idx) = t.get("accountIndex").and_then(|v| v.as_u64()) else { continue };
+        let authority = t.get("owner").and_then(|v| v.as_str()).unwrap_or("").to_string();
+        let program = t.get("programId").and_then(|v| v.as_str()).unwrap_or("").to_string();
+        tx_time_authority.insert(
+            idx as usize,
+            TxTimeAuthority { authority, program },
+        );
+    }
     for list in [pre_tok, post_tok].into_iter().flatten() {
         for t in list {
             let idx = t.get("accountIndex").and_then(|v| v.as_u64());
@@ -385,6 +420,37 @@ pub fn extract(tx: &Value) -> Option<AccountEnvelope> {
         let before_eff = before.clone().unwrap_or_else(|| "0".to_string());
         let after_eff = after.clone().unwrap_or_else(|| "0".to_string());
         if before_eff == after_eff {
+            // No amount change — but the EVENT-TIME authority of this token
+            // account is still stated in the response, and this is the only
+            // place it exists: a fetch-time read answers with NOW, which is
+            // a different fact (the authority may have changed since, and a
+            // closed account is simply absent). Measured 2026-11-02
+            // (tools/probe-tx-time-authority.mjs, 10 live Raydium AMM v4
+            // transactions, 125 token accounts): 82.4% of the token accounts
+            // a transaction touched (103/125) carry an amount that did NOT
+            // change — the previous shape dropped their event-time authority
+            // entirely, 103 of them in this window alone.
+            if let Some(entry) = tx_time_authority.get(&idx) {
+                // An index that does not resolve keeps its row with a null
+                // address (the instruction convention in this module:
+                // position is information) — dropping the row would lose the
+                // only statement of that account's event-time authority,
+                // shifting it would attach it to the wrong account. A field
+                // the response did not state stays absent rather than "".
+                let mut row = json!({
+                    "index": idx,
+                    "address": address_at(idx),
+                    "mint": mint,
+                    "source": "tx-time",
+                });
+                if !entry.authority.is_empty() {
+                    row["authority"] = json!(entry.authority);
+                }
+                if !entry.program.is_empty() {
+                    row["token_program"] = json!(entry.program);
+                }
+                token_state.push(row);
+            }
             continue;
         }
         let Some(address) = address_at(idx) else { continue };
@@ -516,6 +582,15 @@ pub fn extract(tx: &Value) -> Option<AccountEnvelope> {
             "instructions": instructions,
             "lamport_changes": lamport_changes,
             "token_changes": token_changes,
+            // The event-time authority of every token account the transaction
+            // touched whose amount did NOT change (changed accounts carry it
+            // in `token_changes[].owner`). The source is the transaction's
+            // own `preTokenBalances` — the chain's statement at event time,
+            // not a fetch-time read. `tools/probe-tx-time-authority.mjs`
+            // measured the gap this closes: 82.4% of touched token accounts
+            // (103/125 over 10 live Raydium AMM v4 transactions) carry an
+            // unchanged amount and used to be dropped entirely.
+            "token_state": token_state,
         }),
     })
 }
@@ -1098,5 +1173,121 @@ mod tests {
         assert_eq!(decimal_sub("100", "250"), "-150");
         assert_eq!(decimal_sub("0", "0"), "0");
         assert_eq!(decimal_sub("1000", "1"), "999");
+    }
+
+    // -------------------------------------------------------------------
+    // Event-time authority (token_state).
+    //
+    // `preTokenBalances[].owner` is the chain's statement of WHO held the
+    // token account BEFORE the transaction — at event time, not fetch time.
+    // The envelope used to drop it for every token account whose amount did
+    // not change, which measured 82.4% of touched token accounts on live
+    // mainnet (tools/probe-tx-time-authority.mjs, 2026-11-02: 103/125 over
+    // 10 Raydium AMM v4 transactions). These tests pin the recovery.
+    // -------------------------------------------------------------------
+
+    fn token_state_tx() -> Value {
+        json!({
+            "slot": 110,
+            "transaction": {
+                "message": {
+                    "accountKeys": ["A", "B", "C", "D"],
+                    "instructions": [{"programIdIndex": 2}]
+                }
+            },
+            "meta": {
+                "preBalances": [10, 10, 10, 10],
+                "postBalances": [10, 10, 10, 10],
+                "preTokenBalances": [
+                    // Amount unchanged, authority known: this is the account
+                    // class the old envelope dropped entirely.
+                    {"accountIndex": 1, "mint": "M1", "owner": "AUTH1", "programId": "TOK1",
+                     "uiTokenAmount": {"amount": "100"}},
+                    // Amount unchanged too, but the account index cannot be
+                    // resolved to an address: recorded without an address,
+                    // never guessed onto another account.
+                    {"accountIndex": 9, "mint": "M2", "owner": "AUTH2", "programId": "TOK2",
+                     "uiTokenAmount": {"amount": "5"}},
+                    // Amount CHANGES: belongs in token_changes (with its
+                    // owner), NOT in token_state.
+                    {"accountIndex": 3, "mint": "M3", "owner": "AUTH3", "programId": "TOK3",
+                     "uiTokenAmount": {"amount": "10"}}
+                ],
+                "postTokenBalances": [
+                    // Same account, same amount: genuinely unchanged.
+                    {"accountIndex": 1, "mint": "M1", "owner": "AUTH1", "programId": "TOK1",
+                     "uiTokenAmount": {"amount": "100"}},
+                    {"accountIndex": 9, "mint": "M2", "owner": "AUTH2", "programId": "TOK2",
+                     "uiTokenAmount": {"amount": "5"}},
+                    {"accountIndex": 3, "mint": "M3", "owner": "AUTH3", "programId": "TOK3",
+                     "uiTokenAmount": {"amount": "99"}}
+                ]
+            }
+        })
+    }
+
+    #[test]
+    fn an_unchanged_token_account_still_names_its_event_time_authority() {
+        let env = extract(&token_state_tx()).expect("envelope");
+        let state = env.value["token_state"].as_array().expect("token_state list");
+        assert_eq!(state.len(), 2, "the two unchanged accounts");
+        let e = state.iter().find(|e| e["address"] == "B").expect("the resolvable row");
+        assert_eq!(e["mint"], "M1");
+        assert_eq!(e["authority"], "AUTH1", "the pre-transaction authority, not a fetch-time read");
+        assert_eq!(e["token_program"], "TOK1");
+        assert_eq!(e["source"], "tx-time");
+        assert_eq!(e["index"], 1);
+    }
+
+    #[test]
+    fn a_changed_token_account_belong_to_token_changes_not_token_state() {
+        let env = extract(&token_state_tx()).expect("envelope");
+        let state = env.value["token_state"].as_array().unwrap();
+        assert!(
+            !state.iter().any(|e| e["mint"] == "M3"),
+            "a changed amount's authority is already in token_changes; duplicating it in token_state would make the two lists disagree about who reports it"
+        );
+        let changes = env.value["token_changes"].as_array().unwrap();
+        assert_eq!(changes.len(), 1);
+        assert_eq!(changes[0]["mint"], "M3");
+        assert_eq!(changes[0]["owner"], "AUTH3");
+        assert_eq!(changes[0]["delta"], "89");
+    }
+
+    #[test]
+    fn an_unresolvable_token_account_keeps_its_authority_without_an_address() {
+        // accountIndex 9 has no address in the canonical list. Dropping the
+        // entry would lose the only statement of that account's event-time
+        // authority; inventing an address would attach it to the wrong
+        // account. The honest shape: address null, authority stated.
+        let env = extract(&token_state_tx()).expect("envelope");
+        let state = env.value["token_state"].as_array().unwrap();
+        assert_eq!(state.len(), 2, "both unchanged accounts are recorded");
+        let orphan = state.iter().find(|e| e["address"].is_null()).expect("the unresolvable row");
+        assert_eq!(orphan["mint"], "M2");
+        assert_eq!(orphan["authority"], "AUTH2");
+        assert_eq!(orphan["token_program"], "TOK2");
+        assert_eq!(orphan["index"], 9);
+    }
+
+    #[test]
+    fn token_state_is_empty_when_the_transaction_touches_no_token_accounts() {
+        // The false-positive guard: a plain lamport-only transaction gains
+        // no token facts, and the key is an empty list rather than a
+        // fabricated entry. This test passes on the pre-fix tree too — it is
+        // the guard that keeps the new field from firing on wrong input.
+        let tx = json!({
+            "slot": 111,
+            "transaction": {
+                "message": {
+                    "accountKeys": ["A", "B"],
+                    "instructions": [{"programIdIndex": 0}]
+                }
+            },
+            "meta": {"preBalances": [5, 5], "postBalances": [5, 9]}
+        });
+        let env = extract(&tx).expect("envelope");
+        assert_eq!(env.value["token_state"].as_array().unwrap().len(), 0);
+        assert_eq!(env.value["token_changes"].as_array().unwrap().len(), 0);
     }
 }

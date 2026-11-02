@@ -225,6 +225,19 @@ delta), `token_changes` (index, address, mint, owner, before, after,
 delta) — amounts as exact decimal strings, never floats — plus
 `instructions` and `err`.
 
+It also carries **`token_state`** (added 2026-11-02): the event-time
+authority of every token account the transaction touched whose amount did
+NOT change — `index`, `address`, `mint`, `authority`, `token_program`,
+`source: "tx-time"`. Until then the envelope stated the authority only for
+accounts whose balance moved, and dropped the rest. That is the majority
+of what a transaction touches: measured on live mainnet (Raydium AMM v4,
+10 transactions, `tools/probe-tx-time-authority.mjs`) **103 of 125 token
+accounts (82.4 %)** carry an unchanged amount, and all 103 carry an
+event-time authority the previous shape discarded. Changed accounts are
+not duplicated — they keep their authority in `token_changes[].owner`, and
+the two lists never claim the same account (pinned by
+`a_changed_token_account_belong_to_token_changes_not_token_state`).
+
 It also carries **the account list itself** (`accounts`, added 2026-10-31):
 every account the transaction touched, in the same canonical order, with
 `signer` and `writable` permissions and a `source` of `static`,
@@ -375,6 +388,14 @@ test and by the live harness:
 - **Owners are read at fetch time, not at event time.** An account can change
   owner after the transaction; the map's `source` says which pass wrote it,
   and nothing here claims historical state (see *Evidence and limits*).
+  The exception that is not an exception: for token accounts the
+  transaction itself touched, the envelope NOW carries the event-time
+  authority (`token_state[].authority` / `token_changes[].owner`, read from
+  the transaction's own `preTokenBalances` — the chain's statement at event
+  time, measured to agree with a later fetch-time read 124/124 in the same
+  probe window, and irreplaceable for the 1 of 125 accounts that no longer
+  exist at all). Historical state for accounts a transaction did NOT touch
+  remains open, unchanged.
 
 The two pre-existing correctness traps above — lookup-table indexing and a
 closed token account — apply to the owner map for the same reason: it is keyed
