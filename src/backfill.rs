@@ -54,11 +54,33 @@ pub trait Fetcher {
 
 pub struct HttpFetcher {
     pub url: String,
+    /// One agent for the whole fetcher, so connections are pooled across
+    /// the many calls a walk makes. The timeout lives here, on the agent,
+    /// because that is the only place where it bounds EVERY request.
+    agent: ureq::Agent,
 }
 
 impl HttpFetcher {
     pub fn new(url: String) -> Self {
-        Self { url }
+        // Every RPC call is bounded. Measured 2026-11-02 (live
+        // mainnet-beta): a `reeflog start` run hung PAST ITS OWN
+        // `--seconds` deadline and never returned — 4 of 5 repetitions on
+        // the then-current tree were still running at 45 s and had to be
+        // killed. ureq sets no request timeout by default (ureq 3.5 docs:
+        // "By default no timeouts are set"), so one stalled HTTP peer parks
+        // the call forever — and the daemon's shutdown path joins the
+        // payload worker unbounded, so the whole run hangs with it. The
+        // webhook poster already carries a global timeout for exactly this
+        // reason; the RPC path gets the same contract. 10 s bounds a
+        // stalled peer without touching healthy traffic (measured: a
+        // completed call is sub-second; throttled pages arrive at ~0.63/s).
+        let cfg = ureq::Agent::config_builder()
+            .timeout_global(Some(std::time::Duration::from_millis(10_000)))
+            .build();
+        Self {
+            url,
+            agent: ureq::Agent::new_with_config(cfg),
+        }
     }
 }
 
@@ -72,6 +94,7 @@ impl Fetcher for HttpFetcher {
         // so we retry with a growing backoff and honour the Retry-After
         // hint when the server sends one.
         let mut last_err = String::from("unreachable");
+        let mut timeout_seen = false;
         for attempt in 0..6 {
             if attempt > 0 {
                 // Quadratic backoff, capped: a 429 burst must clear without
@@ -79,13 +102,34 @@ impl Fetcher for HttpFetcher {
                 let wait = (400u64 * attempt * attempt).min(8_000);
                 std::thread::sleep(std::time::Duration::from_millis(wait));
             }
-            let mut resp = match ureq::post(&self.url)
+            let mut resp = match self
+                .agent
+                .post(&self.url)
                 .header("content-type", "application/json")
                 .send(body.as_str())
             {
                 Ok(r) => r,
                 Err(ureq::Error::StatusCode(429)) => {
                     last_err = format!("{method}: http 429 rate limited");
+                    continue;
+                }
+                // A timeout is the stalled-peer case above. It gets FEWER
+                // retries than a 429: a 429 proves the endpoint is alive and
+                // asks to wait, while a timeout means the peer took the
+                // connection and stopped — the next 10 s answer to the same
+                // question is unlikely to differ (measured 2026-11-02: two
+                // attempts burn ~22 s of a run's shutdown; six would burn
+                // ~80 s per call and the pass over many rows still stacks).
+                // After the second attempt the caller gets a message that
+                // names the mechanism instead of a silent park.
+                Err(ureq::Error::Timeout(_)) => {
+                    if timeout_seen {
+                        return Err(format!(
+                            "{method}: rpc call timed out twice (10 s limit each) — endpoint accepted the connection but never answered; failing this pass instead of stalling the run"
+                        ));
+                    }
+                    timeout_seen = true;
+                    last_err = format!("{method}: rpc call timed out (10 s limit, attempt {}) — endpoint accepted the connection but never answered", attempt + 1);
                     continue;
                 }
                 Err(ureq::Error::StatusCode(c)) => {

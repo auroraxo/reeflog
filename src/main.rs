@@ -51,6 +51,44 @@ fn require(args: &[String], key: &str) -> String {
     arg(args, key).unwrap_or_else(|| die(format!("missing {key} <value>")))
 }
 
+/// One alphabet, one source of truth: every decode step looks the character
+/// up here instead of doing arithmetic on ASCII ranges, so the mapping
+/// cannot drift out of sync with itself.
+const B58_ALPHABET: &[u8; 58] = b"123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
+
+/// Base58 decode (big-endian, leading '1' = one leading zero byte).
+/// `None` on any character outside the alphabet.
+fn decode_base58(s: &str) -> Option<Vec<u8>> {
+    let mut out: Vec<u8> = Vec::new();
+    for &ch in s.as_bytes() {
+        let d = B58_ALPHABET.iter().position(|&c| c == ch)? as u32;
+        let mut carry = d;
+        for byte in out.iter_mut() {
+            let x = (*byte as u32) * 58 + carry;
+            *byte = x as u8;
+            carry = x >> 8;
+        }
+        while carry > 0 {
+            out.push(carry as u8);
+            carry >>= 8;
+        }
+    }
+    let zeros = s.bytes().take_while(|b| *b == b'1').count();
+    out.extend(std::iter::repeat_n(0u8, zeros));
+    out.reverse();
+    Some(out)
+}
+
+/// Is `s` shaped like a Solana address: base58 of exactly 32 bytes?
+/// SHAPE only — existence on chain is not checked here (a program can be
+/// deployed after `init`). What this does catch is the typo, which measured
+/// 2026-11-02 as the quietest failure this product can make: `init --program
+/// not-a-pubkey` was accepted and produced a mailbox that watches nothing
+/// while reporting perfect health (0 events, 0 gaps, exit 0).
+fn is_address(s: &str) -> bool {
+    matches!(decode_base58(s), Some(v) if v.len() == 32)
+}
+
 // ---------------------------------------------------------------------------
 // Pipeline helpers
 // ---------------------------------------------------------------------------
@@ -66,9 +104,7 @@ fn backfill_gap(j: &Journal, fetcher: &mut HttpFetcher, program: &str) -> Result
 /// episode instead of the rewrite happening invisibly. An incomplete pass
 /// leaves the gap open with an explicit marker.
 fn repair_pass(j: &Journal, rpc_url: &str, program: &str, pages: usize, since_slot: Option<i64>) -> Value {
-    let mut fetcher = HttpFetcher {
-        url: rpc_url.to_string(),
-    };
+    let mut fetcher = HttpFetcher::new(rpc_url.to_string());
     repair_pass_anchored(j, &mut fetcher, program, pages, since_slot, None, None)
 }
 
@@ -415,7 +451,13 @@ async fn run_start(args: &[String]) {
             p
         }
         Ok(None) => {
-            let p = require(args, "--program");
+            let p = arg(args, "--program").unwrap_or_else(|| {
+                die(format!(
+                    "journal {} has no program recorded — run `reeflog init --db {} --program <pubkey>` (or pass --program)",
+                    db.display(),
+                    db.display()
+                ))
+            });
             j.meta_set("program", &p).unwrap_or_else(|e| die(e));
             p
         }
@@ -1204,7 +1246,7 @@ fn run_verify(args: &[String]) {
         .and_then(|s| s.parse().ok())
         .unwrap_or(40);
     let since_slot: Option<i64> = arg(args, "--since-slot").and_then(|s| s.parse().ok());
-    let mut fetcher = HttpFetcher { url: rpc_url };
+    let mut fetcher = HttpFetcher::new(rpc_url);
     // An archive anchor makes a DEEP window verifiable: a tip-started walk
     // spends its page budget crossing history above the journal's ceiling
     // and never reaches the floor (measured 2026-10-30: 40 pages = ~2.4h of
@@ -1283,7 +1325,7 @@ fn run_repair(args: &[String]) {
         .and_then(|s| s.parse().ok())
         .unwrap_or(40);
     let since_slot: Option<i64> = arg(args, "--since-slot").and_then(|s| s.parse().ok());
-    let mut fetcher = HttpFetcher { url: rpc_url };
+    let mut fetcher = HttpFetcher::new(rpc_url);
     let (anchor, anchor_error) = resolve_requested_anchor(args, &j, &mut fetcher);
     let summary = repair_pass_anchored(
         &j,
@@ -2052,6 +2094,57 @@ fn main() {
     if cmd == "--version" || cmd == "version" {
         println!("reeflog {}", env!("CARGO_PKG_VERSION"));
         std::process::exit(0);
+    }
+    // Any --program the user passes must look like an address, for every
+    // command, BEFORE anything is opened or created. A refusal that runs
+    // after `Journal::open` would leave a journal behind for a command that
+    // never succeeded.
+    if let Some(program) = arg(&args, "--program") {
+        if !is_address(&program) {
+            die(format!(
+                "--program {program} is not a Solana address (base58 of 32 bytes) — refusing to record it"
+            ));
+        }
+    }
+    // `start` may create a journal, but only when it is told what to watch.
+    // Without either, the stranger gets the fix line, not a bare
+    // "missing --program" (the 2026-11-02 quickstart finding).
+    if cmd == "start" {
+        let db = PathBuf::from(arg(&args, "--db").unwrap_or_else(|| "reeflog.db".into()));
+        if !db.exists() && arg(&args, "--program").is_none() {
+            die(format!(
+                "no journal at {} — run `reeflog init --db {} --program <pubkey>` first (or pass --program to create one)",
+                db.display(),
+                db.display()
+            ));
+        }
+    }
+    // Every other command READS an existing journal and must not create one.
+    // Measured 2026-11-02: `status --db nope.db` printed a complete, healthy,
+    // empty status and exited 0 — a stranger cannot tell "no events yet"
+    // from "you never initialized a mailbox". Commands that are not
+    // journal-bearing (and unknown subcommands) still fall through to usage.
+    let needs_journal = match cmd {
+        "seal" | "verify" | "repair" | "hydrate" | "tail" | "status" => true,
+        "reorg" => matches!(args.get(1).map(|s| s.as_str()), Some("check") | Some("tail")),
+        "webhook" => match args.get(1).map(|s| s.as_str()) {
+            Some("push") | Some("status") => true,
+            Some("dlq") => {
+                matches!(args.get(2).map(|s| s.as_str()), Some("list") | Some("replay"))
+            }
+            _ => false,
+        },
+        _ => false,
+    };
+    if needs_journal {
+        let db = PathBuf::from(arg(&args, "--db").unwrap_or_else(|| "reeflog.db".into()));
+        if !db.exists() {
+            die(format!(
+                "no journal at {} — run `reeflog init --db {} --program <pubkey>` first",
+                db.display(),
+                db.display()
+            ));
+        }
     }
     match cmd {
         "init" => {

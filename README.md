@@ -32,6 +32,22 @@ reeflog status --db reeflog.db
 
 The planned core is a Rust daemon and a TypeScript client. Decoding stays pluggable; reeflog does not itself decide what bytes mean.
 
+**First-touch contract (measured 2026-11-02, `tests/quickstart.rs` +
+`tests/rpc_timeout.rs`):** `init` is the only command that creates a journal,
+and it refuses a `--program` that is not a base58 32-byte address — a typo
+here used to be accepted silently and produced a mailbox that watches
+nothing while reporting perfect health (`0 events`, `0 gaps`, exit 0).
+Every other command refuses a `--db` path that has no journal, with the
+`reeflog init …` line as the fix, instead of conjuring an empty one.
+Every RPC call is bounded (10 s per call, two attempts for a stalled peer; a
+429 still gets the full six-attempt backoff). Degraded is not the same as
+hung: when the endpoint accepts connections and never answers, `start` can
+exceed its `--seconds` while the shutdown passes pay their bounded timeouts,
+but it always returns and names the failure on stderr (measured 2026-11-02:
+pre-fix, 4 of 5 repetitions of `start --seconds 3` never returned at 45 s;
+post-fix, worst observed run returned in 83 s with `rpc call timed out
+twice` reported).
+
 ## Measured results
 
 Checked live on 2026-10-27 against `api.mainnet-beta.solana.com`, program `whirLbMiicVdio4qvUfM5KAg6Ct8VwpYzGff3uctyCc` (Whirlpool):
