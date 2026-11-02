@@ -1,5 +1,5 @@
 {
-  "measuredAt": "2026-11-02T03:28:41.678Z",
+  "measuredAt": "2026-11-02T13:58:52.980Z",
   "repo": "auroraxo/reeflog",
   "checks": {
     "repoMetadata": {
@@ -24,18 +24,24 @@
     "traffic": {
       "window": "last 14 days, GitHub-fixed buckets",
       "views": {
-        "count": 0,
-        "uniques": 0
+        "count": 2,
+        "uniques": 1
       },
       "clones": {
-        "count": 356,
-        "uniques": 120
+        "count": 449,
+        "uniques": 129
       },
       "caveat": "clone count includes every CI checkout of this repo; not an adoption signal",
       "ok": true
     },
     "referrers": {
-      "all": [],
+      "all": [
+        {
+          "referrer": "github.com",
+          "count": 2,
+          "uniques": 1
+        }
+      ],
       "external": [],
       "ok": true
     }
@@ -49,7 +55,7 @@
     "mergedBy": null,
     "mergedAt": null,
     "url": "https://github.com/StockpileLabs/awesome-solana-oss/pull/93",
-    "fetchedAt": "2026-11-02T03:28:41.678Z"
+    "fetchedAt": "2026-11-02T13:58:52.980Z"
   },
   "verdict": {
     "class": "not-distributed-not-consumed",
