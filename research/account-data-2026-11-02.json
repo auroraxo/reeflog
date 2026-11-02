@@ -1,0 +1,68 @@
+{
+  "probe": "account-data-2026-11-02",
+  "what": "Size and ownership distribution of the accounts a Raydium AMM v4 transaction enumerates, measured live — the premise for the `hydrate --account-data` pass (cap, executable handling, absence rate).",
+  "measured_at": "2026-11-02",
+  "rpc": "https://api.mainnet-beta.solana.com",
+  "program": "675kPX9MHTjS2zt1qfr1NYHuzeLXfQM9H24wFSUt1Mp8",
+  "method": "recent finalized txs → canonical account list (static ++ loaded writable ++ loaded readonly) → batched getMultipleAccounts, full bytes (no dataSlice) → exact byte length per address; executable flag and owner per address",
+  "tool": "tools/probe-account-data.mjs",
+  "runs": [
+    {
+      "txs": 14,
+      "distinct_addresses": 238,
+      "missing_addresses": 40,
+      "missing_share": 0.168,
+      "fetch_calls_full": 3,
+      "bytes": { "min": 0, "p50": 165, "p90": 752, "p95": 4097, "p99": 74800, "max": 105032, "total": 291595 },
+      "cap_candidate": 16384,
+      "over_cap": 2,
+      "state_bytes_total": 1571848,
+      "executable_bytes_total": 180523,
+      "per_row_full_bytes_p50": 189338,
+      "per_row_full_bytes_max": 1290389,
+      "zero_byte_accounts": 73
+    },
+    {
+      "txs": 30,
+      "distinct_addresses": 428,
+      "missing_addresses": 77,
+      "missing_share": 0.18,
+      "fetch_calls_full": 5,
+      "bytes": { "min": 0, "p50": 165, "p90": 1024, "p95": 4483, "p99": 65548, "max": 262156, "total": 784798 },
+      "cap_candidate": 16384,
+      "over_cap": 5,
+      "state_bytes_total": 604383,
+      "executable_bytes_total": 180415,
+      "per_row_full_bytes_p50": 115036,
+      "per_row_full_bytes_max": 505978,
+      "per_row_stored_bytes_p50": 9767,
+      "per_row_stored_bytes_max": 67861,
+      "zero_byte_accounts": 90
+    }
+  ],
+  "decisions_derived": {
+    "cap_bytes": {
+      "value": 16384,
+      "why": "p95 is 4483 B; only 5 of 428 observed addresses exceed 16384 B (1.2%); the worst observed account is 1,048,588 B, so an uncapped pass would move ~100x more bytes per row than the p50 row needs (115 KB vs 9.8 KB stored under the cap).",
+      "measured_rejected": "no cap: per-row stored bytes p50 115,036 (11.7x the capped figure) with a single 1 MB account per few rows"
+    },
+    "executable_handling": {
+      "rule": "program code is delivered as a flag plus its true size, never as bytes",
+      "why": "the two largest accounts in run 1 (105,032 B and 74,800 B) are BPFLoader-owned program binaries; journaling them as event data would be wrong in a different way than truncating state is."
+    },
+    "absence_rule": {
+      "rule": "an address the chain no longer has is recorded in `missing`, with no data entry",
+      "why": "16.8% (40/238) and 18.0% (77/428) of enumerated addresses no longer exist at fetch time."
+    }
+  },
+  "rpc_semantics_pinned_live": {
+    "space_under_slice": "getMultipleAccounts with dataSlice {offset:0,length:16384} on a 1,048,588 B account reports space=1048588 and delivers 16384 bytes — the real size is available without a second full fetch",
+    "at_cap_probe": "getMultipleAccounts with dataSlice {offset:16384,length:1} returns the account again when more data exists beyond the cap, and null when the account is gone OR ends exactly at the cap — an ambiguity the product reports as truncation_verified=false instead of guessing",
+    "zero_byte_account": "an account with 0 bytes of data still returns an entry (not null); null means the account does not exist"
+  },
+  "limits": [
+    "one program window (Raydium AMM v4) on mainnet-beta; the distribution of other programs' accounts is not measured",
+    "sizes are measured at fetch time, not at event time",
+    "the probe reads full account bytes and is not a cheap operation on a public endpoint"
+  ]
+}

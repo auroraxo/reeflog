@@ -8,6 +8,7 @@ mod accounts;
 mod backfill;
 mod journal;
 mod owners;
+mod account_data;
 mod payload;
 mod reorg;
 mod webhook;
@@ -1440,6 +1441,10 @@ fn run_status(args: &[String]) {
             // (`hydrate --owners`) and which still owe it.
             "owners_held": c.owners_held,
             "owners_missing": c.owners_missing,
+            // Account-data coverage: which rows carry the resolved account
+            // bytes (`hydrate --account-data`) and which still owe it.
+            "account_data_held": c.account_data_held,
+            "account_data_missing": c.account_data_missing,
         }))
         .unwrap()
     );
@@ -1488,9 +1493,26 @@ fn run_hydrate(args: &[String]) {
         .and_then(|s| s.parse().ok())
         .unwrap_or(100);
     let o = if args.iter().any(|a| a == "--owners") {
-        let mut f = HttpFetcher::new(rpc_url);
+        let mut f = HttpFetcher::new(rpc_url.clone());
         Some(
             owners::hydrate_owners(&j, &mut f, limit, owners_batch)
+                .unwrap_or_else(|e| die(e)),
+        )
+    } else {
+        None
+    };
+    // `--account-data` is a FOURTH budget: the account BYTES do not ride in
+    // the `getTransaction` response either (only the balances and the
+    // instruction bytes do), so the bytes need their own explicitly-budgeted
+    // pass. It rides on the same batched `getMultipleAccounts` shape as the
+    // owners pass, but stores the data itself, capped at ACCOUNT_DATA_CAP.
+    let data_batch: usize = arg(args, "--account-data-batch")
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(100);
+    let d = if args.iter().any(|a| a == "--account-data") {
+        let mut f = HttpFetcher::new(rpc_url.clone());
+        Some(
+            account_data::hydrate_account_data(&j, &mut f, limit, data_batch)
                 .unwrap_or_else(|e| die(e)),
         )
     } else {
@@ -1529,10 +1551,30 @@ fn run_hydrate(args: &[String]) {
         }),
         None => json!({"requested": false}),
     };
+    let account_data_json = match &d {
+        Some(d) => json!({
+            "complete": d.complete(),
+            "considered": d.considered,
+            "stored": d.stored,
+            "addresses_held": d.addresses_held,
+            "addresses_missing": d.addresses_missing,
+            "addresses_skipped_executable": d.addresses_skipped_executable,
+            "rpc_calls": d.calls,
+            "failed_batches": d.failed_batches,
+            "left": d.left,
+            "error": d.error,
+            "stored_sample": d.stored_sample,
+            "cap_bytes": account_data::ACCOUNT_DATA_CAP,
+        }),
+        None => json!({"requested": false}),
+    };
     println!(
         "{}",
         serde_json::to_string_pretty(&json!({
-            "complete": r.complete() && a.as_ref().map(|x| x.complete()).unwrap_or(true),
+            "complete": r.complete()
+                && a.as_ref().map(|x| x.complete()).unwrap_or(true)
+                && o.as_ref().map(|x| x.complete()).unwrap_or(true)
+                && d.as_ref().map(|x| x.complete()).unwrap_or(true),
             "considered": r.considered,
             "hydrated": r.hydrated,
             "accounts_stored_free": r.accounts_stored,
@@ -1546,6 +1588,7 @@ fn run_hydrate(args: &[String]) {
             "invalid_sample": r.invalid_sample,
             "accounts": accounts_json,
             "owners": owners_json,
+            "account_data": account_data_json,
             "journal": {
                 "events": c.total,
                 "payload_pending": c.payload_pending,
@@ -1556,6 +1599,8 @@ fn run_hydrate(args: &[String]) {
                 "accounts_missing": c.accounts_missing,
                 "owners_held": c.owners_held,
                 "owners_missing": c.owners_missing,
+                "account_data_held": c.account_data_held,
+                "account_data_missing": c.account_data_missing,
             },
         }))
         .unwrap()
@@ -1581,6 +1626,15 @@ fn run_hydrate(args: &[String]) {
             eprintln!(
                 "reeflog: owner hydration INCOMPLETE (error={:?}, failed_batches={}, left={}) — {} row(s) still carry no owner map",
                 o.error, o.failed_batches, o.left, o.left
+            );
+            std::process::exit(3);
+        }
+    }
+    if let Some(d) = &d {
+        if !d.complete() {
+            eprintln!(
+                "reeflog: account-data hydration INCOMPLETE (error={:?}, failed_batches={}, left={}) — {} row(s) still carry no account data",
+                d.error, d.failed_batches, d.left, d.left
             );
             std::process::exit(3);
         }
@@ -1888,12 +1942,15 @@ fn usage() -> ! {
          \x20              [--webhook-config <file>] [--webhook-every N] [--webhook-limit N]\n\
          \x20 reeflog verify --db <file> [--pages N] [--since-slot N] [--rpc URL]\n\
          \x20 reeflog repair --db <file> [--pages N] [--since-slot N] [--rpc URL]\n\
-         \x20 reeflog hydrate --db <file> [--limit N] [--rpc URL] [--accounts] [--owners]\n\
+         \x20 reeflog hydrate --db <file> [--limit N] [--rpc URL] [--accounts] [--owners] [--account-data]\n\
          \x20              [--accounts]: also fetch account-change envelopes for\n\
          \x20              rows whose logs came from the socket (it carries no balances)\n\
          \x20              [--owners]: also resolve the owning program of every account\n\
          \x20              the envelope enumerates (batched getMultipleAccounts;\n\
          \x20              addresses the chain no longer has are recorded missing)\n\
+         \x20              [--account-data]: also fetch the account BYTES the\n\
+         \x20              envelope enumerates (batched, capped per address;\n\
+         \x20              program code is flagged, not stored)\n\
          \x20 reeflog seal  --db <file> [--rpc URL]\n\
          \x20 reeflog tail  --db <file> --cursor <file> [--limit N] [--no-logs] [--with-accounts]\n\
          \x20 reeflog reorg check --db <file> [--limit N] [--rpc URL]\n\

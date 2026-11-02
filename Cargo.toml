@@ -15,6 +15,10 @@ serde_json = "1"
 ureq = { version = "3.5.0", features = ["json"] }
 sha2 = "0.10"
 hex = "0.4"
+# Account data (`hydrate --account-data`): the RPC answers in base64 and the
+# pass stores the bytes it received VERBATIM — decoding to measure exact byte
+# length and re-encoding only what was decoded, never a re-encoding by hand.
+base64 = "0.22"
 
 [profile.release]
 opt-level = 2

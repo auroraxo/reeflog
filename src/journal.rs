@@ -697,6 +697,76 @@ impl Journal {
         Ok(n > 0)
     }
 
+    /// Rows the ACCOUNT-DATA pass owes: a complete envelope (with an
+    /// enumerable account list) whose `account_data` map is not there yet.
+    /// The clause chain is the owners predicate, restated for a different
+    /// field — held envelope, enumerable list, own field still absent.
+    pub fn events_missing_account_data(&self, limit: i64) -> Result<Vec<(i64, String, String)>, String> {
+        let mut stmt = self
+            .db
+            .prepare(
+                "SELECT seq, signature, accounts FROM events
+                 WHERE logs IS NOT NULL
+                   AND account_state='held'
+                   AND json_extract(accounts, '$.accounts') IS NOT NULL
+                   AND json_extract(accounts, '$.account_data') IS NULL
+                 ORDER BY seq LIMIT ?1",
+            )
+            .map_err(|e| e.to_string())?;
+        let rows = stmt
+            .query_map(params![limit], |r| {
+                Ok((
+                    r.get(0)?,
+                    r.get(1)?,
+                    r.get::<_, Option<String>>(2)?.unwrap_or_default(),
+                ))
+            })
+            .map_err(|e| e.to_string())?;
+        let mut out = Vec::new();
+        for row in rows {
+            out.push(row.map_err(|e| e.to_string())?);
+        }
+        Ok(out)
+    }
+
+    /// The account-data debt counter — the SAME predicate as
+    /// `events_missing_account_data`, for the reason stated on
+    /// `accounts_missing_count`: two hand-written copies of one fact drift
+    /// apart.
+    pub fn account_data_missing_count(&self) -> Result<i64, String> {
+        self.db
+            .query_row(
+                "SELECT COUNT(*) FROM events
+                 WHERE logs IS NOT NULL
+                   AND account_state='held'
+                   AND json_extract(accounts, '$.accounts') IS NOT NULL
+                   AND json_extract(accounts, '$.account_data') IS NULL",
+                [],
+                |r| r.get(0),
+            )
+            .map_err(|e| e.to_string())
+    }
+
+    /// Store resolved account data INSIDE the envelope. Same guards and
+    /// rules as `set_owners`: only a row that holds its envelope may gain
+    /// data, and a row that already has it is never rewritten — a second
+    /// run must be a no-op, not a second opinion.
+    pub fn set_account_data(&self, signature: &str, data: &str) -> Result<bool, String> {
+        let n = self
+            .db
+            .execute(
+                "UPDATE events SET accounts=json_set(accounts, '$.account_data', json(?2))
+                 WHERE signature=?1
+                   AND logs IS NOT NULL
+                   AND account_state='held'
+                   AND accounts IS NOT NULL
+                   AND json_extract(accounts, '$.account_data') IS NULL",
+                params![signature, data],
+            )
+            .map_err(|e| e.to_string())?;
+        Ok(n > 0)
+    }
+
     /// Rows the account pass still owes: no envelope at all, or an envelope
     /// written before the current extractor existed. Deliberately the SAME
     /// predicate as `events_missing_accounts` — a debt counter and the queue
@@ -1389,6 +1459,16 @@ impl Journal {
             )
             .map_err(|e| e.to_string())?;
         let owners_missing: i64 = self.owners_missing_count()?;
+        let account_data_held: i64 = self
+            .db
+            .query_row(
+                "SELECT COUNT(*) FROM events
+                 WHERE json_extract(accounts, '$.account_data') IS NOT NULL",
+                [],
+                |r| r.get(0),
+            )
+            .map_err(|e| e.to_string())?;
+        let account_data_missing: i64 = self.account_data_missing_count()?;
         Ok(Counts {
             total,
             with_err,
@@ -1411,6 +1491,8 @@ impl Journal {
             accounts_unreachable,
             owners_held,
             owners_missing,
+            account_data_held,
+            account_data_missing,
         })
     }
 }
@@ -1483,6 +1565,10 @@ pub struct Counts {
     pub owners_held: i64,
     /// Rows whose envelope is complete but whose owners map is still owed.
     pub owners_missing: i64,
+    /// Rows whose envelope carries resolved account data.
+    pub account_data_held: i64,
+    /// Rows whose envelope is complete but whose account data is still owed.
+    pub account_data_missing: i64,
 }
 
 #[cfg(test)]

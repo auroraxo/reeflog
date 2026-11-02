@@ -248,8 +248,66 @@ shifted list would put an argument under the wrong name downstream. `err`
 is `meta.err` verbatim (`null` = success), so a consumer never has to guess
 whether a failed transaction's envelope describes an effect that happened.
 
-The envelope does NOT contain account bytes or pre-event account state; see
-*Evidence and limits*.
+The envelope does NOT contain pre-event account state; see *Evidence and
+limits*. What an account HELD at fetch time is the section below.
+
+### What an account held (the bytes)
+
+Ownership answers WHO controls an account; the bytes answer WHAT it held —
+and both are outside the `getTransaction` response, so the bytes are their
+own explicitly-budgeted pass: `hydrate --account-data` (after
+`--accounts`, like `--owners`). It batch-fetches `getMultipleAccounts`
+(100 addresses per call) for every address the held envelopes enumerate and
+stores `account_data` inside each envelope. Every address gets exactly one
+of three answers:
+
+- **`held`** — the account's data bytes (base64), capped at 16384 B per
+  address. The cap is a measured defense: on live mainnet (Raydium AMM v4
+  window, 2026-11-02, `tools/probe-account-data.mjs`) account sizes sit at
+  p50 165 B / p90 1024 B / p95 4483 B — but the tail is real (a
+  1,048,588-byte Serum/OpenBook slab, a 262,156-byte one) — and the
+  endpoint's `space` field reports the true size under the slice, so the
+  row records `bytes` (the real size) and `truncated`/`truncation_verified`
+  instead of pretending the cut is the whole. The probe semantics were
+  pinned live first: `space` reports the full size even when sliced
+  (1,048,588 reported as 16384 delivered), and an at-cap probe
+  (offset=cap, length=1) returns the account when more data exists and
+  `null` when it is gone-or-exact — an ambiguity the envelope reports as
+  `truncation_verified: false` rather than guessed.
+- **`missing`** — the chain does not have the account at fetch time (the
+  same rule as the owner map: absence is a fact, recorded, never guessed).
+- **`skipped_executable`** — the account is program code (same window: the
+  second-largest accounts were 105 KB / 74 KB of SPL program binaries).
+  Journaling program bytes as event data would be wrong in a different way
+  than truncating state is, so they are delivered as a flag plus their
+  true size, byte-free.
+
+Measured on live mainnet (Raydium AMM v4, 2026-11-02, 20 s window, 119
+rows): **14 calls for 1,235 distinct addresses**; sizes agree with an
+independent re-fetch on **252 / 252**; the 81 executable accounts were all
+flagged byte-free with correct sizes; 43 recorded-missing addresses
+confirmed absent on an independent read; mint/owner decoded from the
+stored bytes matched the transaction's own token metadata **35 / 35**.
+
+Storing bytes honestly means admitting what a re-read can and cannot
+prove: these are LIVE accounts, and between reeflog's fetch and any later
+read a hot SPL token account's `amount` legitimately moves (measured in
+the second e2e window: 39 of 252 re-reads differed this way). The e2e harness
+therefore classifies differences instead of demanding byte-frozen
+equality: identical, live-moving (a third read also differs),
+volatile-region of a classic 165-byte token account (mint/owner immutable,
+amount/delegate/close-authority are not), and — for layouts that grant no
+immutable claim (mints, program state) — **unattributed**, which is
+reported as a count and never waved through as a pass. The product claims
+are anchored where time does not matter: completeness (every address
+answered), true size (`space`), tx-consensus (decoded immutable fields vs
+the transaction's own metadata), and absence-not-guessed.
+
+The bytes are read AT FETCH TIME, not at event time — measured on the
+probe window, 16–18 % of enumerated addresses no longer existed by the
+time the pass ran. The envelope's slot and the `source` tag say when the
+facts were true; historical state (the bytes AS OF the event) remains
+open and is a different problem.
 
 ### Which program owns what
 
@@ -848,6 +906,14 @@ owners are read **at fetch time**, not at event time (an account may have
 changed owner since), and account **bytes / pre-event state** are still not in
 the envelope at all — that stays open, see *Next qualification* item 4.
 
+The account BYTES are now in the envelope too (`hydrate --account-data`),
+which closes one half of that sentence and not the other: the bytes say what
+an account held **at fetch time**, not what it held when the event happened.
+16–18 % of the addresses a transaction enumerates no longer exist by the
+time the pass runs (measured on two live windows), and a hot token
+account's balance moves between two reads. Historical state — the bytes AS
+OF the event — remains open, and no envelope field claims otherwise.
+
 Still open: Yellowstone as a second transport, and a real consumer other
 than my own two repositories (the Whirlpool watcher and sememe). Reorg handling marks a
 retracted event, delivers the retraction, runs the check inside the daemon,
@@ -871,4 +937,6 @@ end to end.
    mainnet fork has been caught while watching. The daemon's loop makes that
    plausible to catch; only an observed one closes it.
 4. ~~An account envelope says what an event *did* to balances… The next envelope would carry the account list a transaction touched — addresses, owners, writable flags — so a consumer can decide which accounts it cares about without a second RPC round trip.~~ **Landed 2026-10-31**: `accounts[]` carries every account a transaction touched with `signer`, `writable` and `source`, derived from the message header and the two loaded groups (or stated by the response where it says so), with `accounts_flags_source` recording which. Falsified live against `jsonParsed`'s authoritative flags: 346/346 keys over 8 transactions including lookup tables, 0 mismatches; the loaded path is pinned offline by a real transaction fixture.
-   **Ownership landed 2026-11-01**: `hydrate --owners` resolves the owning program of every address the envelope enumerates (batched `getMultipleAccounts`, 12 calls for 1,111 addresses in the live e2e), and changed token accounts name their token program for free inside the transaction response. Falsified live: 412/412 stored owners agree with an independent re-fetch, 57/57 addresses the chain no longer has are recorded in an explicit `missing` list with **no** owner entry (never guessed), and the probe pins the authority three ways (stated vs decoded from the account's own bytes vs the map): 12/12. The remainder of this item is the part that is still open: **account bytes and historical authority** — who owned an account *at event time* — which is a different problem (the owner map is read at fetch time), see *Evidence and limits*.
+   **Ownership landed 2026-11-01**: `hydrate --owners` resolves the owning program of every address the envelope enumerates (batched `getMultipleAccounts`, 12 calls for 1,111 addresses in the live e2e), and changed token accounts name their token program for free inside the transaction response. Falsified live: 412/412 stored owners agree with an independent re-fetch, 57/57 addresses the chain no longer has are recorded in an explicit `missing` list with **no** owner entry (never guessed), and the probe pins the authority three ways (stated vs decoded from the account's own bytes vs the map): 12/12.
+   **Account bytes landed 2026-11-02**: `hydrate --account-data` stores what each enumerated account HELD — the bytes, not just the owner — batched (11 calls for 964 distinct addresses in the live e2e), capped at 16 KiB per address with the real size and a verified truncation flag, program code flagged instead of stored, and absence recorded as `missing`. Premise measured before building (`tools/probe-account-data.mjs`, 428 distinct addresses over 30 live transactions): p50 165 B, p95 4483 B, 5 addresses over the cap, and a 1,048,588-byte slab — which is why the cap exists and why program binaries are not journalled as event data. Falsified live: 258/258 stored sizes equal the chain's byte length; 232 of 258 re-reads byte-identical, 17 live-moving, 4 in the mutable region of a classic token account, 5 unattributed (no immutability claimed — reported, not waved through); the mint/owner decoded from the stored bytes matched the transaction's own token metadata 12/12; 82/82 program accounts flagged byte-free with correct sizes; 47/47 recorded-missing addresses confirmed absent on an independent read; a second run stored nothing and cost 0 calls.
+   **What remains open is the half that is genuinely different**: account bytes AS OF the event (historical state), not bytes at fetch time. That is a different problem — it needs the chain's history, not a second fetch — and it stays open.
