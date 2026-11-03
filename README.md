@@ -457,9 +457,13 @@ Delivery and enrichment:
   chain forgetting a transaction is recorded as `account_state`
   `unavailable`, never a pending-forever row and never an empty envelope.
 - `tail` delivers the envelope as `accounts` on every row; `account_state`
-  says why one is missing. `tail --with-accounts` delivers only enriched
-  rows — and prints how many it skipped instead of swallowing them (they
-  stay consumed; the cursor advances past them).
+  says why one is missing. `tail --with-accounts` delivers only rows whose
+  envelope is complete, and **holds** at the first row the debt queues still
+  owe: the cursor stays behind it, the hold and the filling command
+  (`hydrate --accounts`) are printed, and the command exits 3 — the same
+  honesty contract as `hydrate` itself. Only a row with a recorded outcome
+  (`unavailable`/`invalid`/`no_metadata`), which can never be filled, is
+  skipped, reported, and consumed.
 - `webhook push` bodies carry the envelope in the same signed delivery.
 - `status` counts `accounts_held` / `accounts_missing` /
   `accounts_unreachable`.
@@ -964,8 +968,11 @@ Checked on 2026-10-23: Solana client errors already name the failure modes, incl
 
 reeflog does not recover account bytes from before an event, and the account
 envelope is balance MOVEMENTS an event caused — not the state of the accounts
-involved. `tail --with-accounts` skips rows whose envelope has not been
-fetched yet, which is honest but still a skip. That is a different problem.
+involved. `tail --with-accounts` does not skip past a row whose envelope has
+not been fetched yet: it holds the cursor there and exits 3 until
+`hydrate --accounts` pays the debt, so an owed row can never be lost to the
+consumer. Rows the chain itself made unfillable are the only ones skipped,
+and each skip is reported. That is a different problem.
 Public WebSocket endpoints are also rate-limited, so provider independence
 has to be real rather than assumed.
 

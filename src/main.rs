@@ -1142,25 +1142,41 @@ fn run_tail(args: &[String]) {
     // signature, not an event. `--no-logs` keeps the old compact shape for
     // callers that only need identities (the kill-test harness does).
     let with_logs = !args.iter().any(|a| a == "--no-logs");
-    // Deliver only rows that carry an account envelope. A consumer that acts
-    // on balance moves (a vault watcher, an arbitrage check) can use this to
-    // avoid rows it cannot read yet — and the count it DID NOT receive is
-    // printed, so a filtered row is reported, never swallowed.
+    // Deliver only rows that carry a COMPLETE account envelope. A consumer
+    // that acts on balance moves (a vault watcher, an arbitrage check) uses
+    // this to avoid rows it cannot read yet. What happens to the rows it
+    // cannot deliver is the whole contract: a row the debt queues still owe
+    // can gain its envelope later, so consuming it would make it unreachable
+    // for this consumer forever — delivery HOLDS at the first owed row
+    // (cursor stays, exit 3, the filling command named). Only rows with a
+    // recorded outcome (`unavailable`/`invalid`/`no_metadata`) can never be
+    // filled; those are skipped, reported, and consumed.
     let only_with_accounts = args.iter().any(|a| a == "--with-accounts");
     let after: i64 = read_cursor(&cursor_path);
     let rows: Vec<EventRow> = j.events_after(after, limit).unwrap_or_else(|e| die(e));
     let mut delivered = 0usize;
-    let mut skipped_no_accounts = 0usize;
-    let mut last_delivered_seq: Option<i64> = None;
-    let mut max_seq_seen = after;
+    let mut skipped_final = 0usize;
+    let mut held: Option<&EventRow> = None;
+    // Consumed = delivered OR skipped as a recorded outcome. Held rows are
+    // never consumed, so they never raise this.
+    let mut last_consumed_seq = after;
     for r in &rows {
-        max_seq_seen = max_seq_seen.max(r.seq);
-        if only_with_accounts && r.accounts.is_none() {
-            skipped_no_accounts += 1;
-            continue;
+        if only_with_accounts {
+            match classify_for_accounts_filter(r) {
+                AccountsFilter::Deliverable => {}
+                AccountsFilter::Held => {
+                    held = Some(r);
+                    break;
+                }
+                AccountsFilter::RecordedOutcome => {
+                    skipped_final += 1;
+                    last_consumed_seq = last_consumed_seq.max(r.seq);
+                    continue;
+                }
+            }
         }
         delivered += 1;
-        last_delivered_seq = Some(r.seq);
+        last_consumed_seq = last_consumed_seq.max(r.seq);
         let mut v = json!({
             "seq": r.seq, "signature": r.signature, "slot": r.slot,
             "err": r.err, "source": r.source, "seal": r.seal_status,
@@ -1197,24 +1213,80 @@ fn run_tail(args: &[String]) {
         }
         println!("{}", serde_json::to_string(&v).unwrap());
     }
-    // The cursor advances to the NEWEST row the delivery scanned, not the
-    // last one it printed: a filtered row was seen, and re-delivering it on
-    // the next call would turn the filter into a replay loop. The skipped
-    // count is reported so nothing disappears silently.
-    let advance_to = if only_with_accounts { max_seq_seen } else { last_delivered_seq.unwrap_or(after) };
+    // The cursor advances to the newest row CONSUMED — delivered, or skipped
+    // because a recorded outcome made it permanently undeliverable. A row the
+    // debt queues still owe is not consumed: the loop stops there, so the
+    // cursor stays behind it and the row reaches this consumer as soon as
+    // `hydrate` pays the debt. Consuming it instead would turn the filter
+    // into silent, permanent data loss behind the flag.
+    let advance_to = last_consumed_seq;
     if advance_to > after {
         write_cursor(&cursor_path, advance_to);
     }
     eprintln!(
-        "reeflog: {} events after cursor {after} → cursor now {}{}",
+        "reeflog: {} events after cursor {after} → cursor now {}{}{}",
         if only_with_accounts { delivered } else { rows.len() },
         read_cursor(&cursor_path),
-        if skipped_no_accounts > 0 {
-            format!(" ({skipped_no_accounts} row(s) skipped: no account envelope yet — `hydrate --accounts` fills them; they stay consumed)")
+        if skipped_final > 0 {
+            format!(" ({skipped_final} row(s) skipped: no account envelope and a recorded outcome — not fillable, consumed)")
         } else {
             String::new()
+        },
+        match held {
+            Some(h) => format!(
+                " (HELD at seq {} {}: the account envelope is still owed — run `hydrate --accounts`; nothing at or after this row is consumed)",
+                h.seq, h.signature
+            ),
+            None => String::new(),
         }
     );
+    if held.is_some() {
+        std::process::exit(3);
+    }
+}
+
+/// What `tail --with-accounts` does with one row. The two debt-queue
+/// predicates from `journal.rs` are mirrored here, because the delivery
+/// filter must agree with the queues that fill what it withholds:
+///
+/// * `events_missing_payload`: no logs, no recorded outcome → owed.
+/// * `events_missing_accounts`: logs present, and either `account_state`
+///   unset or a stored envelope missing the newer extractor's markers
+///   (a half envelope) → owed.
+///
+/// Owed means "will exist later": HOLD (cursor stays, exit 3). A row with a
+/// recorded outcome can never be filled: SKIP, report, consume. Everything
+/// else carries a complete envelope: deliver.
+enum AccountsFilter {
+    Deliverable,
+    Held,
+    RecordedOutcome,
+}
+
+fn envelope_markers_present(raw: &str) -> bool {
+    match serde_json::from_str::<Value>(raw) {
+        Ok(v) => {
+            v.get("instructions").is_some_and(|x| !x.is_null())
+                && v.get("accounts_flags_source").is_some_and(|x| !x.is_null())
+        }
+        Err(_) => false,
+    }
+}
+
+fn classify_for_accounts_filter(r: &EventRow) -> AccountsFilter {
+    let payload_owed = r.logs.is_none() && r.payload_state.is_none();
+    let accounts_owed = r.logs.is_some()
+        && (r.account_state.is_none()
+            || r.accounts
+                .as_deref()
+                .is_some_and(|a| !envelope_markers_present(a)));
+    if payload_owed || accounts_owed {
+        return AccountsFilter::Held;
+    }
+    if r.accounts.as_deref().is_some_and(envelope_markers_present) {
+        return AccountsFilter::Deliverable;
+    }
+    AccountsFilter::RecordedOutcome
 }
 
 fn read_cursor(path: &Path) -> i64 {
