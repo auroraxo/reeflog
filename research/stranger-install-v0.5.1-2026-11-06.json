@@ -1,0 +1,48 @@
+{
+  "measured_at": "2026-11-06",
+  "from": "a stranger empty directory, no checkout",
+  "install": "cargo install --git https://github.com/auroraxo/reeflog --tag v0.5.1 --root .",
+  "installed_package": "reeflog v0.5.1 (https://github.com/auroraxo/reeflog?tag=v0.5.1#61b1663c)",
+  "build": "Finished release profile in 1m32s",
+  "checks": {
+    "--version": {
+      "out": "reeflog 0.5.1",
+      "exit": 0
+    },
+    "init (valid)": {
+      "out": "initialized reeflog.db for program whirLb...ff3uctyCc",
+      "exit": 0
+    },
+    "status --db reeflog.db --bogus-flag": {
+      "exit": 1,
+      "stderr": "reeflog: error: unknown flag --bogus-flag"
+    },
+    "verify --pagesx 400": {
+      "exit": 1,
+      "stderr": "reeflog: error: unknown flag --pagesx (did you mean --pages?)"
+    },
+    "status --dbx nope.db": {
+      "exit": 1,
+      "stderr": "reeflog: error: unknown flag --dbx (did you mean --db?)"
+    },
+    "status --db reeflog.db": {
+      "exit": 0,
+      "note": "reports \"db\": \"reeflog.db\" — the report names its own subject"
+    },
+    "status --db=reeflog.db": {
+      "exit": 0,
+      "note": "inline form honoured"
+    },
+    "init --db probe.db --nope": {
+      "exit": 1,
+      "stderr": "unknown flag --nope",
+      "journal_created": false,
+      "re_measured": {
+        "exit": 1,
+        "journal_created": false,
+        "stderr": "reeflog: error: unknown flag --nope"
+      }
+    }
+  },
+  "verdict": "shipped: the strict-flag fix is installable from the published tag and behaves as measured from main"
+}
