@@ -48,6 +48,44 @@ pre-fix, 4 of 5 repetitions of `start --seconds 3` never returned at 45 s;
 post-fix, worst observed run returned in 83 s with `rpc call timed out
 twice` reported).
 
+**A flag the CLI does not know is refused, not ignored** (measured 2026-11-06,
+`tests/arg_parsing.rs` + `tests/tool_invocations.rs`,
+`research/flag-surface-2026-11-06.json`). Until now a typo in a flag was
+silently DROPPED and the command ran anyway — the most expensive kind of quiet
+failure this product can make, because the tool reported doing something it
+did not do:
+
+| Before | What actually happened |
+|---|---|
+| `reeflog verify --db reeflog.db --pagesx 400` | scanned with the **default** page budget (40), not 400, and reported it as if it had |
+| `reeflog status --dbx nope.db` | read the **default** `reeflog.db` and printed a healthy status for it |
+| `reeflog status --db reeflog.db --bogus-flag` | printed a status, output identical to a correct run |
+| `reeflog init --db probe.db --program <pk> --nope` | created the journal anyway |
+| `reeflog init --db probe.db` (no `--program`) | created the journal FIRST, refused SECOND — a mailbox left behind |
+| `reeflog status --db=other.db` | ignored the inline form and read the default journal |
+| `reeflog status --help` | ran `status` and printed a health report instead of the usage |
+
+Now every command declares the flags it accepts, and anything else is
+refused **before** any journal is opened or created:
+
+- an unknown flag is refused, and when the typo is close to a real flag the
+  likely intent is named (`unknown flag --pagesx (did you mean --pages?)`);
+  a far-away typo gets no guess, because a wrong suggestion is worse than none;
+- a flag that lost its value is refused — including when the "value" is
+  another flag (`--db --program` must not become a path called `--program`);
+- a flag given twice is refused rather than silently resolved;
+- an argument that is not a flag is refused;
+- `--flag=value` is honoured instead of falling back to the default;
+- `--anchor-slot` keeps its documented **optional** value (bare = anchor at
+  the journal's own window), and `--help` prints the usage instead of running
+  the command.
+
+`reeflog status` now names the journal it reports on (`"db": …`), so a report
+can be checked against what was actually asked for. The false-positive guard
+matters as much: `tests/tool_invocations.rs` pins every invocation shape the
+`tools/e2e-*.mjs` harnesses pass, so a strict parser cannot quietly break the
+project's own measured runs.
+
 ## Measured results
 
 Checked live on 2026-10-27 against `api.mainnet-beta.solana.com`, program `whirLbMiicVdio4qvUfM5KAg6Ct8VwpYzGff3uctyCc` (Whirlpool):

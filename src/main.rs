@@ -6,6 +6,7 @@
 
 mod accounts;
 mod backfill;
+mod flags;
 mod journal;
 mod owners;
 mod account_data;
@@ -1525,6 +1526,12 @@ fn run_status(args: &[String]) {
     println!(
         "{}",
         serde_json::to_string_pretty(&json!({
+            // Which journal this report is ABOUT. A status that does not name
+            // its subject cannot be checked against the operator's intent:
+            // `status --db=other.db` and `status --db reeflog.db` printed the
+            // same numbers, so a typo looked like a result. Measured
+            // 2026-11-06.
+            "db": db.display().to_string(),
             "program": j.meta_get("program").unwrap_or(None),
             "events": c.total, "with_err": c.with_err,
             "finalized": c.finalized, "confirmed": c.confirmed,
@@ -2047,38 +2054,58 @@ fn run_webhook_dlq_replay(args: &[String]) {
 }
 
 fn usage() -> ! {
-    eprintln!(
-        "reeflog v0 — durable local mailbox for Solana events\n\n\
-         USAGE:\n\
-         \x20 reeflog init  --db <file> --program <pubkey>\n\
-         \x20 reeflog start --db <file> [--seconds N] [--ws URL] [--rpc URL] [--program <pubkey>]\n\
-         \x20              [--seal-every N] [--reorg-every N] [--reorg-limit N] [--reorg-lookback N]\n\
-         \x20              [--webhook-config <file>] [--webhook-every N] [--webhook-limit N]\n\
-         \x20 reeflog verify --db <file> [--pages N] [--since-slot N] [--rpc URL]\n\
-         \x20 reeflog repair --db <file> [--pages N] [--since-slot N] [--rpc URL]\n\
-         \x20 reeflog hydrate --db <file> [--limit N] [--rpc URL] [--accounts] [--owners] [--account-data]\n\
-         \x20              [--accounts]: also fetch account-change envelopes for\n\
-         \x20              rows whose logs came from the socket (it carries no balances)\n\
-         \x20              [--owners]: also resolve the owning program of every account\n\
-         \x20              the envelope enumerates (batched getMultipleAccounts;\n\
-         \x20              addresses the chain no longer has are recorded missing)\n\
-         \x20              [--account-data]: also fetch the account BYTES the\n\
-         \x20              envelope enumerates (batched, capped per address;\n\
-         \x20              program code is flagged, not stored)\n\
-         \x20 reeflog seal  --db <file> [--rpc URL]\n\
-         \x20 reeflog tail  --db <file> --cursor <file> [--limit N] [--no-logs] [--with-accounts]\n\
-         \x20 reeflog reorg check --db <file> [--limit N] [--rpc URL]\n\
-         \x20 reeflog reorg tail  --db <file> --cursor <file> [--limit N]\n\
-         \x20 reeflog webhook push   --db <file> --config <file> [--limit N]\n\
-         \x20 reeflog webhook status --db <file> --config <file>\n\\
-         \x20 reeflog webhook dlq list   --db <file> --config <file> [--target <id>] [--limit N]\n\\
-         \x20 reeflog webhook dlq replay --db <file> --config <file> [--target <id>] [--limit N]\n\
-         \x20 reeflog status --db <file>\
-         \x20 reeflog --version"
-    );
+    eprintln!("{}", usage_text());
     std::process::exit(64);
 }
 
+/// `--help` goes to STDOUT and exits 0: it is an answer, not a refusal.
+fn help() -> ! {
+    println!("{}", usage_text());
+    std::process::exit(0);
+}
+
+fn usage_text() -> String {
+    // A plain list of lines, joined: no continuation escapes, so a missing
+    // newline cannot silently glue two usage lines together (that is how the
+    // webhook dlq lines lost their break before this rewrite).
+    [
+    "reeflog v0 — durable local mailbox for Solana events\n",
+    "\n",
+    "USAGE:\n",
+    "  reeflog init  --db <file> --program <pubkey>\n",
+    "  reeflog start --db <file> [--seconds N] [--ws URL] [--rpc URL] [--program <pubkey>]\n",
+    "               [--seal-every N] [--reorg-every N] [--reorg-limit N] [--reorg-lookback N]\n",
+    "               [--webhook-config <file>] [--webhook-every N] [--webhook-limit N]\n",
+    "  reeflog verify --db <file> [--pages N] [--since-slot N] [--rpc URL]\n",
+    "               [--anchor-slot [<slot>]]  (bare: anchor at the journal's own window)\n",
+    "  reeflog repair --db <file> [--pages N] [--since-slot N] [--rpc URL]\n",
+    "               [--anchor-slot [<slot>]]\n",
+    "  reeflog hydrate --db <file> [--limit N] [--rpc URL] [--accounts] [--owners] [--account-data]\n",
+    "               [--accounts]: also fetch account-change envelopes for\n",
+    "               rows whose logs came from the socket (it carries no balances)\n",
+    "               [--owners]: also resolve the owning program of every account\n",
+    "               the envelope enumerates (batched getMultipleAccounts;\n",
+    "               addresses the chain no longer has are recorded missing)\n",
+    "               [--account-data]: also fetch the account BYTES the\n",
+    "               envelope enumerates (batched, capped per address;\n",
+    "               program code is flagged, not stored)\n",
+    "  reeflog seal  --db <file> [--rpc URL]\n",
+    "  reeflog tail  --db <file> --cursor <file> [--limit N] [--no-logs] [--with-accounts]\n",
+    "  reeflog reorg check --db <file> [--limit N] [--rpc URL]\n",
+    "  reeflog reorg tail  --db <file> --cursor <file> [--limit N]\n",
+    "  reeflog webhook push   --db <file> --config <file> [--limit N]\n",
+    "  reeflog webhook status --db <file> --config <file>\n",
+    "  reeflog webhook dlq list   --db <file> --config <file> [--target <id>] [--limit N]\n",
+    "  reeflog webhook dlq replay --db <file> --config <file> [--target <id>] [--limit N]\n",
+    "  reeflog status --db <file>\n",
+    "  reeflog --version\n",
+    "\n",
+    "A flag this command does not know is refused, not ignored: a typo in\n",
+    "--pages would otherwise run the scan with the default budget and\n",
+    "report it as if you had asked for that."
+    ]
+    .concat()
+}
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -2161,12 +2188,32 @@ mod tests {
 }
 
 fn main() {
-    let args: Vec<String> = std::env::args().skip(1).collect();
-    let cmd = args.first().map(|s| s.as_str()).unwrap_or("");
+    let raw: Vec<String> = std::env::args().skip(1).collect();
+    if raw.is_empty() {
+        usage();
+    }
+    let cmd = raw.first().map(|s| s.as_str()).unwrap_or("");
     if cmd == "--version" || cmd == "version" {
         println!("reeflog {}", env!("CARGO_PKG_VERSION"));
         std::process::exit(0);
     }
+    // `--help` prints the usage and stops. It must not reach the dispatch:
+    // `status --help` used to run `status` and report a healthy journal.
+    if raw.iter().any(|a| a == "--help") {
+        help();
+    }
+    // Refuse a flag the command does not know — or a flag that lost its
+    // value, was given twice, or is not a flag at all — BEFORE anything is
+    // opened or created. A refusal after `Journal::open` would leave a
+    // journal behind for a run that never happened.
+    let (positionals, allowed) = match flags::split(&raw) {
+        Some(x) => x,
+        None => usage(),
+    };
+    let normalized = flags::normalize(allowed, &raw[positionals..]).unwrap_or_else(|e| die(e));
+    let mut args: Vec<String> = raw[..positionals].to_vec();
+    args.extend(normalized);
+
     // Any --program the user passes must look like an address, for every
     // command, BEFORE anything is opened or created. A refusal that runs
     // after `Journal::open` would leave a journal behind for a command that
@@ -2220,9 +2267,13 @@ fn main() {
     }
     match cmd {
         "init" => {
+            // The program must be present BEFORE the journal exists. Opening
+            // first and requiring second created a mailbox the stranger
+            // never successfully initialized — measured 2026-11-06: a refused
+            // `init --db probe.db` left a probe.db behind.
+            let program = require(&args, "--program");
             let db = PathBuf::from(arg(&args, "--db").unwrap_or_else(|| "reeflog.db".into()));
             let j = Journal::open(&db).unwrap_or_else(|e| die(e));
-            let program = require(&args, "--program");
             j.meta_set("program", &program).unwrap_or_else(|e| die(e));
             println!("initialized {} for program {program}", db.display());
         }

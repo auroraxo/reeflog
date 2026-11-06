@@ -1,0 +1,160 @@
+{
+  "measured_at": "2026-11-06",
+  "tree": "main + strict-flag fix (pre-release, before tag)",
+  "defect_class": "a flag the CLI does not know was silently dropped and the command ran anyway",
+  "pre_fix_measured": {
+    "verify --pagesx 400": {
+      "exit": 3,
+      "effect": "scan ran with the DEFAULT page budget (40), not 400"
+    },
+    "status --dbx nope.db": {
+      "exit": 0,
+      "effect": "read the DEFAULT reeflog.db and printed a healthy status for it"
+    },
+    "status --bogus-flag": {
+      "exit": 0,
+      "effect": "status printed, output identical to a correct run"
+    },
+    "init --db probe.db --program <pk> --nope": {
+      "exit": 0,
+      "effect": "journal created (probe.db left behind)"
+    },
+    "init --db probe2.db (no --program)": {
+      "exit": 1,
+      "effect": "journal created FIRST, refusal came second (probe2.db left behind)"
+    },
+    "status --db=other.db": {
+      "exit": 0,
+      "effect": "inline form ignored -> read the DEFAULT reeflog.db"
+    },
+    "verify --pages (no value)": {
+      "exit": 3,
+      "effect": "ran with the default page budget, no complaint"
+    },
+    "status --db a --db b": {
+      "exit": 0,
+      "effect": "one of the two was picked silently"
+    },
+    "status --db reeflog.db extra": {
+      "exit": 0,
+      "effect": "stray positional ignored"
+    },
+    "status --help": {
+      "exit": 0,
+      "effect": "ran `status` and printed a health report instead of the usage"
+    }
+  },
+  "post_fix_measured": {
+    "unknown flag": {
+      "args": [
+        "status",
+        "--db",
+        "reeflog.db",
+        "--bogus-flag"
+      ],
+      "exit": 1,
+      "stdout_head": "",
+      "stderr_head": "reeflog: error: unknown flag --bogus-flag\n"
+    },
+    "typo with intent named": {
+      "args": [
+        "verify",
+        "--db",
+        "reeflog.db",
+        "--pagesx",
+        "400"
+      ],
+      "exit": 1,
+      "stdout_head": "",
+      "stderr_head": "reeflog: error: unknown flag --pagesx (did you mean --pages?)\n"
+    },
+    "typo in --db": {
+      "args": [
+        "status",
+        "--dbx",
+        "nope.db"
+      ],
+      "exit": 1,
+      "stdout_head": "",
+      "stderr_head": "reeflog: error: unknown flag --dbx (did you mean --db?)\n"
+    },
+    "inline form honoured": {
+      "args": [
+        "status",
+        "--db=other.db"
+      ],
+      "exit": 0,
+      "stdout_head": "{\n  \"account_data_held\": 0,\n  \"account_data_missing\": 0,\n  \"accounts_held\": 0,\n  \"accounts_missing\": 0,\n  \"accounts_partial\": 0,\n  \"accounts_unreachable\": 0,\n  \"backfilled\": 0,\n  \"blind_window_ms\": 0,",
+      "stderr_head": ""
+    },
+    "flag without value": {
+      "args": [
+        "verify",
+        "--db",
+        "reeflog.db",
+        "--pages"
+      ],
+      "exit": 1,
+      "stdout_head": "",
+      "stderr_head": "reeflog: error: flag --pages needs a value\n"
+    },
+    "value is another flag": {
+      "args": [
+        "status",
+        "--db",
+        "--program"
+      ],
+      "exit": 1,
+      "stdout_head": "",
+      "stderr_head": "reeflog: error: flag --db needs a value\n"
+    },
+    "duplicate flag": {
+      "args": [
+        "status",
+        "--db",
+        "reeflog.db",
+        "--db",
+        "other.db"
+      ],
+      "exit": 1,
+      "stdout_head": "",
+      "stderr_head": "reeflog: error: flag --db given more than once — pass it once\n"
+    },
+    "stray positional": {
+      "args": [
+        "status",
+        "--db",
+        "reeflog.db",
+        "extra"
+      ],
+      "exit": 1,
+      "stdout_head": "",
+      "stderr_head": "reeflog: error: unexpected argument `extra` — this command takes flags only\n"
+    },
+    "help prints usage": {
+      "args": [
+        "status",
+        "--help"
+      ],
+      "exit": 0,
+      "stdout_head": "reeflog v0 — durable local mailbox for Solana events\n\nUSAGE:\n  reeflog init  --db <file> --program <pubkey>\n  reeflog start --db <file> [--seconds N] [--ws URL] [--rpc URL] [--program <pubkey>]\n      ",
+      "stderr_head": ""
+    }
+  },
+  "no_state_left_behind": {
+    "init_unknown_flag": {
+      "exit": 1,
+      "journal_created": false
+    },
+    "init_missing_program": {
+      "exit": 1,
+      "journal_created": false
+    }
+  },
+  "notes": [
+    "the refusal happens BEFORE any journal is opened or created",
+    "a typo that is close to a real flag names the likely intent; a far-away one does not (a wrong guess is worse than none)",
+    "--anchor-slot keeps its documented OPTIONAL value (bare form = anchor at the journal's own window)",
+    "status now names the journal it reports on (\"db\": ...) so a report can be checked against the operator's intent"
+  ]
+}
