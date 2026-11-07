@@ -50,10 +50,25 @@ jobs:
           body: |
             reeflog — a durable local mailbox for Solana events.
 
-            Install from source:
+            **Install without a Rust toolchain** (prebuilt archive, verified):
+            ```
+            npm install github:auroraxo/reeflog#${{ github.ref_name }}
+            ```
+            ```js
+            import { bootstrap } from 'reeflog-client';
+            const { bin } = await bootstrap(); // downloads the archive for your
+            // platform and verifies it against this release's sha256 before installing
+            ```
+
+            Or from source:
             ```
             cargo install --git https://github.com/auroraxo/reeflog --tag ${{ github.ref_name }}
             ```
 
             The binary is self-contained (SQLite is compiled in); it needs a
             Solana RPC/WebSocket endpoint, nothing else.
+
+            Limits: no third-party audit; no outside users yet; the archive is
+            verified against the sha256 GitHub stores for the asset, which
+            guards a corrupted or substituted download, not a malicious
+            release by someone who can push to this repository.
