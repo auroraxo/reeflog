@@ -1,0 +1,45 @@
+{
+  "generatedAt": "2026-11-07T19:58:52.791Z",
+  "binary": "/home/aurora/github_repos/reeflog/target/release/reeflog",
+  "journal": "/tmp/rl-live/live.db",
+  "journalEvents": 1183,
+  "journalMaxSeq": 1183,
+  "checks": [
+    {
+      "name": "status_equals_cli",
+      "ok": true,
+      "detail": "events=1183 max_seq=1183 equal=true"
+    },
+    {
+      "name": "tail_strictly_increasing_seq",
+      "ok": true,
+      "detail": "500 events, first=1 last=500 cursorValue=500"
+    },
+    {
+      "name": "rows_byte_equal_to_cli",
+      "ok": true,
+      "detail": "cli=100 client=100 expected=100"
+    },
+    {
+      "name": "no_replay_continues_at_next_seq",
+      "ok": true,
+      "detail": "first ended at 500, second started at 501 (500 rows), overlap=0"
+    },
+    {
+      "name": "copied_cursor_resumes_same_seq",
+      "ok": true,
+      "detail": "cursor=1183 next event seq=1001 (183 rows)"
+    },
+    {
+      "name": "refusal_keeps_cli_words",
+      "ok": true,
+      "detail": "exit=1 msg=\"reeflog: error: no journal at /nonexistent/nope.db — run `reeflog init --db /nonexistent/nope.db --program <pubkey>` first\""
+    },
+    {
+      "name": "verify_follows_cli_exit_code",
+      "ok": true,
+      "detail": "cli exit=3, client threw exitCode=3"
+    }
+  ],
+  "verdict": "all_pass"
+}

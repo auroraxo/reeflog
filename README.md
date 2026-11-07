@@ -5,7 +5,7 @@ they did to account balances for selected programs into a cursor-addressed
 append-only log, so a consumer resumes without gaps after a crash,
 disconnect, or reorg.
 
-**Status: v0.5.1 shipped (2026-11-06), v0 working.** Live against mainnet-beta: see *Measured results* below. Install from the release tag: `cargo install --git https://github.com/auroraxo/reeflog --tag v0.5.1`. The full event envelope (logs, balances, instructions, account list with owners, the bytes each account held, and the authority each token account had at the moment of the event), webhook fan-out, a dead-letter queue, and archive backfill ship in this tree; Yellowstone as a second transport does not.
+**Status: v0.6.0 shipped (2026-11-07), v0 working.** Live against mainnet-beta: see *Measured results* below. Install from the release tag: `cargo install --git https://github.com/auroraxo/reeflog --tag v0.6.0`. The full event envelope (logs, balances, instructions, account list with owners, the bytes each account held, and the authority each token account had at the moment of the event), the Node client (see *The Node client*), webhook fan-out, a dead-letter queue, and archive backfill ship in this tree; Yellowstone as a second transport does not.
 
 ## The idea
 
@@ -990,8 +990,73 @@ is the harness's own).
 
 ## Free and paid
 
-- Free, MIT: daemon, journal, CLI, SDKs, webhook fan-out, dead-letter queue, archive backfill. No event or cursor limits.
+- Free, MIT: daemon, journal, CLI, the Node client (below), webhook fan-out, dead-letter queue, archive backfill. No event or cursor limits.
 - Paid later: managed always-on feeds, replicated journals with delivery objectives, and an enterprise mailbox with access control and a delivery audit trail. Events are never sold individually.
+
+## The Node client: the exit-code contract, as a library
+
+The CLI is a contract before it is a convenience: exit 0 delivers and
+advances the cursor, exit 3 (on `tail`) means the delivery **held** at a row
+whose account envelope is still owed — rows before it are delivered, nothing
+at or after it is consumed — and exit 1 is a refusal. A consumer that maps
+those three outcomes wrongly either replays rows forever or drops the owed
+row without ever seeing it. Until now every Node consumer had to derive that
+by hand.
+
+`index.js` (npm package `reeflog-client`, MIT, zero dependencies, Node ≥ 18)
+ships that mapping as one file. It never opens the journal — every call runs
+the `reeflog` binary, so there is exactly one implementation of the reader
+contract, and a library's idea of the schema cannot drift from the daemon's.
+
+```bash
+npm install github:auroraxo/reeflog#v0.6.0   # the client ships from this repo
+```
+
+```js
+import reeflog from 'reeflog-client';
+
+const box = reeflog({ db: 'reeflog.db' });       // bin on PATH, or { bin: '/path/to/reeflog' }
+const s   = await box.status();                  // parsed health: events, envelope debt, gaps
+
+const { events, held, cursorValue } = await box.tail({
+  limit: 500,
+  consumer: 'my-service',                        // separate default cursor per consumer
+  withAccounts: true,                            // hold rather than deliver an unreadable row
+});
+if (held) {
+  // exit 3: `held.seq` and `held.signature` name the owed row; the rows
+  // above it are already delivered and the cursor already advanced past
+  // them. Pay the debt (`reeflog hydrate --accounts`) and call again — the
+  // held row and everything behind it arrive next, nothing was lost.
+}
+
+const { retractions } = await box.reorgs({ consumer: 'my-service' });  // own cursor channel
+await box.verify({ pages: 400 });   // incomplete scan THROWS (exit 3): no clean-looking result
+await box.hydrate({ accounts: true });
+```
+
+The rules the client enforces instead of leaving to the caller:
+
+- **exit 0 vs exit 3 are different answers.** `tail` returns
+  `{ events, held, cursorValue }`; `held: null` is the only shape that means
+  "the batch is fully delivered". `verify`/`repair`/`hydrate` throw on exit 3,
+  because a pass that proves nothing must never arrive as a resolved value.
+- **exit 1 keeps the binary's words.** The thrown `ReeflogError` carries the
+  CLI's own refusal (`no journal at … — run \`reeflog init …\``), plus
+  `exitCode`, `stderr` and the `args`, so a caller can act on it rather than
+  on a rephrased guess.
+- **Cursors are the binary's.** The client only chooses a default path per
+  db + channel + consumer label, so two consumers of one journal never share
+  a cursor by accident; pass `cursor` to name it yourself.
+- **A missing binary says how to install one** instead of crashing with
+  `ENOENT`.
+
+The contract is tested against the real binary and a real journal in
+`test/client.test.mjs` (`npm test`, 8 tests): delivery order, no replay
+across a resumed cursor, the hold at an owed row (delivered before, not
+consumed at/after, delivered once the debt is paid), separate cursor
+channels, refusals with their fix line intact, and the incomplete-verify
+throw. CI runs them on every push.
 
 Webhook fan-out ships in this tree: `reeflog webhook push` / `status`, signed
 bodies, per-target durable cursors, in-order at-least-once with receipts —
