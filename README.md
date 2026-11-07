@@ -5,7 +5,7 @@ they did to account balances for selected programs into a cursor-addressed
 append-only log, so a consumer resumes without gaps after a crash,
 disconnect, or reorg.
 
-**Status: v0.7.0 shipped (2026-11-07), v0 working.** Live against mainnet-beta: see *Measured results* below. Install the binary without a Rust toolchain: `npm install github:auroraxo/reeflog#v0.7.0` then `import { bootstrap } from 'reeflog-client'; await bootstrap()` (downloads the prebuilt release archive and verifies its sha256). Or from source: `cargo install --git https://github.com/auroraxo/reeflog --tag v0.7.0`. The full event envelope (logs, balances, instructions, account list with owners, the bytes each account held, and the authority each token account had at the moment of the event), the Node client (see *The Node client*), webhook fan-out, a dead-letter queue, and archive backfill ship in this tree; Yellowstone as a second transport does not.
+**Status: v0.7.1 shipped (2026-11-07), v0 working.** Live against mainnet-beta: see *Measured results* below. Install the binary without a Rust toolchain: `npm install github:auroraxo/reeflog#v0.7.1` then `import { bootstrap } from 'reeflog-client'; await bootstrap()` (downloads the prebuilt release archive and verifies its sha256). Or from source: `cargo install --git https://github.com/auroraxo/reeflog --tag v0.7.1`. The full event envelope (logs, balances, instructions, account list with owners, the bytes each account held, and the authority each token account had at the moment of the event), the Node client (see *The Node client*), webhook fan-out, a dead-letter queue, and archive backfill ship in this tree; Yellowstone as a second transport does not.
 
 ## The idea
 
@@ -1009,7 +1009,7 @@ the `reeflog` binary, so there is exactly one implementation of the reader
 contract, and a library's idea of the schema cannot drift from the daemon's.
 
 ```bash
-npm install github:auroraxo/reeflog#v0.7.0   # the client ships from this repo
+npm install github:auroraxo/reeflog#v0.7.1   # the client ships from this repo
 ```
 
 The client needs the `reeflog` binary. `bootstrap()` gets it **without a
@@ -1021,13 +1021,27 @@ then installs it to `~/.reeflog`:
 ```js
 import reeflog, { bootstrap } from 'reeflog-client';
 
-const { bin, digest } = await bootstrap();   // verified: digest is the sha256 that passed
+const { bin, digest, binarySha256 } = await bootstrap();
+//   digest       = sha256 of the ARCHIVE (what the release API stores)
+//   binarySha256 = sha256 of `bin` itself — check this against the file
 const box = reeflog({ db: 'reeflog.db', bin });
 ```
 
 - **Refuses instead of trusting.** A download whose sha256 does not match
   the release digest is refused and nothing is written — no binary, no
   sidecar. A release asset with no digest is refused too.
+- **A cache hit is verified, not assumed.** The sidecar (`install.json`)
+  records the extracted binary's own `binarySha256`; a second call re-hashes
+  the file on disk and only reports `cached: true` when it matches. Before
+  v0.7.1 the cache path compared only version + asset name, so a replaced or
+  truncated binary came back as `cached: true` under a digest that named the
+  ARCHIVE, not the bytes on disk (measured: claimed `f6b36c53…`, actual
+  `6b9fd8b7…`). A sidecar without `binarySha256` — every install made before
+  v0.7.1 — is re-fetched once to upgrade it, then caches again. The check
+  defends against a stale or corrupted cache being reported as verified; an
+  attacker who can write your install directory can simply re-run
+  `bootstrap()` afterwards, so it is not a defence against a hostile local
+  user. Live measurement: `research/bootstrap-cache-2026-11-07.json`.
 - **A platform without a published archive is refused by name** (the
   refusal lists what exists and gives the `cargo install` fallback), rather
   than fetching a file that is not there.
@@ -1041,7 +1055,9 @@ const box = reeflog({ db: 'reeflog.db', bin });
   sha256 yourself.
 - Measured end to end against the published release —
   `research/bootstrap-2026-11-07.json` (install + cached re-run + real
-  rows delivered through the installed binary).
+  rows delivered through the installed binary) and
+  `research/bootstrap-cache-2026-11-07.json` (fresh install, verified cache
+  hit, tampered binary, pre-v0.7.1 sidecar upgrade, other-platform asset).
 
 ```js
 import reeflog from 'reeflog-client';

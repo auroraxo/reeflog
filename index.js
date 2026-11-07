@@ -68,7 +68,7 @@ function run(bin, args, { allowExit3 = false } = {}) {
     child.on('error', (e) => {
       if (e.code === 'ENOENT') {
         reject(new ReeflogError(
-          `reeflog binary not found at "${bin}" — get one without a Rust toolchain: \`import { bootstrap } from 'reeflog-client'; await bootstrap()\` (verifies the release's sha256), or from source: \`cargo install --git https://github.com/auroraxo/reeflog --tag v0.7.0\`; or pass { bin: "/path/to/reeflog" }`,
+          `reeflog binary not found at "${bin}" — get one without a Rust toolchain: \`import { bootstrap } from 'reeflog-client'; await bootstrap()\` (verifies the release's sha256), or from source: \`cargo install --git https://github.com/auroraxo/reeflog --tag ${packageVersion() || 'v0.7.0'}\`; or pass { bin: "/path/to/reeflog" }`,
           { args },
         ));
         return;
@@ -336,9 +336,11 @@ function packageVersion() {
  * Trust: the same anchor as `cargo install --git` (this repository over
  * TLS) — it does not defend against whoever can push tags here, and says
  * so. Unsupported platforms and missing digests REFUSE; nothing is written
- * before the digest matches.
+ * before the digest matches. A cache hit re-hashes the installed binary
+ * against the sidecar's `binarySha256` — the return value's `digest` is the
+ * ARCHIVE hash, `binarySha256` is the hash of `bin` itself.
  *
- * @returns {Promise<{bin: string, asset: string, digest: string, cached: boolean}>}
+ * @returns {Promise<{bin: string, asset: string, digest: string, binarySha256: string, cached: boolean}>}
  */
 export async function bootstrap({
   version = packageVersion(),
@@ -355,7 +357,7 @@ export async function bootstrap({
     );
   }
   if (!/^v\d+\.\d+\.\d+$/.test(String(version))) {
-    throw new ReeflogError(`bootstrap needs an explicit release tag like v0.7.0, got ${JSON.stringify(version)}`);
+    throw new ReeflogError(`bootstrap needs an explicit release tag like ${packageVersion() || 'v0.7.0'}, got ${JSON.stringify(version)}`);
   }
 
   const bin = path.join(dest, 'reeflog');
@@ -364,7 +366,23 @@ export async function bootstrap({
     try {
       const meta = JSON.parse(fs.readFileSync(metaFile, 'utf8'));
       if (meta.version === version && meta.asset === asset) {
-        return { bin, asset, digest: meta.sha256, cached: true };
+        // A cache hit is a VERIFIED claim, so it has to be verified here:
+        // re-hash the bytes on disk and compare them to the sidecar. Before
+        // this check the sidecar's version+asset alone produced
+        // `{ cached: true, digest: <archive sha256> }` for ANY file sitting
+        // at `bin` — replaced, truncated, or corrupted — and `digest` names
+        // the ARCHIVE, never the binary (measured 2026-11-07 against the
+        // published v0.7.0 client: tampered binary reported as verified,
+        // claimed f6b36c53… / actual 6b9fd8b7…).
+        // A sidecar without `binarySha256` (every install made before this
+        // fix) proves nothing about the bytes: fall through, re-fetch once,
+        // upgrade the sidecar, cache again.
+        if (typeof meta.binarySha256 === 'string' && /^[0-9a-f]{64}$/.test(meta.binarySha256)) {
+          const onDisk = createHash('sha256').update(fs.readFileSync(bin)).digest('hex');
+          if (onDisk === meta.binarySha256) {
+            return { bin, asset, digest: meta.sha256, binarySha256: onDisk, cached: true };
+          }
+        }
       }
     } catch { /* fall through to a fresh install */ }
   }
@@ -392,13 +410,17 @@ export async function bootstrap({
   }
 
   const executable = extractReeflogFromTarGz(gz);
+  const binarySha256 = createHash('sha256').update(executable).digest('hex');
   fs.mkdirSync(dest, { recursive: true });
   const tmp = path.join(dest, `.reeflog-${process.pid}.tmp`);
   fs.writeFileSync(tmp, executable, { mode: 0o755 });
   fs.renameSync(tmp, bin); // atomic: a crash leaves the old binary or none
-  fs.writeFileSync(metaFile, `${JSON.stringify({ version, asset, sha256: actual, installedAt: new Date().toISOString() }, null, 2)}\n`);
+  // `sha256` is the ARCHIVE digest (what the release API stores);
+  // `binarySha256` is the EXECUTABLE's own hash — the only value the cache
+  // may be checked against, and the one a caller can check `bin` with.
+  fs.writeFileSync(metaFile, `${JSON.stringify({ version, asset, sha256: actual, binarySha256, installedAt: new Date().toISOString() }, null, 2)}\n`);
 
-  return { bin, asset, digest: actual, cached: false };
+  return { bin, asset, digest: actual, binarySha256, cached: false };
 }
 
 /** Convenience constructor: `const box = reeflog({ db: 'reeflog.db' })`. */

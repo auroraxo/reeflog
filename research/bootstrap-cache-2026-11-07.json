@@ -1,0 +1,64 @@
+{
+  "generatedAt": "2026-11-07T21:50:36.697Z",
+  "version": "v0.7.0",
+  "checks": [
+    {
+      "name": "fresh_install_records_both_hashes",
+      "ok": true,
+      "detail": "archive=f6b36c53f9d1… binary=6c5f1e646d66… ms=745"
+    },
+    {
+      "name": "untouched_install_caches_and_the_claim_still_matches",
+      "ok": true,
+      "detail": "cached=true binary=6c5f1e646d66… ms=12"
+    },
+    {
+      "name": "tampered_binary_is_never_served_as_a_cache_hit",
+      "ok": true,
+      "detail": "cached=false reported=6c5f1e646d66… disk=6c5f1e646d66… size 7028832->7028832 ms=247"
+    },
+    {
+      "name": "pre_fix_sidecar_is_upgraded_by_one_fetch_then_caches",
+      "ok": true,
+      "detail": "first call cached=false upgraded=true next cached=true"
+    },
+    {
+      "name": "other_platform_asset_present_with_a_sha256_digest",
+      "ok": true,
+      "detail": "darwin-arm64: reeflog-macos-arm64.tar.gz digest=sha256:c090e790a1717…"
+    }
+  ],
+  "fresh": {
+    "archive": "f6b36c53f9d1f9ab806af1921ff04253f42739cf38aac04d33db5b7cdd8b8fac",
+    "binary": "6c5f1e646d6642046aba8b4839591423d2b7cd3201fa4d6d5525477e3cc3c917",
+    "ms": 745
+  },
+  "cached": {
+    "cached": true,
+    "ms": 12
+  },
+  "tampered": {
+    "cached": false,
+    "reported": "6c5f1e646d6642046aba8b4839591423d2b7cd3201fa4d6d5525477e3cc3c917",
+    "onDisk": "6c5f1e646d6642046aba8b4839591423d2b7cd3201fa4d6d5525477e3cc3c917",
+    "ms": 247
+  },
+  "legacy": {
+    "firstCallCached": false,
+    "upgraded": true,
+    "nextCached": true
+  },
+  "otherPlatform": {
+    "platform": "darwin-arm64",
+    "present": true,
+    "digest": "sha256:c090e790a1717fc6905e3c234684be5a7e4d8c53138e2f70653f34a9ed96dbda",
+    "note": "present and digest-bearing; not extracted or executed on this host"
+  },
+  "ok": true,
+  "limits": [
+    "one host, one network, one platform executed (linux-x64); the darwin-arm64 asset is verified present with a digest but was not extracted or executed here",
+    "the tamper is a local append by this probe — an attacker who can write the install dir can also re-run bootstrap() afterwards; this check defends against a stale or corrupted cache being reported as verified, not against a hostile local user",
+    "the trust anchor for the DOWNLOAD is unchanged: github.com/auroraxo/reeflog over TLS (the release API digest); this fix makes the CACHE claim true, it does not strengthen the download anchor",
+    "no third party has used this client yet"
+  ]
+}
