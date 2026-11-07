@@ -6,7 +6,6 @@
 
 mod accounts;
 mod backfill;
-mod flags;
 mod journal;
 mod owners;
 mod account_data;
@@ -14,6 +13,7 @@ mod payload;
 mod reorg;
 mod webhook;
 
+use reeflog::flags;
 use backfill::{
     backfill_tail, repair_holes_anchored, resolve_anchor, verify_recent_anchored, Anchor,
     HttpFetcher, Report,
