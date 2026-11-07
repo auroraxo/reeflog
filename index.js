@@ -29,6 +29,11 @@
 import { spawn } from 'node:child_process';
 import path from 'node:path';
 import fs from 'node:fs';
+import os from 'node:os';
+import http from 'node:http';
+import https from 'node:https';
+import { createHash } from 'node:crypto';
+import { gunzipSync } from 'node:zlib';
 
 /** Exit codes the reeflog CLI uses, mirrored as constants (not guessed:
  *  documented in the README and pinned by tests/arg_parsing.rs). */
@@ -63,7 +68,7 @@ function run(bin, args, { allowExit3 = false } = {}) {
     child.on('error', (e) => {
       if (e.code === 'ENOENT') {
         reject(new ReeflogError(
-          `reeflog binary not found at "${bin}" — install it (\`cargo install --git https://github.com/auroraxo/reeflog --tag v0.6.0\`) or pass { bin: "/path/to/reeflog" }`,
+          `reeflog binary not found at "${bin}" — get one without a Rust toolchain: \`import { bootstrap } from 'reeflog-client'; await bootstrap()\` (verifies the release's sha256), or from source: \`cargo install --git https://github.com/auroraxo/reeflog --tag v0.7.0\`; or pass { bin: "/path/to/reeflog" }`,
           { args },
         ));
         return;
@@ -244,6 +249,156 @@ export class Reeflog {
   async raw(args) {
     return run(this.bin, args, { allowExit3: true });
   }
+}
+
+/**
+ * Minimal tar reader for ONE regular file named `reeflog` — enough for the
+ * release archives (`tar -czf … reeflog`, ustar/gnu, one entry). It refuses
+ * anything it does not understand rather than guessing: a bootstrap that
+ * writes an unexpected layout is worse than one that stops.
+ */
+function extractReeflogFromTarGz(gz) {
+  const tar = gunzipSync(gz);
+  const wanted = [];
+  for (let off = 0; off + 512 <= tar.length; off += 512) {
+    const header = tar.subarray(off, off + 512);
+    if (header.every((b) => b === 0)) break; // end-of-archive marker
+    const name = header.subarray(0, 100).toString('utf8').replace(/\0.*$/s, '');
+    const sizeField = header.subarray(124, 136).toString('utf8').replace(/\0.*$/s, '').trim();
+    const size = parseInt(sizeField || '0', 8);
+    const type = String.fromCharCode(header[156]);
+    const data = tar.subarray(off + 512, off + 512 + size);
+    if ((type === '0' || type === '\0' || type === '') && path.posix.basename(name) === 'reeflog') {
+      wanted.push(Buffer.from(data));
+    }
+    off += 512 * Math.ceil(size / 512);
+  }
+  if (wanted.length !== 1) {
+    throw new ReeflogError(
+      `release archive holds ${wanted.length} 'reeflog' binaries, expected exactly 1 — refusing to install an archive I do not understand`,
+    );
+  }
+  return wanted[0];
+}
+
+// The prebuilt archives the release workflow actually publishes. This list
+// must name EXACTLY the assets in .github/workflows/release.yml — a client
+// that maps a platform to an asset the release does not carry sends a
+// stranger to a 404 instead of a binary. tests/bootstrap.test.mjs pins the
+// two lists against each other.
+export const RELEASE_ASSETS = {
+  'linux-x64': 'reeflog-linux-amd64.tar.gz',
+  'darwin-arm64': 'reeflog-macos-arm64.tar.gz',
+};
+
+function httpGet(url) {
+  const mod = url.startsWith('https:') ? https : http;
+  return new Promise((resolve, reject) => {
+    const req = mod.get(url, { headers: { 'user-agent': 'reeflog-client' } }, (res) => {
+      if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
+        res.resume();
+        httpGet(res.headers.location).then(resolve, reject);
+        return;
+      }
+      if (res.statusCode !== 200) {
+        res.resume();
+        reject(new ReeflogError(`download of ${url} failed: HTTP ${res.statusCode}`));
+        return;
+      }
+      const chunks = [];
+      res.on('data', (d) => chunks.push(d));
+      res.on('end', () => resolve(Buffer.concat(chunks)));
+    });
+    req.on('error', (e) => reject(new ReeflogError(`download of ${url} failed: ${e.message}`)));
+  });
+}
+
+/** The version this client ships with — read from the package manifest, never
+ *  hard-coded. A hard-coded version here is the pin-lag defect this repo has
+ *  already measured twice (signerd v0.2.4→v0.2.6): the client would fetch
+ *  an OLD release while the package says a newer one. test/bootstrap.test.mjs
+ *  pins the two together. */
+function packageVersion() {
+  try {
+    const pkg = JSON.parse(fs.readFileSync(path.join(import.meta.dirname, 'package.json'), 'utf8'));
+    if (pkg && typeof pkg.version === 'string' && /^\d+\.\d+\.\d+$/.test(pkg.version)) {
+      return `v${pkg.version}`;
+    }
+  } catch { /* fall through to the explicit version */ }
+  return null;
+}
+
+/**
+ * Install the `reeflog` binary for this platform WITHOUT a Rust toolchain:
+ * take the prebuilt archive from the GitHub release, verify its bytes
+ * against the sha256 the release API stores for that asset, then extract.
+ *
+ * Trust: the same anchor as `cargo install --git` (this repository over
+ * TLS) — it does not defend against whoever can push tags here, and says
+ * so. Unsupported platforms and missing digests REFUSE; nothing is written
+ * before the digest matches.
+ *
+ * @returns {Promise<{bin: string, asset: string, digest: string, cached: boolean}>}
+ */
+export async function bootstrap({
+  version = packageVersion(),
+  platform = process.platform,
+  arch = process.arch,
+  dest = path.join(os.homedir(), '.reeflog'),
+  apiBase = 'https://api.github.com',
+  downloadBase = null,
+} = {}) {
+  const asset = RELEASE_ASSETS[`${platform}-${arch}`];
+  if (!asset) {
+    throw new ReeflogError(
+      `no prebuilt reeflog binary for ${platform}-${arch} (published: ${Object.keys(RELEASE_ASSETS).join(', ')}) — install from source: \`cargo install --git https://github.com/auroraxo/reeflog --tag ${version}\``,
+    );
+  }
+  if (!/^v\d+\.\d+\.\d+$/.test(String(version))) {
+    throw new ReeflogError(`bootstrap needs an explicit release tag like v0.7.0, got ${JSON.stringify(version)}`);
+  }
+
+  const bin = path.join(dest, 'reeflog');
+  const metaFile = path.join(dest, 'install.json');
+  if (fs.existsSync(bin) && fs.existsSync(metaFile)) {
+    try {
+      const meta = JSON.parse(fs.readFileSync(metaFile, 'utf8'));
+      if (meta.version === version && meta.asset === asset) {
+        return { bin, asset, digest: meta.sha256, cached: true };
+      }
+    } catch { /* fall through to a fresh install */ }
+  }
+
+  const releaseUrl = `${apiBase}/repos/auroraxo/reeflog/releases/tags/${version}`;
+  const release = JSON.parse((await httpGet(releaseUrl)).toString('utf8'));
+  const entry = (release.assets || []).find((a) => a.name === asset);
+  if (!entry) {
+    throw new ReeflogError(`release ${version} has no asset named ${asset} — nothing to install`);
+  }
+  const expected = (entry.digest || '').replace(/^sha256:/i, '');
+  if (!/^[0-9a-f]{64}$/.test(expected)) {
+    throw new ReeflogError(
+      `the release API reports no sha256 digest for ${asset} — refusing to install bytes I cannot verify`,
+    );
+  }
+
+  const url = downloadBase ? `${downloadBase}/${asset}` : entry.browser_download_url;
+  const gz = await httpGet(url);
+  const actual = createHash('sha256').update(gz).digest('hex');
+  if (actual !== expected) {
+    throw new ReeflogError(
+      `sha256 mismatch for ${asset}: release says ${expected}, download is ${actual} — refusing to install`,
+    );
+  }
+
+  const executable = extractReeflogFromTarGz(gz);
+  fs.mkdirSync(dest, { recursive: true });
+  const tmp = path.join(dest, `.reeflog-${process.pid}.tmp`);
+  fs.writeFileSync(tmp, executable, { mode: 0o755 });
+  fs.renameSync(tmp, bin); // atomic: a crash leaves the old binary or none
+  fs.writeFileSync(metaFile, `${JSON.stringify({ version, asset, sha256: actual, installedAt: new Date().toISOString() }, null, 2)}\n`);
+
+  return { bin, asset, digest: actual, cached: false };
 }
 
 /** Convenience constructor: `const box = reeflog({ db: 'reeflog.db' })`. */

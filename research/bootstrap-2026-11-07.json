@@ -1,0 +1,54 @@
+{
+  "generatedAt": "2026-11-07T20:58:15.912Z",
+  "version": "v0.6.0",
+  "checks": [
+    {
+      "name": "bootstrap_installs_from_the_published_release",
+      "ok": true,
+      "detail": "asset=reeflog-linux-amd64.tar.gz digest=9502d456e124dfc1… version=\"reeflog 0.6.0\" executable=true ms=700"
+    },
+    {
+      "name": "second_call_resolves_from_disk",
+      "ok": true,
+      "detail": "cached=true ms=0"
+    },
+    {
+      "name": "client_delivers_real_rows_through_the_bootstrapped_binary",
+      "ok": true,
+      "detail": "events=1183 delivered=5 ordered=true noReplay=true"
+    },
+    {
+      "name": "a_missing_journal_is_refused_with_the_binaries_own_words",
+      "ok": true,
+      "detail": "reeflog: error: no journal at /nonexistent/journal.db — run `reeflog init --db /nonexistent/journal.db --program <pubkey"
+    }
+  ],
+  "first": {
+    "asset": "reeflog-linux-amd64.tar.gz",
+    "digest": "9502d456e124dfc1254753d3ed186f0e4e41de1989de0616018a7fd4388d903d",
+    "reported": "reeflog 0.6.0",
+    "executable": true,
+    "ms": 700
+  },
+  "second": {
+    "cached": true,
+    "ms": 0
+  },
+  "client": {
+    "events": 1183,
+    "delivered": 5,
+    "firstSeq": 1,
+    "lastSeq": 5,
+    "ordered": true,
+    "noReplay": true
+  },
+  "refusal": "reeflog: error: no journal at /nonexistent/journal.db — run `reeflog init --db /nonexistent/journal.db --program <pubkey>` first",
+  "ok": true,
+  "limits": [
+    "one host, one network, one platform (linux-x64); the macos-arm64 asset is mapped but was not installed here",
+    "the trust anchor is github.com/auroraxo/reeflog over TLS — the same anchor `cargo install --git` uses; it does not defend against whoever can push tags and releases to that repository",
+    "the sha256 comes from the release API's stored digest for the asset, i.e. from the same account that published the bytes — it protects against a corrupted or substituted download, not against a malicious release",
+    "the journal used here was ingested by an earlier run; the bootstrap path itself was measured from an empty directory",
+    "no third party has used this yet"
+  ]
+}

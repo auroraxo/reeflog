@@ -5,7 +5,7 @@ they did to account balances for selected programs into a cursor-addressed
 append-only log, so a consumer resumes without gaps after a crash,
 disconnect, or reorg.
 
-**Status: v0.6.0 shipped (2026-11-07), v0 working.** Live against mainnet-beta: see *Measured results* below. Install from the release tag: `cargo install --git https://github.com/auroraxo/reeflog --tag v0.6.0`. The full event envelope (logs, balances, instructions, account list with owners, the bytes each account held, and the authority each token account had at the moment of the event), the Node client (see *The Node client*), webhook fan-out, a dead-letter queue, and archive backfill ship in this tree; Yellowstone as a second transport does not.
+**Status: v0.7.0 shipped (2026-11-07), v0 working.** Live against mainnet-beta: see *Measured results* below. Install the binary without a Rust toolchain: `npm install github:auroraxo/reeflog#v0.7.0` then `import { bootstrap } from 'reeflog-client'; await bootstrap()` (downloads the prebuilt release archive and verifies its sha256). Or from source: `cargo install --git https://github.com/auroraxo/reeflog --tag v0.7.0`. The full event envelope (logs, balances, instructions, account list with owners, the bytes each account held, and the authority each token account had at the moment of the event), the Node client (see *The Node client*), webhook fan-out, a dead-letter queue, and archive backfill ship in this tree; Yellowstone as a second transport does not.
 
 ## The idea
 
@@ -1009,8 +1009,39 @@ the `reeflog` binary, so there is exactly one implementation of the reader
 contract, and a library's idea of the schema cannot drift from the daemon's.
 
 ```bash
-npm install github:auroraxo/reeflog#v0.6.0   # the client ships from this repo
+npm install github:auroraxo/reeflog#v0.7.0   # the client ships from this repo
 ```
+
+The client needs the `reeflog` binary. `bootstrap()` gets it **without a
+Rust toolchain** — it downloads the prebuilt archive the release already
+ships for your platform (linux-amd64, macos-arm64), verifies its bytes
+against the sha256 the GitHub release API stores for that asset, and only
+then installs it to `~/.reeflog`:
+
+```js
+import reeflog, { bootstrap } from 'reeflog-client';
+
+const { bin, digest } = await bootstrap();   // verified: digest is the sha256 that passed
+const box = reeflog({ db: 'reeflog.db', bin });
+```
+
+- **Refuses instead of trusting.** A download whose sha256 does not match
+  the release digest is refused and nothing is written — no binary, no
+  sidecar. A release asset with no digest is refused too.
+- **A platform without a published archive is refused by name** (the
+  refusal lists what exists and gives the `cargo install` fallback), rather
+  than fetching a file that is not there.
+- **The default tag comes from the package version**, never a hard-coded
+  string, so the client can never fetch an older release than the package
+  it ships in.
+- **Trust is the same anchor as `cargo install --git`**: this repository
+  over TLS. It protects against a corrupted or substituted download, not
+  against whoever can push tags and releases here. If you want to be
+  independent of that, compare `digest` against the asset's published
+  sha256 yourself.
+- Measured end to end against the published release —
+  `research/bootstrap-2026-11-07.json` (install + cached re-run + real
+  rows delivered through the installed binary).
 
 ```js
 import reeflog from 'reeflog-client';
@@ -1048,8 +1079,9 @@ The rules the client enforces instead of leaving to the caller:
 - **Cursors are the binary's.** The client only chooses a default path per
   db + channel + consumer label, so two consumers of one journal never share
   a cursor by accident; pass `cursor` to name it yourself.
-- **A missing binary says how to install one** instead of crashing with
-  `ENOENT`.
+- **A missing binary says how to install one** — naming `bootstrap()` (no
+  Rust toolchain) and the `cargo install` fallback — instead of crashing
+  with `ENOENT`.
 
 The contract is tested against the real binary and a real journal in
 `test/client.test.mjs` (`npm test`, 8 tests): delivery order, no replay
