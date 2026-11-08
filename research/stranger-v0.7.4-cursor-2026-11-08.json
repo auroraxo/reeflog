@@ -1,0 +1,92 @@
+{
+  "tool": "stranger-v0.7.4-cursor",
+  "date": "2026-11-08",
+  "what": "The PUBLISHED v0.7.4 release asset, downloaded the way a stranger gets it, asked to read a cursor file that does not carry a cursor.",
+  "release": {
+    "tag": "v0.7.4",
+    "assets": [
+      {
+        "name": "reeflog-linux-amd64.tar.gz",
+        "publishedDigest": "sha256:b85487768960bb0bade0436b135ed98cb9dbb55f0451075df95d5f54f593eac2",
+        "downloadedSha256": "b85487768960bb0bade0436b135ed98cb9dbb55f0451075df95d5f54f593eac2",
+        "digestMatchesPublished": true
+      },
+      {
+        "name": "reeflog-macos-arm64.tar.gz",
+        "publishedDigest": "sha256:f1c00f71d5a3ffa29cc3b5c3a377d47b2105b6f27f861c5603247c0603a1be8c",
+        "downloadedSha256": "f1c00f71d5a3ffa29cc3b5c3a377d47b2105b6f27f861c5603247c0603a1be8c",
+        "digestMatchesPublished": true,
+        "note": "integrity only — this host has no macOS, the asset was not executed"
+      }
+    ],
+    "binaryVersion": "reeflog 0.7.4",
+    "rowsPlanted": 20
+  },
+  "defectCases": [
+    {
+      "id": "D1-corrupt-content",
+      "cursorFile": "abc",
+      "exit": 1,
+      "rowsDelivered": 0,
+      "fileUnchanged": true,
+      "stderr": "reeflog: error: cursor c.txt holds `abc` — not a non-negative whole number inside i64; refusing to restart at 0 (delete the file to start from the beginning)"
+    },
+    {
+      "id": "D2-negative",
+      "cursorFile": "-1",
+      "exit": 1,
+      "rowsDelivered": 0,
+      "fileUnchanged": true,
+      "stderr": "reeflog: error: cursor c.txt holds `-1` (-1) — a cursor is a position, never negative; refusing"
+    },
+    {
+      "id": "D3-beyond-i64",
+      "cursorFile": "9223372036854775808",
+      "exit": 1,
+      "rowsDelivered": 0,
+      "fileUnchanged": true,
+      "stderr": "reeflog: error: cursor c.txt holds `9223372036854775808` — not a non-negative whole number inside i64; refusing to restart at 0 (delete the file to start from the beginning)"
+    },
+    {
+      "id": "D4-empty-file",
+      "cursorFile": "",
+      "exit": 1,
+      "rowsDelivered": 0,
+      "fileUnchanged": true,
+      "stderr": "reeflog: error: cursor c.txt is empty — refusing to restart at 0 behind your back; delete it to start from the beginning"
+    }
+  ],
+  "guards": [
+    {
+      "id": "G1-missing-file-first-run",
+      "cursorFile": null,
+      "exit": 0,
+      "rowsDelivered": 20,
+      "cursorAfter": 20,
+      "stderr": "reeflog: 20 events after cursor 0 → cursor now 20"
+    },
+    {
+      "id": "G2-valid-resume",
+      "cursorFile": "15",
+      "exit": 0,
+      "rowsDelivered": 5,
+      "cursorAfter": 20,
+      "stderr": "reeflog: 5 events after cursor 15 → cursor now 20"
+    },
+    {
+      "id": "G3-zero-in-file",
+      "cursorFile": "0",
+      "exit": 0,
+      "rowsDelivered": 20,
+      "cursorAfter": 20,
+      "stderr": "reeflog: 20 events after cursor 0 → cursor now 20"
+    }
+  ],
+  "verdict": "4/4 defect cases refused at the published asset with 0 rows and the cursor file untouched; 3/3 guards behave exactly as documented",
+  "baseline": "the same five cursor contents on the published v0.7.3 binary: exit 0 and all 20 rows replayed (research/cursor-state-2026-11-08.json)",
+  "limits": [
+    "one machine, one account, no external user",
+    "the macOS asset was verified for integrity only — this host cannot execute it",
+    "the stranger run is the same host; the download path and the published digest are what make it a stranger run, not a second machine"
+  ]
+}
