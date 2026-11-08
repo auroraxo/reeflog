@@ -1,8 +1,8 @@
 {
-  "measuredAt": "2026-11-08T16:27:31.408Z",
+  "measuredAt": "2026-11-08T16:39:47.346Z",
   "readme": "README.md",
   "binary": "/home/aurora/github_repos/reeflog/target/release/reeflog",
-  "binaryVersion": "reeflog 0.7.3",
+  "binaryVersion": "reeflog 0.7.4",
   "documentedLines": 26,
   "invocationsRun": 44,
   "accepted": 44,
@@ -30,8 +30,8 @@
     {
       "line": 27,
       "command": "reeflog seal --db reeflog.db",
-      "exitCode": null,
-      "timedOut": true,
+      "exitCode": 0,
+      "timedOut": false,
       "accepted": true,
       "flagDefect": false,
       "stderr": ""
@@ -43,7 +43,7 @@
       "timedOut": false,
       "accepted": true,
       "flagDefect": false,
-      "stderr": "reeflog: 602 events after cursor 0 → cursor now 602"
+      "stderr": "reeflog: 196 events after cursor 0 → cursor now 196"
     },
     {
       "line": 29,
@@ -300,8 +300,8 @@
     {
       "line": 1015,
       "command": "reeflog seal --db reeflog.db",
-      "exitCode": null,
-      "timedOut": true,
+      "exitCode": 0,
+      "timedOut": false,
       "accepted": true,
       "flagDefect": false,
       "stderr": ""
@@ -309,17 +309,17 @@
     {
       "line": 1016,
       "command": "reeflog verify --db reeflog.db --pages 400 --anchor-slot 1",
-      "exitCode": null,
-      "timedOut": true,
+      "exitCode": 3,
+      "timedOut": false,
       "accepted": true,
       "flagDefect": false,
-      "stderr": ""
+      "stderr": "reeflog: verify INCOMPLETE (error=None, truncated=true, pages=0) — the scan proves nothing about the journal's completeness"
     },
     {
       "line": 1016,
       "command": "reeflog verify --db reeflog.db --pages 400",
-      "exitCode": null,
-      "timedOut": true,
+      "exitCode": 0,
+      "timedOut": false,
       "accepted": true,
       "flagDefect": false,
       "stderr": ""
@@ -336,8 +336,8 @@
     {
       "line": 1017,
       "command": "reeflog repair --db reeflog.db --pages 400",
-      "exitCode": null,
-      "timedOut": true,
+      "exitCode": 0,
+      "timedOut": false,
       "accepted": true,
       "flagDefect": false,
       "stderr": ""
@@ -385,7 +385,7 @@
       "timedOut": false,
       "accepted": true,
       "flagDefect": false,
-      "stderr": "reeflog: 1000 events after cursor 602 → cursor now 1602"
+      "stderr": "reeflog: 1000 events after cursor 196 → cursor now 1196"
     },
     {
       "line": 1022,
