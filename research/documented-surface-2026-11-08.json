@@ -1,8 +1,8 @@
 {
-  "measuredAt": "2026-11-08T20:59:11.606Z",
+  "measuredAt": "2026-11-08T21:12:27.928Z",
   "readme": "README.md",
   "binary": "/home/aurora/github_repos/reeflog/target/release/reeflog",
-  "binaryVersion": "reeflog 0.7.4",
+  "binaryVersion": "reeflog 0.7.5",
   "documentedLines": 26,
   "invocationsRun": 44,
   "accepted": 44,
@@ -43,7 +43,7 @@
       "timedOut": false,
       "accepted": true,
       "flagDefect": false,
-      "stderr": "reeflog: 312 events after cursor 0 → cursor now 312"
+      "stderr": "reeflog: 902 events after cursor 0 → cursor now 902"
     },
     {
       "line": 29,
@@ -385,7 +385,7 @@
       "timedOut": false,
       "accepted": true,
       "flagDefect": false,
-      "stderr": "reeflog: 1000 events after cursor 312 → cursor now 1312"
+      "stderr": "reeflog: 1000 events after cursor 902 → cursor now 1902"
     },
     {
       "line": 1038,
