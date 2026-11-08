@@ -146,6 +146,42 @@ test('a refusal keeps the binary\'s actionable words (exit 1 -> ReeflogError)', 
   fs.rmSync(dir, { recursive: true, force: true });
 });
 
+test('a corrupt existing cursor is a refusal through the client API, not a silent full replay', { skip: binaryMissing }, async () => {
+  const { dir, db } = tmpJournal('cursor-corrupt');
+  const conn = new DatabaseSync(db);
+  const now = Date.now();
+  for (let i = 1; i <= 3; i++) {
+    conn.prepare(
+      `INSERT INTO events(signature, slot, err, logs, source, first_seen, payload_state)
+       VALUES (?, ?, NULL, ?, 'ws', ?, 'held')`,
+    ).run(`sig${i}`, 400000000 + i, JSON.stringify([`Program log ${i}`]), now);
+  }
+  conn.close();
+
+  const cursor = path.join(dir, 'c.txt');
+  fs.writeFileSync(cursor, 'not-a-cursor');
+
+  // The refusal must reach the caller with the binary's words — a client
+  // that swallowed it and returned [] would hand a consumer a "clean" empty
+  // batch while the cursor file it owns sits unread.
+  await assert.rejects(
+    () => reeflog({ db, bin: BIN }).tail({ cursor }),
+    (e) => {
+      assert.ok(e instanceof ReeflogError, 'a corrupt cursor must be a ReeflogError');
+      assert.equal(e.exitCode, EXIT.REFUSED);
+      assert.match(e.stderr ?? '', /cursor/, 'the refusal must name the cursor file');
+      assert.match(e.stderr ?? '', /not-a-cursor/, 'the refusal must name the offending content');
+      return true;
+    },
+  );
+  assert.equal(
+    fs.readFileSync(cursor, 'utf8'),
+    'not-a-cursor',
+    'a refusal must leave the cursor file untouched — no evidence destroyed',
+  );
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
 test('an incomplete verify is an error to the caller, never a clean result', { skip: binaryMissing }, async () => {
   const { dir, db } = tmpJournal('verify');
   const box = reeflog({ db, bin: BIN });

@@ -1134,8 +1134,12 @@ async fn run_start(args: &[String]) {
 
 fn run_tail(args: &[String]) {
     let db = PathBuf::from(arg(args, "--db").unwrap_or_else(|| "reeflog.db".into()));
-    let j = Journal::open(&db).unwrap_or_else(|e| die(e));
     let cursor_path = PathBuf::from(require(args, "--cursor"));
+    // The cursor is read BEFORE the journal is opened: a cursor file that
+    // does not carry a cursor must be refused, and a refusal must never come
+    // after the tool has already opened the state it is about to contradict.
+    let after: i64 = read_cursor(&cursor_path);
+    let j = Journal::open(&db).unwrap_or_else(|e| die(e));
     let limit: i64 = arg(args, "--limit")
         .and_then(|s| s.parse().ok())
         .unwrap_or(1000);
@@ -1153,7 +1157,6 @@ fn run_tail(args: &[String]) {
     // recorded outcome (`unavailable`/`invalid`/`no_metadata`) can never be
     // filled; those are skipped, reported, and consumed.
     let only_with_accounts = args.iter().any(|a| a == "--with-accounts");
-    let after: i64 = read_cursor(&cursor_path);
     let rows: Vec<EventRow> = j.events_after(after, limit).unwrap_or_else(|e| die(e));
     let mut delivered = 0usize;
     let mut skipped_final = 0usize;
@@ -1291,10 +1294,34 @@ fn classify_for_accounts_filter(r: &EventRow) -> AccountsFilter {
 }
 
 fn read_cursor(path: &Path) -> i64 {
-    std::fs::read_to_string(path)
-        .ok()
-        .and_then(|s| s.trim().parse().ok())
-        .unwrap_or(0)
+    let raw = match std::fs::read_to_string(path) {
+        Ok(s) => s,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return 0,
+        Err(e) => {
+            die(format!(
+                "cursor {}: {e} — refusing to guess a position",
+                path.display()
+            ))
+        }
+    };
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        die(format!(
+            "cursor {} is empty — refusing to restart at 0 behind your back; delete it to start from the beginning",
+            path.display()
+        ));
+    }
+    match trimmed.parse::<i64>() {
+        Ok(n) if n >= 0 => n,
+        Ok(n) => die(format!(
+            "cursor {} holds `{trimmed}` ({n}) — a cursor is a position, never negative; refusing",
+            path.display()
+        )),
+        Err(_) => die(format!(
+            "cursor {} holds `{trimmed}` — not a non-negative whole number inside i64; refusing to restart at 0 (delete the file to start from the beginning)",
+            path.display()
+        )),
+    }
 }
 
 fn write_cursor(path: &Path, seq: i64) {
@@ -1487,12 +1514,13 @@ fn run_reorg_check(args: &[String]) {
 /// retraction itself.
 fn run_reorg_tail(args: &[String]) {
     let db = PathBuf::from(arg(args, "--db").unwrap_or_else(|| "reeflog.db".into()));
-    let j = Journal::open(&db).unwrap_or_else(|e| die(e));
     let cursor_path = PathBuf::from(require(args, "--cursor"));
+    // Same order as `tail`: the cursor is validated before the journal opens.
+    let after: i64 = read_cursor(&cursor_path);
+    let j = Journal::open(&db).unwrap_or_else(|e| die(e));
     let limit: i64 = arg(args, "--limit")
         .and_then(|s| s.parse().ok())
         .unwrap_or(1000);
-    let after: i64 = read_cursor(&cursor_path);
     let rows = j.reorgs_after(after, limit).unwrap_or_else(|e| die(e));
     for r in &rows {
         println!(
