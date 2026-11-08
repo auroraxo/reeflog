@@ -788,6 +788,22 @@ cat > webhooks.json <<'EOF'
 }
 EOF
 
+**Config values are checked before the pass starts**, because a config file
+is one layer above the flag parser and fails the same way the parser used
+to: a value the consumer cannot honour must be refused, not accepted into a
+behaviour the file does not describe.
+
+| Key | Domain | What is refused |
+|---|---|---|
+| `timeout_ms` | whole milliseconds in `1..=3600000` (1 hour) | `0` (the poster would silently re-read it as 1 ms), anything above the 1-hour ceiling (a timeout no process will live to see — an attempt that cannot finish within an hour is stuck, not slow), a fraction, a negative number, a string, an integer beyond `u64` |
+| `dead_letter_after` | non-negative integer in `i64` | a fraction, a negative number, an integer outside `i64` (the count is compared against an `i64` refusal counter) |
+
+Every refusal names **the key and the offending value** and happens before
+any connection is attempted — a refusal with a report would look like a
+delivery pass. `timeout_ms: 5000` (default) and `dead_letter_after: 5`
+(default) are unaffected; `dead_letter_after: 0` keeps its documented
+meaning of "disable the valve".
+
 reeflog webhook push   --db reeflog.db --config webhooks.json   # one pass
 reeflog webhook status --db reeflog.db --config webhooks.json   # cursors + failures
 reeflog webhook dlq list   --db reeflog.db --config webhooks.json  # quarantined events

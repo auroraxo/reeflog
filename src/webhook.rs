@@ -143,12 +143,56 @@ pub fn verify_signature(secret: &str, body: &str, header: &str) -> bool {
     diff == 0
 }
 
+/// The largest `timeout_ms` this product will accept, in milliseconds (1 hour).
+///
+/// Measured 2026-11-08 on the published v0.7.4 tree: `"timeout_ms":
+/// 18446744073709551615` was accepted and the delivery pass NEVER returned
+/// against a receiver that accepted the connection and never answered (killed
+/// at 25 s — the deadline was ~584 million years out). The key exists so "a
+/// webhook whose endpoint hangs must not hang the delivery pass"; a value the
+/// pass cannot honour inverts the guarantee. An HTTP attempt that cannot
+/// finish within an hour is stuck, not slow, and the timeout exists to turn
+/// "stuck" into a transient failure the queue reports — so the ceiling is
+/// policy, stated here, documented in the README, and refused loudly instead
+/// of accepted into a deadline that never comes.
+pub const MAX_TIMEOUT_MS: u64 = 3_600_000;
+
+/// The default `timeout_ms` when the key is absent or null.
+pub const DEFAULT_TIMEOUT_MS: u64 = 5_000;
+
+/// Helper: format a JSON value for a refusal message, quoting strings and
+/// rendering numbers/booleans/null verbatim so the operator sees what they
+/// actually wrote.
+fn format_value(v: &Value) -> String {
+    match v {
+        Value::String(s) => format!("`{s}`"),
+        // serde_json parses an integer beyond u64/i64 as f64 and its default
+        // Display would echo the operator's `18446744073709551616` as
+        // `1.8446744073709552e+19` — the refusal must show what was WRITTEN,
+        // so an integral number is printed in full integer form.
+        Value::Number(n) if n.as_f64().is_some_and(|f| f.fract() == 0.0) => {
+            format!("{:.0}", n.as_f64().expect("integral number has an f64"))
+        }
+        _ => v.to_string(),
+    }
+}
+
 /// Load the target list from a JSON configuration file.
 ///
 /// The file is strict on purpose: a webhook target decides where secrets and
 /// event data go, so an unknown key is a typo worth failing on, and a target
 /// id is the key the delivery state is stored under — a duplicate id would
 /// silently merge two consumers' cursors.
+///
+/// The VALUES are checked against the domain their consumers use, for the
+/// same reason (measured 2026-11-08, published v0.7.4): `timeout_ms: 0` was
+/// silently rewritten to 1 ms by the poster, a `timeout_ms` beyond any
+/// reachable deadline hung the delivery pass forever, and a value that was a
+/// number but not the right KIND of number was refused with "must be a
+/// number" — without naming which value. A config file is one layer above
+/// the flag parser, and it fails the same way the parser did: the checker
+/// accepts what the consumer cannot honour, or the refusal does not say what
+/// was wrong.
 pub fn load_targets(path: &Path) -> Result<Vec<Target>, String> {
     let raw = std::fs::read_to_string(path).map_err(|e| format!("config read: {e}"))?;
     let v: Value = serde_json::from_str(&raw).map_err(|e| format!("config parse: {e}"))?;
@@ -190,20 +234,44 @@ pub fn load_targets(path: &Path) -> Result<Vec<Target>, String> {
             .and_then(|v| v.as_str())
             .ok_or_else(|| format!("target #{i}: missing \"secret\""))?;
         let timeout_ms = match o.get("timeout_ms") {
-            None | Some(Value::Null) => 5_000,
-            Some(v) => v
-                .as_u64()
-                .ok_or_else(|| format!("target #{i}: timeout_ms must be a number"))?,
+            None | Some(Value::Null) => DEFAULT_TIMEOUT_MS,
+            Some(v) => {
+                let n = v.as_u64().ok_or_else(|| {
+                    format!(
+                        "target #{i}: timeout_ms must be a positive integer in milliseconds, got {} (e.g. 5000)",
+                        format_value(v)
+                    )
+                })?;
+                if n == 0 {
+                    return Err(format!(
+                        "target #{i}: timeout_ms must be greater than zero, got 0 — a timeout of 0 would fail every delivery immediately"
+                    ));
+                }
+                if n > MAX_TIMEOUT_MS {
+                    return Err(format!(
+                        "target #{i}: timeout_ms must not exceed {MAX_TIMEOUT_MS} ms (1 hour), got {n} — out of domain"
+                    ));
+                }
+                n
+            }
         };
         let dead_letter_after = match o.get("dead_letter_after") {
             None | Some(Value::Null) => DEFAULT_DEAD_LETTER_AFTER,
-            Some(v) => v
-                .as_i64()
-                .ok_or_else(|| format!("target #{i}: dead_letter_after must be a number"))?,
+            Some(v) => {
+                let n = v.as_i64().ok_or_else(|| {
+                    format!(
+                        "target #{i}: dead_letter_after must be a non-negative integer, got {} (e.g. 5, or 0 to disable)",
+                        format_value(v)
+                    )
+                })?;
+                if n < 0 {
+                    return Err(format!(
+                        "target #{i}: dead_letter_after must not be negative, got {n}"
+                    ));
+                }
+                n
+            }
         };
-        if dead_letter_after < 0 {
-            return Err(format!("target #{i}: dead_letter_after must not be negative"));
-        }
         if id.trim().is_empty() {
             return Err(format!("target #{i}: \"id\" must not be empty"));
         }

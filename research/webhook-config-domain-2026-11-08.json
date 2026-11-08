@@ -1,0 +1,698 @@
+{
+  "measuredAt": "2026-11-08",
+  "what": "the webhook CONFIG value domain (timeout_ms, dead_letter_after), measured against real binaries",
+  "defect": "the published v0.7.4 tree accepted a timeout_ms that made the delivery pass wait for a deadline that never comes, silently re-read a timeout_ms of 0 as 1 ms, and refused a value without naming it",
+  "measurementTraps": {
+    "T1": "the config is written as raw JSON text — a JS number would round any integer above 2^53 before it reached the file",
+    "T2": "every case gets its own journal — the refusal counter, the dead-letter queue and the per-target cursor are persistent state",
+    "T3": "the ceiling guard is judged by the report existing (the config was accepted), not by a timeout firing"
+  },
+  "trees": {
+    "baseline": {
+      "source": "git archive v0.7.4",
+      "cases": [
+        {
+          "id": "timeout-zero",
+          "kind": "refusal",
+          "value": "0",
+          "extra": {
+            "timeout_ms": "0"
+          },
+          "reported": true,
+          "exit": 3,
+          "signal": null,
+          "killed": false,
+          "ms": 16,
+          "delivered": 0,
+          "failed": 1,
+          "dead_lettered": 0,
+          "blocked": true,
+          "error": "timeout: global",
+          "stderr": "reeflog: 1 target(s) blocked — delivery is at-least-once and in order, so the queue stops at the first failure; the failure is recorded, not swallowed",
+          "ok": false,
+          "verdict": "a refused config must print no report"
+        },
+        {
+          "id": "timeout-u64-max",
+          "kind": "refusal",
+          "value": "18446744073709551615",
+          "extra": {
+            "timeout_ms": "18446744073709551615"
+          },
+          "reported": false,
+          "exit": null,
+          "signal": "SIGKILL",
+          "killed": true,
+          "ms": 12008,
+          "delivered": null,
+          "failed": null,
+          "dead_lettered": null,
+          "blocked": null,
+          "error": null,
+          "stderr": "",
+          "ok": false,
+          "verdict": "the run had to be KILLED — it waited for a deadline that never comes"
+        },
+        {
+          "id": "timeout-i64-max-plus-one",
+          "kind": "refusal",
+          "value": "9223372036854775808",
+          "extra": {
+            "timeout_ms": "9223372036854775808"
+          },
+          "reported": false,
+          "exit": null,
+          "signal": "SIGKILL",
+          "killed": true,
+          "ms": 12014,
+          "delivered": null,
+          "failed": null,
+          "dead_lettered": null,
+          "blocked": null,
+          "error": null,
+          "stderr": "",
+          "ok": false,
+          "verdict": "the run had to be KILLED — it waited for a deadline that never comes"
+        },
+        {
+          "id": "timeout-above-ceiling",
+          "kind": "refusal",
+          "value": "3600001",
+          "extra": {
+            "timeout_ms": "3600001"
+          },
+          "reported": false,
+          "exit": null,
+          "signal": "SIGKILL",
+          "killed": true,
+          "ms": 12012,
+          "delivered": null,
+          "failed": null,
+          "dead_lettered": null,
+          "blocked": null,
+          "error": null,
+          "stderr": "",
+          "ok": false,
+          "verdict": "the run had to be KILLED — it waited for a deadline that never comes"
+        },
+        {
+          "id": "timeout-fractional",
+          "kind": "refusal",
+          "value": "1.5",
+          "extra": {
+            "timeout_ms": "1.5"
+          },
+          "reported": false,
+          "exit": 1,
+          "signal": null,
+          "killed": false,
+          "ms": 10,
+          "delivered": null,
+          "failed": null,
+          "dead_lettered": null,
+          "blocked": null,
+          "error": null,
+          "stderr": "reeflog: error: target #0: timeout_ms must be a number",
+          "ok": false,
+          "verdict": "the refusal does not name the offending value"
+        },
+        {
+          "id": "timeout-negative",
+          "kind": "refusal",
+          "value": "-1",
+          "extra": {
+            "timeout_ms": "-1"
+          },
+          "reported": false,
+          "exit": 1,
+          "signal": null,
+          "killed": false,
+          "ms": 7,
+          "delivered": null,
+          "failed": null,
+          "dead_lettered": null,
+          "blocked": null,
+          "error": null,
+          "stderr": "reeflog: error: target #0: timeout_ms must be a number",
+          "ok": false,
+          "verdict": "the refusal does not name the offending value"
+        },
+        {
+          "id": "timeout-string",
+          "kind": "refusal",
+          "value": "5000",
+          "extra": {
+            "timeout_ms": "\"5000\""
+          },
+          "reported": false,
+          "exit": 1,
+          "signal": null,
+          "killed": false,
+          "ms": 8,
+          "delivered": null,
+          "failed": null,
+          "dead_lettered": null,
+          "blocked": null,
+          "error": null,
+          "stderr": "reeflog: error: target #0: timeout_ms must be a number",
+          "ok": false,
+          "verdict": "the refusal does not name the offending value"
+        },
+        {
+          "id": "timeout-beyond-u64",
+          "kind": "refusal",
+          "value": "18446744073709551616",
+          "extra": {
+            "timeout_ms": "18446744073709551616"
+          },
+          "reported": false,
+          "exit": 1,
+          "signal": null,
+          "killed": false,
+          "ms": 11,
+          "delivered": null,
+          "failed": null,
+          "dead_lettered": null,
+          "blocked": null,
+          "error": null,
+          "stderr": "reeflog: error: target #0: timeout_ms must be a number",
+          "ok": false,
+          "verdict": "the refusal does not name the offending value"
+        },
+        {
+          "id": "dead-letter-negative",
+          "kind": "refusal",
+          "value": "-1",
+          "extra": {
+            "dead_letter_after": "-1"
+          },
+          "reported": false,
+          "exit": 1,
+          "signal": null,
+          "killed": false,
+          "ms": 8,
+          "delivered": null,
+          "failed": null,
+          "dead_lettered": null,
+          "blocked": null,
+          "error": null,
+          "stderr": "reeflog: error: target #0: dead_letter_after must not be negative",
+          "ok": false,
+          "verdict": "the refusal does not name the offending value"
+        },
+        {
+          "id": "dead-letter-out-of-i64",
+          "kind": "refusal",
+          "value": "9223372036854775808",
+          "extra": {
+            "dead_letter_after": "9223372036854775808"
+          },
+          "reported": false,
+          "exit": 1,
+          "signal": null,
+          "killed": false,
+          "ms": 7,
+          "delivered": null,
+          "failed": null,
+          "dead_lettered": null,
+          "blocked": null,
+          "error": null,
+          "stderr": "reeflog: error: target #0: dead_letter_after must be a number",
+          "ok": false,
+          "verdict": "the refusal does not name the offending value"
+        },
+        {
+          "id": "dead-letter-fractional",
+          "kind": "refusal",
+          "value": "1.5",
+          "extra": {
+            "dead_letter_after": "1.5"
+          },
+          "reported": false,
+          "exit": 1,
+          "signal": null,
+          "killed": false,
+          "ms": 6,
+          "delivered": null,
+          "failed": null,
+          "dead_lettered": null,
+          "blocked": null,
+          "error": null,
+          "stderr": "reeflog: error: target #0: dead_letter_after must be a number",
+          "ok": false,
+          "verdict": "the refusal does not name the offending value"
+        },
+        {
+          "id": "guard-default-timeout-bounds",
+          "kind": "bounded",
+          "value": null,
+          "extra": {},
+          "reported": true,
+          "exit": 3,
+          "signal": null,
+          "killed": false,
+          "ms": 5017,
+          "delivered": 0,
+          "failed": 1,
+          "dead_lettered": 0,
+          "blocked": true,
+          "error": "timeout: global",
+          "stderr": "reeflog: 1 target(s) blocked — delivery is at-least-once and in order, so the queue stops at the first failure; the failure is recorded, not swallowed",
+          "ok": true,
+          "verdict": "bounded at 5017 ms"
+        },
+        {
+          "id": "guard-configured-timeout-bounds",
+          "kind": "bounded",
+          "value": null,
+          "extra": {
+            "timeout_ms": "1000"
+          },
+          "reported": true,
+          "exit": 3,
+          "signal": null,
+          "killed": false,
+          "ms": 1056,
+          "delivered": 0,
+          "failed": 1,
+          "dead_lettered": 0,
+          "blocked": true,
+          "error": "timeout: global",
+          "stderr": "reeflog: 1 target(s) blocked — delivery is at-least-once and in order, so the queue stops at the first failure; the failure is recorded, not swallowed",
+          "ok": true,
+          "verdict": "bounded at 1056 ms"
+        },
+        {
+          "id": "guard-ceiling-accepted",
+          "kind": "accepted",
+          "value": null,
+          "extra": {
+            "timeout_ms": "3600000"
+          },
+          "reported": true,
+          "exit": 3,
+          "signal": null,
+          "killed": false,
+          "ms": 12,
+          "delivered": 0,
+          "failed": 1,
+          "dead_lettered": 0,
+          "blocked": true,
+          "error": "io: Connection reset by peer (os error 104)",
+          "stderr": "reeflog: 1 target(s) blocked — delivery is at-least-once and in order, so the queue stops at the first failure; the failure is recorded, not swallowed",
+          "ok": true,
+          "verdict": "accepted, the delivery failed for its own reason (io: Connection reset by peer (os error 104))"
+        },
+        {
+          "id": "guard-dead-letter-one-quarantines",
+          "kind": "valve",
+          "value": null,
+          "extra": {
+            "dead_letter_after": "1"
+          },
+          "reported": true,
+          "exit": 3,
+          "signal": null,
+          "killed": false,
+          "ms": 16,
+          "delivered": 0,
+          "failed": 3,
+          "dead_lettered": 3,
+          "blocked": false,
+          "error": null,
+          "stderr": "reeflog: 3 event(s) sit in the dead-letter queue — the queue keeps moving, but these consumers do not hold these events yet; inspect with `reeflog webhook dlq list`",
+          "ok": true,
+          "verdict": "all 3 quarantined on the first refusal, queue moved"
+        },
+        {
+          "id": "guard-dead-letter-zero-disables",
+          "kind": "valve",
+          "value": null,
+          "extra": {
+            "dead_letter_after": "0"
+          },
+          "reported": true,
+          "exit": 3,
+          "signal": null,
+          "killed": false,
+          "ms": 14,
+          "delivered": 0,
+          "failed": 1,
+          "dead_lettered": 0,
+          "blocked": true,
+          "error": "refused with http 403",
+          "stderr": "reeflog: 1 target(s) blocked — delivery is at-least-once and in order, so the queue stops at the first failure; the failure is recorded, not swallowed",
+          "ok": true,
+          "verdict": "the valve stays disabled"
+        }
+      ],
+      "refusals": 0,
+      "refusalCases": 11,
+      "guards": 5,
+      "guardCases": 5
+    },
+    "fixed": {
+      "source": "this tree",
+      "cases": [
+        {
+          "id": "timeout-zero",
+          "kind": "refusal",
+          "value": "0",
+          "extra": {
+            "timeout_ms": "0"
+          },
+          "reported": false,
+          "exit": 1,
+          "signal": null,
+          "killed": false,
+          "ms": 8,
+          "delivered": null,
+          "failed": null,
+          "dead_lettered": null,
+          "blocked": null,
+          "error": null,
+          "stderr": "reeflog: error: target #0: timeout_ms must be greater than zero, got 0 — a timeout of 0 would fail every delivery immediately",
+          "ok": true,
+          "verdict": "refused promptly, key and value named"
+        },
+        {
+          "id": "timeout-u64-max",
+          "kind": "refusal",
+          "value": "18446744073709551615",
+          "extra": {
+            "timeout_ms": "18446744073709551615"
+          },
+          "reported": false,
+          "exit": 1,
+          "signal": null,
+          "killed": false,
+          "ms": 8,
+          "delivered": null,
+          "failed": null,
+          "dead_lettered": null,
+          "blocked": null,
+          "error": null,
+          "stderr": "reeflog: error: target #0: timeout_ms must not exceed 3600000 ms (1 hour), got 18446744073709551615 — out of domain",
+          "ok": true,
+          "verdict": "refused promptly, key and value named"
+        },
+        {
+          "id": "timeout-i64-max-plus-one",
+          "kind": "refusal",
+          "value": "9223372036854775808",
+          "extra": {
+            "timeout_ms": "9223372036854775808"
+          },
+          "reported": false,
+          "exit": 1,
+          "signal": null,
+          "killed": false,
+          "ms": 7,
+          "delivered": null,
+          "failed": null,
+          "dead_lettered": null,
+          "blocked": null,
+          "error": null,
+          "stderr": "reeflog: error: target #0: timeout_ms must not exceed 3600000 ms (1 hour), got 9223372036854775808 — out of domain",
+          "ok": true,
+          "verdict": "refused promptly, key and value named"
+        },
+        {
+          "id": "timeout-above-ceiling",
+          "kind": "refusal",
+          "value": "3600001",
+          "extra": {
+            "timeout_ms": "3600001"
+          },
+          "reported": false,
+          "exit": 1,
+          "signal": null,
+          "killed": false,
+          "ms": 7,
+          "delivered": null,
+          "failed": null,
+          "dead_lettered": null,
+          "blocked": null,
+          "error": null,
+          "stderr": "reeflog: error: target #0: timeout_ms must not exceed 3600000 ms (1 hour), got 3600001 — out of domain",
+          "ok": true,
+          "verdict": "refused promptly, key and value named"
+        },
+        {
+          "id": "timeout-fractional",
+          "kind": "refusal",
+          "value": "1.5",
+          "extra": {
+            "timeout_ms": "1.5"
+          },
+          "reported": false,
+          "exit": 1,
+          "signal": null,
+          "killed": false,
+          "ms": 8,
+          "delivered": null,
+          "failed": null,
+          "dead_lettered": null,
+          "blocked": null,
+          "error": null,
+          "stderr": "reeflog: error: target #0: timeout_ms must be a positive integer in milliseconds, got 1.5 (e.g. 5000)",
+          "ok": true,
+          "verdict": "refused promptly, key and value named"
+        },
+        {
+          "id": "timeout-negative",
+          "kind": "refusal",
+          "value": "-1",
+          "extra": {
+            "timeout_ms": "-1"
+          },
+          "reported": false,
+          "exit": 1,
+          "signal": null,
+          "killed": false,
+          "ms": 6,
+          "delivered": null,
+          "failed": null,
+          "dead_lettered": null,
+          "blocked": null,
+          "error": null,
+          "stderr": "reeflog: error: target #0: timeout_ms must be a positive integer in milliseconds, got -1 (e.g. 5000)",
+          "ok": true,
+          "verdict": "refused promptly, key and value named"
+        },
+        {
+          "id": "timeout-string",
+          "kind": "refusal",
+          "value": "5000",
+          "extra": {
+            "timeout_ms": "\"5000\""
+          },
+          "reported": false,
+          "exit": 1,
+          "signal": null,
+          "killed": false,
+          "ms": 8,
+          "delivered": null,
+          "failed": null,
+          "dead_lettered": null,
+          "blocked": null,
+          "error": null,
+          "stderr": "reeflog: error: target #0: timeout_ms must be a positive integer in milliseconds, got `5000` (e.g. 5000)",
+          "ok": true,
+          "verdict": "refused promptly, key and value named"
+        },
+        {
+          "id": "timeout-beyond-u64",
+          "kind": "refusal",
+          "value": "18446744073709551616",
+          "extra": {
+            "timeout_ms": "18446744073709551616"
+          },
+          "reported": false,
+          "exit": 1,
+          "signal": null,
+          "killed": false,
+          "ms": 6,
+          "delivered": null,
+          "failed": null,
+          "dead_lettered": null,
+          "blocked": null,
+          "error": null,
+          "stderr": "reeflog: error: target #0: timeout_ms must be a positive integer in milliseconds, got 18446744073709551616 (e.g. 5000)",
+          "ok": true,
+          "verdict": "refused promptly, key and value named"
+        },
+        {
+          "id": "dead-letter-negative",
+          "kind": "refusal",
+          "value": "-1",
+          "extra": {
+            "dead_letter_after": "-1"
+          },
+          "reported": false,
+          "exit": 1,
+          "signal": null,
+          "killed": false,
+          "ms": 7,
+          "delivered": null,
+          "failed": null,
+          "dead_lettered": null,
+          "blocked": null,
+          "error": null,
+          "stderr": "reeflog: error: target #0: dead_letter_after must not be negative, got -1",
+          "ok": true,
+          "verdict": "refused promptly, key and value named"
+        },
+        {
+          "id": "dead-letter-out-of-i64",
+          "kind": "refusal",
+          "value": "9223372036854775808",
+          "extra": {
+            "dead_letter_after": "9223372036854775808"
+          },
+          "reported": false,
+          "exit": 1,
+          "signal": null,
+          "killed": false,
+          "ms": 8,
+          "delivered": null,
+          "failed": null,
+          "dead_lettered": null,
+          "blocked": null,
+          "error": null,
+          "stderr": "reeflog: error: target #0: dead_letter_after must be a non-negative integer, got 9223372036854775808 (e.g. 5, or 0 to disable)",
+          "ok": true,
+          "verdict": "refused promptly, key and value named"
+        },
+        {
+          "id": "dead-letter-fractional",
+          "kind": "refusal",
+          "value": "1.5",
+          "extra": {
+            "dead_letter_after": "1.5"
+          },
+          "reported": false,
+          "exit": 1,
+          "signal": null,
+          "killed": false,
+          "ms": 9,
+          "delivered": null,
+          "failed": null,
+          "dead_lettered": null,
+          "blocked": null,
+          "error": null,
+          "stderr": "reeflog: error: target #0: dead_letter_after must be a non-negative integer, got 1.5 (e.g. 5, or 0 to disable)",
+          "ok": true,
+          "verdict": "refused promptly, key and value named"
+        },
+        {
+          "id": "guard-default-timeout-bounds",
+          "kind": "bounded",
+          "value": null,
+          "extra": {},
+          "reported": true,
+          "exit": 3,
+          "signal": null,
+          "killed": false,
+          "ms": 5356,
+          "delivered": 0,
+          "failed": 1,
+          "dead_lettered": 0,
+          "blocked": true,
+          "error": "timeout: global",
+          "stderr": "reeflog: 1 target(s) blocked — delivery is at-least-once and in order, so the queue stops at the first failure; the failure is recorded, not swallowed",
+          "ok": true,
+          "verdict": "bounded at 5356 ms"
+        },
+        {
+          "id": "guard-configured-timeout-bounds",
+          "kind": "bounded",
+          "value": null,
+          "extra": {
+            "timeout_ms": "1000"
+          },
+          "reported": true,
+          "exit": 3,
+          "signal": null,
+          "killed": false,
+          "ms": 1039,
+          "delivered": 0,
+          "failed": 1,
+          "dead_lettered": 0,
+          "blocked": true,
+          "error": "timeout: global",
+          "stderr": "reeflog: 1 target(s) blocked — delivery is at-least-once and in order, so the queue stops at the first failure; the failure is recorded, not swallowed",
+          "ok": true,
+          "verdict": "bounded at 1039 ms"
+        },
+        {
+          "id": "guard-ceiling-accepted",
+          "kind": "accepted",
+          "value": null,
+          "extra": {
+            "timeout_ms": "3600000"
+          },
+          "reported": true,
+          "exit": 3,
+          "signal": null,
+          "killed": false,
+          "ms": 12,
+          "delivered": 0,
+          "failed": 1,
+          "dead_lettered": 0,
+          "blocked": true,
+          "error": "io: Broken pipe (os error 32)",
+          "stderr": "reeflog: 1 target(s) blocked — delivery is at-least-once and in order, so the queue stops at the first failure; the failure is recorded, not swallowed",
+          "ok": true,
+          "verdict": "accepted, the delivery failed for its own reason (io: Broken pipe (os error 32))"
+        },
+        {
+          "id": "guard-dead-letter-one-quarantines",
+          "kind": "valve",
+          "value": null,
+          "extra": {
+            "dead_letter_after": "1"
+          },
+          "reported": true,
+          "exit": 3,
+          "signal": null,
+          "killed": false,
+          "ms": 19,
+          "delivered": 0,
+          "failed": 3,
+          "dead_lettered": 3,
+          "blocked": false,
+          "error": null,
+          "stderr": "reeflog: 3 event(s) sit in the dead-letter queue — the queue keeps moving, but these consumers do not hold these events yet; inspect with `reeflog webhook dlq list`",
+          "ok": true,
+          "verdict": "all 3 quarantined on the first refusal, queue moved"
+        },
+        {
+          "id": "guard-dead-letter-zero-disables",
+          "kind": "valve",
+          "value": null,
+          "extra": {
+            "dead_letter_after": "0"
+          },
+          "reported": true,
+          "exit": 3,
+          "signal": null,
+          "killed": false,
+          "ms": 18,
+          "delivered": 0,
+          "failed": 1,
+          "dead_lettered": 0,
+          "blocked": true,
+          "error": "refused with http 403",
+          "stderr": "reeflog: 1 target(s) blocked — delivery is at-least-once and in order, so the queue stops at the first failure; the failure is recorded, not swallowed",
+          "ok": true,
+          "verdict": "the valve stays disabled"
+        }
+      ],
+      "refusals": 11,
+      "refusalCases": 11,
+      "guards": 5,
+      "guardCases": 5
+    }
+  }
+}
