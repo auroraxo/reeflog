@@ -32,6 +32,23 @@
 //! the bare `--anchor-slot` (optional value), the boolean switches and the
 //! global `--help` / `--version` must keep working. A strict parser that
 //! refuses a documented flag is worse than the defect it fixes.
+//!
+//! Value kinds (measured 2026-11-08 on the published v0.7.1 tree):
+//!
+//!   reeflog tail --db p.db --cursor c.txt --limit abc  -> exit 0, the
+//!     DEFAULT limit (1000) was used and every row it held was delivered;
+//!   reeflog tail --db p.db --cursor c.txt --limit -1   -> exit 0, SQL's
+//!     `LIMIT -1` means NO limit at all — the whole journal, delivered;
+//!   reeflog verify --db p.db --pages abc               -> the DEFAULT page
+//!     budget (40) was used and the scan reported itself as if asked for.
+//!
+//! Refusing an unknown FLAG while letting a known flag's VALUE fall back to
+//! the default is the same defect half-fixed: the operator asked for 5 events
+//! and the tool delivered every row it had, with an exit code that says the
+//! run was fine. So the parser also classifies the value it is handed: a
+//! numeric flag must carry a non-negative whole number, and anything else is
+//! refused with the flag and the offending value named — before any journal
+//! is opened, exactly like the flag refusals above.
 
 /// Boolean flags: present or absent, never a value.
 const SWITCHES: &[&str] = &[
@@ -41,6 +58,50 @@ const SWITCHES: &[&str] = &[
     "--no-logs",
     "--with-accounts",
 ];
+
+/// Flags whose value must be a non-negative whole number. `0` stays legal
+/// because several flags document it as "disable this pass"
+/// (`--payload-limit 0`, `--repair-pages 0`); a negative value is refused
+/// because `--limit -1` is not "the last row", it is "no limit at all".
+const NUMERIC: &[&str] = &[
+    "--limit",
+    "--pages",
+    "--seconds",
+    "--since-slot",
+    "--anchor-slot",
+    "--anchor-tries",
+    "--repair-every",
+    "--repair-pages",
+    "--repair-lookback",
+    "--payload-limit",
+    "--seal-every",
+    "--reorg-every",
+    "--reorg-limit",
+    "--reorg-lookback",
+    "--webhook-every",
+    "--webhook-limit",
+    "--owners-batch",
+    "--account-data-batch",
+];
+
+fn is_numeric(flag: &str) -> bool {
+    NUMERIC.contains(&flag)
+}
+
+/// A numeric flag's value: a non-negative whole number, nothing else.
+/// `+5`, `5x`, `abc`, `-1` and the empty string are all refusals — the
+/// parser must never guess what the operator meant by them.
+fn check_numeric_value(flag: &str, value: &str) -> Result<(), String> {
+    if !is_numeric(flag) {
+        return Ok(());
+    }
+    if value.parse::<u64>().is_err() {
+        return Err(format!(
+            "flag {flag} expects a non-negative whole number, got `{value}` — not a number (e.g. {flag} 10)"
+        ));
+    }
+    Ok(())
+}
 
 /// Flags whose value may be omitted; the bare form is a documented meaning
 /// of its own (`--anchor-slot` = anchor at the journal's own window).
@@ -178,10 +239,14 @@ pub fn normalize(allowed: &'static [&'static str], tokens: &[String]) -> Result<
         if is_optional_value(flag) {
             out.push(flag.to_string());
             match inline {
-                Some(v) if !v.is_empty() => out.push(v),
+                Some(v) if !v.is_empty() => {
+                    check_numeric_value(flag, &v)?;
+                    out.push(v)
+                }
                 Some(_) => return Err(format!("flag {flag} needs a value")),
                 None => {
                     if let Some(v) = optional_value_consume(tokens, i) {
+                        check_numeric_value(flag, &v)?;
                         out.push(v);
                         i += 1;
                     }
@@ -204,6 +269,7 @@ pub fn normalize(allowed: &'static [&'static str], tokens: &[String]) -> Result<
                 _ => return Err(format!("flag {flag} needs a value")),
             },
         };
+        check_numeric_value(flag, &value)?;
         out.push(flag.to_string());
         out.push(value);
         i += 1;
