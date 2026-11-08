@@ -1,0 +1,65 @@
+{
+  "measuredAt": "2026-11-08T10:55:00Z",
+  "tag": "v0.7.3",
+  "method": "asset downloaded from published release v0.7.3 via authenticated gh CLI (anonymous API 504 during measurement window), sha256 verified against published release digest, binary extracted into fresh /tmp/stranger-073 and run against planted 1200-row journal",
+  "asset": {
+    "name": "reeflog-linux-amd64.tar.gz",
+    "size": 2918445,
+    "publishedSha256": "cece36682952f9dfe3d70bf810cdb0cfc4f0f855d64a99882256a85e7dee07df",
+    "localSha256": "cece36682952f9dfe3d70bf810cdb0cfc4f0f855d64a99882256a85e7dee07df",
+    "match": true
+  },
+  "binary": {
+    "version": "reeflog 0.7.3",
+    "sizeBytes": 7030936
+  },
+  "cases": [
+    {
+      "name": "limit u64max",
+      "exit": 1,
+      "rows": 0,
+      "refused": true,
+      "errHead": "reeflog: error: flag --limit expects a non-negative whole number no greater than 9223372036854775807"
+    },
+    {
+      "name": "limit i64max+1",
+      "exit": 1,
+      "rows": 0,
+      "refused": true,
+      "errHead": "reeflog: error: flag --limit expects a non-negative whole number no greater than 9223372036854775807"
+    },
+    {
+      "name": "since-slot i64max+1",
+      "exit": 1,
+      "rows": 0,
+      "refused": true,
+      "errHead": "reeflog: error: flag --since-slot expects a non-negative whole number no greater than 9223372036854775807"
+    },
+    {
+      "name": "seconds unschedulable",
+      "exit": 1,
+      "rows": 0,
+      "refused": true,
+      "errHead": "reeflog: error: flag --seconds expects a delay this clock can schedule, got `9223372036854775807`"
+    },
+    {
+      "name": "GUARD limit 5",
+      "exit": 0,
+      "rows": 5,
+      "refused": false
+    },
+    {
+      "name": "GUARD limit 0",
+      "exit": 0,
+      "rows": 0,
+      "refused": false
+    },
+    {
+      "name": "GUARD limit i64max",
+      "exit": 0,
+      "rows": 1200,
+      "refused": false
+    }
+  ],
+  "verdict": "all 7 cases hold on published v0.7.3 linux-amd64 binary: 4/4 domain violations refused (0 rows, exit 1), 3/3 guards accepted (exact rows delivered)"
+}
