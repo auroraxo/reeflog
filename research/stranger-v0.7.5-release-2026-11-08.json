@@ -1,0 +1,57 @@
+{
+  "measuredAt": "2026-11-08",
+  "what": "the published v0.7.5 release, reached the way a stranger reaches it: GitHub release asset + empty-app npm install",
+  "tag": "v0.7.5",
+  "releaseUrl": "https://github.com/auroraxo/reeflog/releases/tag/v0.7.5",
+  "assets": [
+    {
+      "name": "reeflog-linux-amd64.tar.gz",
+      "sha256": "8d38b9a8aef36501120903b6215fa27ee93d4b103f1d9ffb214a06d9e770b09f",
+      "digestMatchesApi": true
+    },
+    {
+      "name": "reeflog-macos-arm64.tar.gz",
+      "sha256": "f5420c9c6e2e3eb697200c6bbb8b994160bd4d97b642fe19365425e6b20253b5",
+      "digestMatchesApi": true
+    }
+  ],
+  "linux": {
+    "version": "reeflog 0.7.5"
+  },
+  "darwin": {
+    "archive": "tar -t -> exactly one entry (reeflog)",
+    "file": "Mach-O 64-bit arm64 executable",
+    "containsVersion": "0.7.5",
+    "executed": false,
+    "note": "this host is linux-x64; the macOS asset is integrity-checked only, not executed"
+  },
+  "domainCases": {
+    "source": "research/stranger-v0.7.5-config-2026-11-08.json",
+    "measuredWith": "node tools/measure-webhook-config-domain.mjs --fixed <downloaded release asset binary>",
+    "baseline": "git archive v0.7.4 -> 0/11 refusals, 5/5 guards, 3 cases had to be KILLED",
+    "publishedAsset": "11/11 refusals, 5/5 guards, 0 killed"
+  },
+  "emptyApp": {
+    "steps": [
+      "mkdir empty dir",
+      "npm init -y",
+      "npm install github:auroraxo/reeflog#v0.7.5",
+      "import { bootstrap } from 'reeflog-client'; await bootstrap()"
+    ],
+    "bootstrap": {
+      "bin": "<install dir>/reeflog",
+      "cached": false,
+      "binNote": "the install directory is the caller's own; the path is not recorded in this artifact on purpose"
+    },
+    "installedVersion": "reeflog 0.7.5",
+    "refusalThroughInstalledBinary": {
+      "config": "timeout_ms 18446744073709551615",
+      "exit": 1,
+      "stderr": "reeflog: error: target #0: timeout_ms must not exceed 3600000 ms (1 hour), got 18446744073709551615 \u2014 out of domain",
+      "namesKey": true,
+      "namesExactValue": true,
+      "note": "the value is echoed EXACTLY as written \u2014 no f64 rounding"
+    }
+  },
+  "hostPathInArtifact": false
+}
