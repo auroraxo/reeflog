@@ -32,7 +32,7 @@ Fix `af40ee5` restores the flag; CI run `41342130779` and Release run
 
 ## Stranger proof: install from the tag, then real mainnet ingest
 
-Fresh empty directory (`/tmp/reeflog-stranger`, throwaway; no checkout, no
+Fresh empty directory (`<tmp>/reeflog-stranger`, throwaway; no checkout, no
 reeflog sources, no PATH entry):
 
 ```bash

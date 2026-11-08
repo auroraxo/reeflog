@@ -2,7 +2,7 @@
   "generatedAt": "2026-11-07T20:06:37Z",
   "what": "npm install from the published git tag into an empty directory — the install path the README documents",
   "command": "npm install github:auroraxo/reeflog#v0.6.0",
-  "dir": "/tmp/rl-tag-install (empty before install)",
+  "dir": "<tmp>/rl-tag-install (empty before install)",
   "result": {
     "install_exit": 0,
     "installed": "reeflog-client@0.6.0",
@@ -15,6 +15,6 @@
     "resume_at_seq": 6,
     "no_replay": true
   },
-  "journal": "/tmp/rl-live/live.db — real mainnet Raydium AMM v4 journal from a live 'reeflog start --seconds 60' run this session (1,183 events)",
+  "journal": "<tmp>/rl-live/live.db — real mainnet Raydium AMM v4 journal from a live 'reeflog start --seconds 60' run this session (1,183 events)",
   "limits": "the binary was on PATH-less host, so the smoke passed an explicit bin path to the local release build; a stranger without the cargo-installed binary gets the client's install hint (the ENOENT path, covered by test/client.test.mjs). One run, one machine, one journal shape; no third party has used this yet."
 }

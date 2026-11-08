@@ -15,7 +15,7 @@
 
   "falsification_of_the_derivation_live_before_landing": {
     "method": "For each live signature: fetch the same transaction in encoding json (what reeflog stores) and encoding jsonParsed (the RPC's own permissions), derive flags from (header + meta.loadedAddresses groups) exactly as a json consumer must, compare position by position.",
-    "probe": "probe5 (tools/ephemeral, /tmp/probe5.mjs), backoff-hardened against public-endpoint throttling",
+    "probe": "probe5 (tools/ephemeral, <tmp>/probe5.mjs), backoff-hardened against public-endpoint throttling",
     "result": {
       "transactions": 8,
       "programs": ["675kPX9MHTjS2zt1qfr1NYHuzeLXfQM9H24wFSUt1Mp8", "JUP6LkbZbjS1jKKwapdHNy74zcZ3tLUZoi5QNyVTaV4"],

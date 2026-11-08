@@ -34,6 +34,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { reeflog, ReeflogError } from '../index.js';
 
+const ROOT = process.cwd();
 const BIN = process.env.BIN || path.resolve('target/release/reeflog');
 const DB = process.env.DB || '/tmp/rl-live/live.db';
 const OUT = process.env.OUT || path.resolve('research/client-live-e2e-2026-11-07.json');
@@ -155,7 +156,9 @@ const failed = checks.filter((c) => !c.ok);
 const status = await box.status();
 const report = {
   generatedAt: new Date().toISOString(),
-  binary: BIN, journal: DB,
+  // Committed artifact: repo-relative binary path, no host directory names.
+  binary: BIN.startsWith(ROOT + path.sep) ? path.relative(ROOT, BIN) : path.basename(BIN),
+  journal: path.basename(DB),
   journalEvents: status.events,
   journalMaxSeq: status.max_seq,
   checks,

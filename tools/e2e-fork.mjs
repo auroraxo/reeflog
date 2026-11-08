@@ -84,9 +84,15 @@ const REPORT = process.env.REEFLOG_FORK_REPORT || path.join(ROOT, 'research', 'f
 const TX_OPTS = { encoding: 'json', maxSupportedTransactionVersion: 1, commitment: 'finalized' };
 
 const results = [];
+// Details come from real command stdout, which names the temp dir the run
+// uses. The report is committed: strip the host prefix so a fresh run cannot
+// put a host path back into research/.
+const scrubDetail = (d) => (typeof d === 'string'
+  ? d.split(DIR).join('<tmp>/').split(os.tmpdir() + '/').join('<tmp>/')
+  : d);
 const check = (name, pass, detail) => {
   const p = !!pass;
-  results.push({ name, pass: p, detail: detail ?? null });
+  results.push({ name, pass: p, detail: scrubDetail(detail ?? null) });
   console.log(`${p ? 'PASS' : 'FAIL'} ${name}${detail ? ` — ${detail}` : ''}`);
 };
 
@@ -842,7 +848,9 @@ try {
     reorg_check_intact_chain: pre.json,
     reorg_check_after_fork: post.json,
     journal_status: statusFinal.json,
-    ledger_dir: DIR,
+    // Committed artifact: the ledger lives in a temp dir on the measuring
+    // machine, so record its name only, never the host path.
+    ledger_dir: path.basename(DIR),
     daemon_seconds: DAEMON_SECONDS,
   };
 } catch (e) {

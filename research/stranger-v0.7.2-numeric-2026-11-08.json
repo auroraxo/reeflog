@@ -3,7 +3,7 @@
   "claim": "the published v0.7.2 tag, installed by a stranger path (npm install github:auroraxo/reeflog#v0.7.2 into an empty directory + bootstrap()), refuses a non-numeric or negative flag VALUE before opening or creating anything",
   "install": {
     "command": "npm install github:auroraxo/reeflog#v0.7.2 (empty dir) -> import { bootstrap } from 'reeflog-client'; await bootstrap()",
-    "binary": "/home/aurora/.reeflog/reeflog",
+    "binary": "~/.reeflog/reeflog",
     "binarySha256": "3d5a4d67676617753216950187bbe2e75d6cf44d83c53c37b0493ba36caa7721",
     "versionOutput": "reeflog 0.7.2"
   },

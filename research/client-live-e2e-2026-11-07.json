@@ -1,7 +1,7 @@
 {
   "generatedAt": "2026-11-07T19:58:52.791Z",
-  "binary": "/home/aurora/github_repos/reeflog/target/release/reeflog",
-  "journal": "/tmp/rl-live/live.db",
+  "binary": "target/release/reeflog",
+  "journal": "<tmp>/rl-live/live.db",
   "journalEvents": 1183,
   "journalMaxSeq": 1183,
   "checks": [

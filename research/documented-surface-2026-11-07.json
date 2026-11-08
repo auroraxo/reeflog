@@ -1,7 +1,7 @@
 {
   "measuredAt": "2026-11-07T21:58:33.487Z",
   "readme": "README.md",
-  "binary": "/home/aurora/github_repos/reeflog/target/release/reeflog",
+  "binary": "target/release/reeflog",
   "binaryVersion": "reeflog 0.7.1",
   "documentedLines": 26,
   "invocationsRun": 44,

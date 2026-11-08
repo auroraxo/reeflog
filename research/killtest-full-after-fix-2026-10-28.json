@@ -9,7 +9,7 @@
     "GRACE_S": 20,
     "rpc": "https://api.mainnet-beta.solana.com",
     "ws": "wss://api.mainnet-beta.solana.com",
-    "bin": "/home/aurora/github_repos/reeflog/target/release/reeflog"
+    "bin": "target/release/reeflog"
   },
   "kills": [
     {

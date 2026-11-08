@@ -161,7 +161,9 @@ const defects = results.filter((r) => r.flagDefect);
 const report = {
   measuredAt: new Date().toISOString(),
   readme: path.relative(ROOT, README),
-  binary: BIN,
+// The artifact is committed: record paths the machine cannot be recovered
+  // from (repo-relative when the binary lives in this repo, bare name otherwise).
+  binary: BIN.startsWith(ROOT + path.sep) ? path.relative(ROOT, BIN) : path.basename(BIN),
   binaryVersion: (() => {
     try { return execFileSync(BIN, ['--version'], { encoding: 'utf8' }).trim(); } catch { return null; }
   })(),

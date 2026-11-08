@@ -16,7 +16,7 @@
     {
       "name": "journal_initialized",
       "pass": true,
-      "detail": "initialized /tmp/reeflog-fork-e2e/reeflog.db for program 11111111111111111111111111111111"
+      "detail": "initialized <tmp>/reeflog-fork-e2e/reeflog.db for program 11111111111111111111111111111111"
     },
     {
       "name": "survivor_transaction_sent",
@@ -329,7 +329,7 @@
       "unsealed": 0,
       "with_err": 0
     },
-    "ledger_dir": "/tmp/reeflog-fork-e2e",
+    "ledger_dir": "<tmp>/reeflog-fork-e2e",
     "daemon_seconds": 60
   },
   "verdict": "passed",
