@@ -49,6 +49,38 @@
 //! numeric flag must carry a non-negative whole number, and anything else is
 //! refused with the flag and the offending value named — before any journal
 //! is opened, exactly like the flag refusals above.
+//!
+//! The next layer up (measured 2026-11-08 on the published v0.7.2 tree,
+//! 1200 planted rows): "a non-negative whole number" is not one number
+//! space. The CHECKER parses `u64`, the CONSUMERS parse `i64` or add the
+//! value to a clock, so values that sat inside the checker's space and
+//! outside the consumer's space fell straight back into the same silent
+//! default — the exact defect this parser claims to close, one layer up:
+//!
+//!   reeflog tail --limit 18446744073709551615   -> exit 0, 1000 rows (the
+//!     DEFAULT limit): the `i64` parse failed and the failure became the
+//!     default;
+//!   reeflog verify --since-slot 9223372036854775808
+//!                                                -> exit 3 with
+//!     `"since_slot": null` — the operator's window was DROPPED and the
+//!     scan ran over a different window than the one asked for;
+//!   reeflog start --seconds 18446744073709551615
+//!                                                -> panic "overflow when
+//!     adding duration to instant" (src/main.rs:534);
+//!   reeflog start --repair-every 18446744073709551615
+//!                                                -> the scheduler panics
+//!     on the runtime worker (main.rs:657) while main awaits a deadline
+//!     that never comes: the daemon HANGS instead of refusing.
+//!
+//! So the value is checked against the domain its CONSUMER uses:
+//!
+//! * every numeric flag must fit signed 64-bit — the narrowest consumer
+//!   space (SQLite's LIMIT binds i64, slot arithmetic is i64);
+//! * a cadence in seconds must additionally be schedulable on this clock:
+//!   `Instant::now() + Duration` has a finite range and a value outside it
+//!   is a panic or a hang, not a schedule;
+//! * either way the refusal names the flag, the value and the reason,
+//!   before any journal is opened.
 
 /// Boolean flags: present or absent, never a value.
 const SWITCHES: &[&str] = &[
@@ -88,16 +120,54 @@ fn is_numeric(flag: &str) -> bool {
     NUMERIC.contains(&flag)
 }
 
-/// A numeric flag's value: a non-negative whole number, nothing else.
-/// `+5`, `5x`, `abc`, `-1` and the empty string are all refusals — the
-/// parser must never guess what the operator meant by them.
+/// Cadence flags: the value is a count of SECONDS that gets added to a clock
+/// (`Instant::now() + Duration::from_secs(v)`), so it must not only parse —
+/// it must be schedulable. Everything else is a count/slot/index, bounded by
+/// the signed 64-bit space its consumer binds into.
+const DURATION_FLAGS: &[&str] = &[
+    "--seconds",
+    "--repair-every",
+    "--seal-every",
+    "--reorg-every",
+    "--webhook-every",
+];
+
+/// The largest count/slot value a consumer can hold: SQLite's LIMIT binds
+/// i64, slots are i64, and the `parse::<i64>` calls in main.rs have this as
+/// their natural ceiling. The checker used to accept up to `u64::MAX`, and
+/// everything above this line silently became the consumer's default.
+const MAX_COUNT: u64 = i64::MAX as u64;
+
+/// A numeric flag's value: a non-negative whole number INSIDE the domain the
+/// consumer uses, nothing else. `+5`, `5x`, `abc`, `-1` and the empty string
+/// are refusals — the parser must never guess what the operator meant by
+/// them. A number outside the consumer's space is the same refusal class:
+/// accepting it only moves the guess to the consumer, where it becomes a
+/// default (the operator asked for everything and got 1000 rows) or a panic.
 fn check_numeric_value(flag: &str, value: &str) -> Result<(), String> {
     if !is_numeric(flag) {
         return Ok(());
     }
-    if value.parse::<u64>().is_err() {
+    let n = match value.parse::<u64>() {
+        Ok(n) => n,
+        Err(_) => {
+            return Err(format!(
+                "flag {flag} expects a non-negative whole number, got `{value}` — not a number (e.g. {flag} 10)"
+            ));
+        }
+    };
+    if n > MAX_COUNT {
         return Err(format!(
-            "flag {flag} expects a non-negative whole number, got `{value}` — not a number (e.g. {flag} 10)"
+            "flag {flag} expects a non-negative whole number no greater than {MAX_COUNT}, got `{value}` — out of range for this flag (e.g. {flag} 10)"
+        ));
+    }
+    if DURATION_FLAGS.contains(&flag)
+        && std::time::Instant::now()
+            .checked_add(std::time::Duration::from_secs(n))
+            .is_none()
+    {
+        return Err(format!(
+            "flag {flag} expects a delay this clock can schedule, got `{value}` — too large to add to the current time (e.g. {flag} 30)"
         ));
     }
     Ok(())

@@ -84,6 +84,19 @@ refused **before** any journal is opened or created:
   keeps its documented meaning. Measured against the published v0.7.1 binary:
   4/10 cases behaved as specified, 2 "refusals" delivered 650 rows anyway —
   `research/numeric-flag-values-2026-11-08.json`;
+- a numeric flag whose value is a number the CONSUMER cannot hold is also
+  refused, naming the flag and the value (`flag --limit expects a
+  non-negative whole number no greater than 9223372036854775807, got
+  `18446744073709551615``) — and a cadence in seconds must be one this
+  clock can schedule. "A non-negative whole number" is not one number
+  space: until 2026-11-08 the checker accepted `u64` while consumers parse
+  `i64` or add to a clock, so `tail --limit 18446744073709551615` delivered
+  the DEFAULT limit (1000 rows, exit 0), `verify --since-slot
+  9223372036854775808` dropped the window and scanned a different one, and
+  `start --seconds 18446744073709551615` panicked while `start
+  --repair-every …` hung. Measured against the published v0.7.2 binary:
+  4/11 cases behaved as specified (2 silent defaults, 3 panics, 1 hang) →
+  11/11 — `research/numeric-flag-domain-2026-11-08.json`;
 - an argument that is not a flag is refused;
 - `--flag=value` is honoured instead of falling back to the default;
 - `--anchor-slot` keeps its documented **optional** value (bare = anchor at
