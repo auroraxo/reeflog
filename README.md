@@ -5,7 +5,7 @@ they did to account balances for selected programs into a cursor-addressed
 append-only log, so a consumer resumes without gaps after a crash,
 disconnect, or reorg.
 
-**Status: v0.7.1 shipped (2026-11-07), v0 working.** Live against mainnet-beta: see *Measured results* below. Install the binary without a Rust toolchain: `npm install github:auroraxo/reeflog#v0.7.1` then `import { bootstrap } from 'reeflog-client'; await bootstrap()` (downloads the prebuilt release archive and verifies its sha256). Or from source: `cargo install --git https://github.com/auroraxo/reeflog --tag v0.7.1`. The full event envelope (logs, balances, instructions, account list with owners, the bytes each account held, and the authority each token account had at the moment of the event), the Node client (see *The Node client*), webhook fan-out, a dead-letter queue, and archive backfill ship in this tree; Yellowstone as a second transport does not.
+**Status: v0.7.2 shipped (2026-11-08), v0 working.** Live against mainnet-beta: see *Measured results* below. Install the binary without a Rust toolchain: `npm install github:auroraxo/reeflog#v0.7.2` then `import { bootstrap } from 'reeflog-client'; await bootstrap()` (downloads the prebuilt release archive and verifies its sha256). Or from source: `cargo install --git https://github.com/auroraxo/reeflog --tag v0.7.2`. The full event envelope (logs, balances, instructions, account list with owners, the bytes each account held, and the authority each token account had at the moment of the event), the Node client (see *The Node client*), webhook fan-out, a dead-letter queue, and archive backfill ship in this tree; Yellowstone as a second transport does not.
 
 ## The idea
 
@@ -74,6 +74,16 @@ refused **before** any journal is opened or created:
 - a flag that lost its value is refused — including when the "value" is
   another flag (`--db --program` must not become a path called `--program`);
 - a flag given twice is refused rather than silently resolved;
+- a numeric flag whose value is not a non-negative whole number is refused,
+  naming the flag and the value (`flag --limit expects a non-negative whole
+  number, got `abc``) — before any journal is opened. Until 2026-11-08 an
+  unparseable value silently became the DEFAULT: `tail --limit abc` delivered
+  every row, and `tail --limit -1` delivered every row *twice as unbounded*,
+  because SQLite reads `LIMIT -1` as "no limit". `0` stays legal (several
+  flags document it as "disable this pass"), and the bare `--anchor-slot`
+  keeps its documented meaning. Measured against the published v0.7.1 binary:
+  4/10 cases behaved as specified, 2 "refusals" delivered 650 rows anyway —
+  `research/numeric-flag-values-2026-11-08.json`;
 - an argument that is not a flag is refused;
 - `--flag=value` is honoured instead of falling back to the default;
 - `--anchor-slot` keeps its documented **optional** value (bare = anchor at
@@ -1009,7 +1019,7 @@ the `reeflog` binary, so there is exactly one implementation of the reader
 contract, and a library's idea of the schema cannot drift from the daemon's.
 
 ```bash
-npm install github:auroraxo/reeflog#v0.7.1   # the client ships from this repo
+npm install github:auroraxo/reeflog#v0.7.2   # the client ships from this repo
 ```
 
 The client needs the `reeflog` binary. `bootstrap()` gets it **without a
