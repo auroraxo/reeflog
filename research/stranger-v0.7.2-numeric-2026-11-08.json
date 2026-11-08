@@ -1,0 +1,54 @@
+{
+  "generatedAt": "2026-11-08T02:23:00Z",
+  "claim": "the published v0.7.2 tag, installed by a stranger path (npm install github:auroraxo/reeflog#v0.7.2 into an empty directory + bootstrap()), refuses a non-numeric or negative flag VALUE before opening or creating anything",
+  "install": {
+    "command": "npm install github:auroraxo/reeflog#v0.7.2 (empty dir) -> import { bootstrap } from 'reeflog-client'; await bootstrap()",
+    "binary": "/home/aurora/.reeflog/reeflog",
+    "binarySha256": "3d5a4d67676617753216950187bbe2e75d6cf44d83c53c37b0493ba36caa7721",
+    "versionOutput": "reeflog 0.7.2"
+  },
+  "setup": {
+    "journal": "fresh init in an empty directory, 650 seeded rows (insert through the journal's own table)",
+    "rowsSeeded": 650
+  },
+  "cases": [
+    {
+      "case": "tail --limit abc",
+      "expected": "refusal naming the flag and the value, exit != 0, no cursor created",
+      "observed": "exit 1, stderr: reeflog: error: flag --limit expects a non-negative whole number, got `abc` — not a number (e.g. --limit 10)",
+      "cursorFile": "not created",
+      "rowsDelivered": 0,
+      "ok": true
+    },
+    {
+      "case": "tail --limit -1",
+      "expected": "refusal (SQLite reads LIMIT -1 as UNLIMITED; the default was every row)",
+      "observed": "exit 1, stderr names --limit and -1, 0 lines of output",
+      "cursorFile": "not created",
+      "rowsDelivered": 0,
+      "ok": true
+    },
+    {
+      "case": "tail --limit 5 (guard: a legal value must keep working)",
+      "expected": "exit 0, exactly 5 rows, cursor advanced to 5",
+      "observed": "exit 0, '5 events after cursor 0 -> cursor now 5', 5 rows, cursor file c3.txt created",
+      "cursorFile": "created, value 5",
+      "rowsDelivered": 5,
+      "ok": true
+    }
+  ],
+  "baseline": {
+    "note": "the same cases against the published v0.7.1 binary are measured in research/numeric-flag-values-2026-11-08.json: baseline 4/10 cases behave as specified, 2 'refusals' delivered all 650 rows",
+    "artifact": "research/numeric-flag-values-2026-11-08.json"
+  },
+  "summary": {
+    "cases": 3,
+    "ok": 3,
+    "verdict": "pass"
+  },
+  "limits": [
+    "one host, one account, own measurement (no third-party run)",
+    "npm package 'reeflog-client' is still not published to the npm registry (ENEEDAUTH); the stranger path is the GitHub install",
+    "the value check covers values that reach the flag parser; values coming from configuration are not covered"
+  ]
+}
