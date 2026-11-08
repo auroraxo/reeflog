@@ -1,5 +1,5 @@
 {
-  "measuredAt": "2026-11-08T10:56:31.222Z",
+  "measuredAt": "2026-11-08T16:27:31.408Z",
   "readme": "README.md",
   "binary": "/home/aurora/github_repos/reeflog/target/release/reeflog",
   "binaryVersion": "reeflog 0.7.3",
@@ -30,8 +30,8 @@
     {
       "line": 27,
       "command": "reeflog seal --db reeflog.db",
-      "exitCode": 0,
-      "timedOut": false,
+      "exitCode": null,
+      "timedOut": true,
       "accepted": true,
       "flagDefect": false,
       "stderr": ""
@@ -43,7 +43,7 @@
       "timedOut": false,
       "accepted": true,
       "flagDefect": false,
-      "stderr": "reeflog: 79 events after cursor 0 → cursor now 79"
+      "stderr": "reeflog: 602 events after cursor 0 → cursor now 602"
     },
     {
       "line": 29,
@@ -145,7 +145,7 @@
       "stderr": "reeflog: error: config read: No such file or directory (os error 2)"
     },
     {
-      "line": 981,
+      "line": 1011,
       "command": "reeflog init --db reeflog.db --program whirLbMiicVdio4qvUfM5KAg6Ct8VwpYzGff3uctyCc",
       "exitCode": 0,
       "timedOut": false,
@@ -154,7 +154,7 @@
       "stderr": ""
     },
     {
-      "line": 982,
+      "line": 1012,
       "command": "reeflog start --db reeflog.db --seconds 60 --repair-every 30 --repair-lookback 1800 --repair-pages 40 --payload-limit 500",
       "exitCode": null,
       "timedOut": true,
@@ -163,7 +163,7 @@
       "stderr": ""
     },
     {
-      "line": 982,
+      "line": 1012,
       "command": "reeflog start --db reeflog.db --seconds 60 --repair-every 30 --repair-lookback 1800 --repair-pages 40",
       "exitCode": null,
       "timedOut": true,
@@ -172,7 +172,7 @@
       "stderr": ""
     },
     {
-      "line": 982,
+      "line": 1012,
       "command": "reeflog start --db reeflog.db --seconds 60 --repair-every 30 --repair-lookback 1800 --payload-limit 500",
       "exitCode": null,
       "timedOut": true,
@@ -181,7 +181,7 @@
       "stderr": ""
     },
     {
-      "line": 982,
+      "line": 1012,
       "command": "reeflog start --db reeflog.db --seconds 60 --repair-every 30 --repair-lookback 1800",
       "exitCode": null,
       "timedOut": true,
@@ -190,7 +190,7 @@
       "stderr": ""
     },
     {
-      "line": 982,
+      "line": 1012,
       "command": "reeflog start --db reeflog.db --seconds 60 --repair-every 30 --repair-pages 40 --payload-limit 500",
       "exitCode": null,
       "timedOut": true,
@@ -199,7 +199,7 @@
       "stderr": ""
     },
     {
-      "line": 982,
+      "line": 1012,
       "command": "reeflog start --db reeflog.db --seconds 60 --repair-every 30 --repair-pages 40",
       "exitCode": null,
       "timedOut": true,
@@ -208,7 +208,7 @@
       "stderr": ""
     },
     {
-      "line": 982,
+      "line": 1012,
       "command": "reeflog start --db reeflog.db --seconds 60 --repair-every 30 --payload-limit 500",
       "exitCode": null,
       "timedOut": true,
@@ -217,7 +217,7 @@
       "stderr": ""
     },
     {
-      "line": 982,
+      "line": 1012,
       "command": "reeflog start --db reeflog.db --seconds 60 --repair-every 30",
       "exitCode": null,
       "timedOut": true,
@@ -226,7 +226,7 @@
       "stderr": ""
     },
     {
-      "line": 982,
+      "line": 1012,
       "command": "reeflog start --db reeflog.db --seconds 60 --repair-lookback 1800 --repair-pages 40 --payload-limit 500",
       "exitCode": null,
       "timedOut": true,
@@ -235,7 +235,7 @@
       "stderr": ""
     },
     {
-      "line": 982,
+      "line": 1012,
       "command": "reeflog start --db reeflog.db --seconds 60 --repair-lookback 1800 --repair-pages 40",
       "exitCode": null,
       "timedOut": true,
@@ -244,7 +244,7 @@
       "stderr": ""
     },
     {
-      "line": 982,
+      "line": 1012,
       "command": "reeflog start --db reeflog.db --seconds 60 --repair-lookback 1800 --payload-limit 500",
       "exitCode": null,
       "timedOut": true,
@@ -253,7 +253,7 @@
       "stderr": ""
     },
     {
-      "line": 982,
+      "line": 1012,
       "command": "reeflog start --db reeflog.db --seconds 60 --repair-lookback 1800",
       "exitCode": null,
       "timedOut": true,
@@ -262,7 +262,7 @@
       "stderr": ""
     },
     {
-      "line": 982,
+      "line": 1012,
       "command": "reeflog start --db reeflog.db --seconds 60 --repair-pages 40 --payload-limit 500",
       "exitCode": null,
       "timedOut": true,
@@ -271,7 +271,7 @@
       "stderr": ""
     },
     {
-      "line": 982,
+      "line": 1012,
       "command": "reeflog start --db reeflog.db --seconds 60 --repair-pages 40",
       "exitCode": null,
       "timedOut": true,
@@ -280,7 +280,7 @@
       "stderr": ""
     },
     {
-      "line": 982,
+      "line": 1012,
       "command": "reeflog start --db reeflog.db --seconds 60 --payload-limit 500",
       "exitCode": null,
       "timedOut": true,
@@ -289,7 +289,7 @@
       "stderr": ""
     },
     {
-      "line": 982,
+      "line": 1012,
       "command": "reeflog start --db reeflog.db --seconds 60",
       "exitCode": null,
       "timedOut": true,
@@ -298,52 +298,52 @@
       "stderr": ""
     },
     {
-      "line": 985,
+      "line": 1015,
       "command": "reeflog seal --db reeflog.db",
-      "exitCode": 0,
-      "timedOut": false,
+      "exitCode": null,
+      "timedOut": true,
       "accepted": true,
       "flagDefect": false,
       "stderr": ""
     },
     {
-      "line": 986,
+      "line": 1016,
       "command": "reeflog verify --db reeflog.db --pages 400 --anchor-slot 1",
-      "exitCode": 3,
-      "timedOut": false,
+      "exitCode": null,
+      "timedOut": true,
       "accepted": true,
       "flagDefect": false,
-      "stderr": "reeflog: verify INCOMPLETE (error=None, truncated=true, pages=0) — the scan proves nothing about the journal's completeness"
+      "stderr": ""
     },
     {
-      "line": 986,
+      "line": 1016,
       "command": "reeflog verify --db reeflog.db --pages 400",
-      "exitCode": 0,
-      "timedOut": false,
+      "exitCode": null,
+      "timedOut": true,
       "accepted": true,
       "flagDefect": false,
       "stderr": ""
     },
     {
-      "line": 987,
+      "line": 1017,
       "command": "reeflog repair --db reeflog.db --pages 400 --anchor-slot 1",
-      "exitCode": 3,
-      "timedOut": false,
-      "accepted": true,
-      "flagDefect": false,
-      "stderr": "reeflog: repair pass INCOMPLETE — the journal may still hold holes"
-    },
-    {
-      "line": 987,
-      "command": "reeflog repair --db reeflog.db --pages 400",
-      "exitCode": 0,
-      "timedOut": false,
+      "exitCode": null,
+      "timedOut": true,
       "accepted": true,
       "flagDefect": false,
       "stderr": ""
     },
     {
-      "line": 988,
+      "line": 1017,
+      "command": "reeflog repair --db reeflog.db --pages 400",
+      "exitCode": null,
+      "timedOut": true,
+      "accepted": true,
+      "flagDefect": false,
+      "stderr": ""
+    },
+    {
+      "line": 1018,
       "command": "reeflog hydrate --db reeflog.db --limit 500",
       "exitCode": null,
       "timedOut": true,
@@ -352,7 +352,7 @@
       "stderr": ""
     },
     {
-      "line": 988,
+      "line": 1018,
       "command": "reeflog hydrate --db reeflog.db",
       "exitCode": null,
       "timedOut": true,
@@ -361,7 +361,7 @@
       "stderr": ""
     },
     {
-      "line": 989,
+      "line": 1019,
       "command": "reeflog hydrate --db reeflog.db --accounts",
       "exitCode": null,
       "timedOut": true,
@@ -370,7 +370,7 @@
       "stderr": ""
     },
     {
-      "line": 990,
+      "line": 1020,
       "command": "reeflog hydrate --db reeflog.db --owners",
       "exitCode": null,
       "timedOut": true,
@@ -379,16 +379,16 @@
       "stderr": ""
     },
     {
-      "line": 991,
+      "line": 1021,
       "command": "reeflog tail --db reeflog.db --cursor ./c.txt",
       "exitCode": 0,
       "timedOut": false,
       "accepted": true,
       "flagDefect": false,
-      "stderr": "reeflog: 1000 events after cursor 79 → cursor now 1079"
+      "stderr": "reeflog: 1000 events after cursor 602 → cursor now 1602"
     },
     {
-      "line": 992,
+      "line": 1022,
       "command": "reeflog webhook push --db reeflog.db --config webhooks.json",
       "exitCode": 1,
       "timedOut": false,
@@ -397,7 +397,7 @@
       "stderr": "reeflog: error: config read: No such file or directory (os error 2)"
     },
     {
-      "line": 993,
+      "line": 1023,
       "command": "reeflog status --db reeflog.db",
       "exitCode": 0,
       "timedOut": false,

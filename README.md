@@ -975,6 +975,36 @@ They need different tools, and conflating them is how a "we never lose events" c
 
 A walk that is cut short is reported as truncated, the gap stays **open**, and the command exits non-zero. A partially filled gap is never presented as filled, and a scan that read nothing cannot report `missing_count: 0` as if it had checked.
 
+## The cursor file is read strictly
+
+The cursor file is state the consumer owns, and it never passes through the
+flag parser — so the numeric-flag gate (v0.7.2, v0.7.3) never saw it.
+Measured 2026-11-08 against the published v0.7.3 binary with 20 planted rows,
+one cursor file per case (`research/cursor-state-2026-11-08.json`):
+
+| What the existing cursor file held | v0.7.3 did | Now |
+|---|---|---|
+| `abc` | exit 0, **all 20 rows replayed**, file overwritten | refused, 0 rows, file untouched |
+| `9223372036854775808` (outside i64) | exit 0, all 20 rows replayed | refused, 0 rows |
+| `-1` | exit 0, all 20 rows replayed | refused, 0 rows |
+| empty (what a truncate-then-crash leaves) | exit 0, all 20 rows replayed | refused, 0 rows |
+| `15.0` | exit 0, all 20 rows replayed | refused, 0 rows |
+| **missing** (a first run) | exit 0, 20 rows | unchanged — that is the documented start |
+| `0` (a deliberate rewind) | exit 0, 20 rows | unchanged |
+| `15` (resume) | exit 0, 5 rows | unchanged |
+
+`read_cursor` was `.ok().and_then(parse).unwrap_or(0)`: every way an
+existing cursor file can fail to carry a cursor collapsed into "start from
+the beginning", delivered in full, with an exit code that says the run was
+fine. The consumer's central promise — *resumes exactly where it stopped* —
+is not a promise a silent restart from 0 can keep. The rule now: a missing
+file is a first run; an existing file that does not hold a non-negative
+whole number inside `i64` is a refusal that names the file and its content,
+before the journal is opened, and the file is left untouched. `reorg tail`
+reads cursors the same way. Ladder: `tests/cursor_state.rs` (7 defect cases
+RED on v0.7.3, 6 guards green on both trees), artifact pinned by
+`tests/cursor_state_measurement.rs`.
+
 ## Repeated use
 
 ```bash

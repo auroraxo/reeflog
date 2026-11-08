@@ -1,0 +1,391 @@
+{
+  "tool": "measure-cursor-state",
+  "date": "2026-11-08",
+  "rows": 20,
+  "baseline": {
+    "source": "git archive v0.7.3",
+    "bin": "baseline-reeflog"
+  },
+  "fixed": {
+    "source": "this tree",
+    "bin": "this-tree-reeflog"
+  },
+  "cases": [
+    {
+      "id": "C1-corrupt-content",
+      "kind": "defect",
+      "must": "refused",
+      "why": "not a number; baseline replays every row at cursor 0 with exit 0",
+      "cursor": "abc\n",
+      "trees": {
+        "baseline": {
+          "exit": 0,
+          "rows": 20,
+          "refused": false,
+          "stderr": "reeflog: 20 events after cursor 0 → cursor now 20",
+          "stdoutBytes": 4691,
+          "fileAfter": "20\n",
+          "verdict": {
+            "ok": false,
+            "reason": "expected refused, got exit=0 rows=20"
+          }
+        },
+        "fixed": {
+          "exit": 1,
+          "rows": 0,
+          "refused": true,
+          "stderr": "reeflog: error: cursor c.txt holds `abc` — not a non-negative whole number inside i64; refusing to restart at 0 (delete the file to start from the beginning)",
+          "stdoutBytes": 0,
+          "fileAfter": "abc\n",
+          "verdict": {
+            "ok": true,
+            "reason": null
+          }
+        }
+      },
+      "measured": "baseline defect: baseline exit=0 rows=20 | fixed exit=1 rows=0"
+    },
+    {
+      "id": "C2-beyond-i64",
+      "kind": "defect",
+      "must": "refused",
+      "why": "outside the consumer i64 space; never reaches the flag parser",
+      "cursor": "9223372036854775808\n",
+      "trees": {
+        "baseline": {
+          "exit": 0,
+          "rows": 20,
+          "refused": false,
+          "stderr": "reeflog: 20 events after cursor 0 → cursor now 20",
+          "stdoutBytes": 4691,
+          "fileAfter": "20\n",
+          "verdict": {
+            "ok": false,
+            "reason": "expected refused, got exit=0 rows=20"
+          }
+        },
+        "fixed": {
+          "exit": 1,
+          "rows": 0,
+          "refused": true,
+          "stderr": "reeflog: error: cursor c.txt holds `9223372036854775808` — not a non-negative whole number inside i64; refusing to restart at 0 (delete the file to start from the beginning)",
+          "stdoutBytes": 0,
+          "fileAfter": "9223372036854775808\n",
+          "verdict": {
+            "ok": true,
+            "reason": null
+          }
+        }
+      },
+      "measured": "baseline defect: baseline exit=0 rows=20 | fixed exit=1 rows=0"
+    },
+    {
+      "id": "C3-negative",
+      "kind": "defect",
+      "must": "refused",
+      "why": "a position is never negative; baseline replays everything",
+      "cursor": "-1\n",
+      "trees": {
+        "baseline": {
+          "exit": 0,
+          "rows": 20,
+          "refused": false,
+          "stderr": "reeflog: 20 events after cursor -1 → cursor now 20",
+          "stdoutBytes": 4691,
+          "fileAfter": "20\n",
+          "verdict": {
+            "ok": false,
+            "reason": "expected refused, got exit=0 rows=20"
+          }
+        },
+        "fixed": {
+          "exit": 1,
+          "rows": 0,
+          "refused": true,
+          "stderr": "reeflog: error: cursor c.txt holds `-1` (-1) — a cursor is a position, never negative; refusing",
+          "stdoutBytes": 0,
+          "fileAfter": "-1\n",
+          "verdict": {
+            "ok": true,
+            "reason": null
+          }
+        }
+      },
+      "measured": "baseline defect: baseline exit=0 rows=20 | fixed exit=1 rows=0"
+    },
+    {
+      "id": "C4-empty-file",
+      "kind": "defect",
+      "must": "refused",
+      "why": "what a truncate-then-crash leaves; baseline restarts at 0",
+      "cursor": "",
+      "trees": {
+        "baseline": {
+          "exit": 0,
+          "rows": 20,
+          "refused": false,
+          "stderr": "reeflog: 20 events after cursor 0 → cursor now 20",
+          "stdoutBytes": 4691,
+          "fileAfter": "20\n",
+          "verdict": {
+            "ok": false,
+            "reason": "expected refused, got exit=0 rows=20"
+          }
+        },
+        "fixed": {
+          "exit": 1,
+          "rows": 0,
+          "refused": true,
+          "stderr": "reeflog: error: cursor c.txt is empty — refusing to restart at 0 behind your back; delete it to start from the beginning",
+          "stdoutBytes": 0,
+          "fileAfter": "",
+          "verdict": {
+            "ok": true,
+            "reason": null
+          }
+        }
+      },
+      "measured": "baseline defect: baseline exit=0 rows=20 | fixed exit=1 rows=0"
+    },
+    {
+      "id": "C5-float",
+      "kind": "defect",
+      "must": "refused",
+      "why": "a human number, not a seq position; guessing 15 is a guess",
+      "cursor": "15.0\n",
+      "trees": {
+        "baseline": {
+          "exit": 0,
+          "rows": 20,
+          "refused": false,
+          "stderr": "reeflog: 20 events after cursor 0 → cursor now 20",
+          "stdoutBytes": 4691,
+          "fileAfter": "20\n",
+          "verdict": {
+            "ok": false,
+            "reason": "expected refused, got exit=0 rows=20"
+          }
+        },
+        "fixed": {
+          "exit": 1,
+          "rows": 0,
+          "refused": true,
+          "stderr": "reeflog: error: cursor c.txt holds `15.0` — not a non-negative whole number inside i64; refusing to restart at 0 (delete the file to start from the beginning)",
+          "stdoutBytes": 0,
+          "fileAfter": "15.0\n",
+          "verdict": {
+            "ok": true,
+            "reason": null
+          }
+        }
+      },
+      "measured": "baseline defect: baseline exit=0 rows=20 | fixed exit=1 rows=0"
+    },
+    {
+      "id": "C6-missing-file-first-run",
+      "kind": "guard",
+      "must": "delivered-all",
+      "why": "the documented first run must keep delivering every row",
+      "cursor": null,
+      "trees": {
+        "baseline": {
+          "exit": 0,
+          "rows": 20,
+          "refused": false,
+          "stderr": "reeflog: 20 events after cursor 0 → cursor now 20",
+          "stdoutBytes": 4691,
+          "fileAfter": "20\n",
+          "verdict": {
+            "ok": true,
+            "reason": null
+          }
+        },
+        "fixed": {
+          "exit": 0,
+          "rows": 20,
+          "refused": false,
+          "stderr": "reeflog: 20 events after cursor 0 → cursor now 20",
+          "stdoutBytes": 4691,
+          "fileAfter": "20\n",
+          "verdict": {
+            "ok": true,
+            "reason": null
+          }
+        }
+      },
+      "measured": "guard: baseline exit=0 rows=20 | fixed exit=0 rows=20"
+    },
+    {
+      "id": "G1-zero-in-file",
+      "kind": "guard",
+      "must": "delivered-all",
+      "why": "`0` in a file is a deliberate rewind and stays legal",
+      "cursor": "0\n",
+      "trees": {
+        "baseline": {
+          "exit": 0,
+          "rows": 20,
+          "refused": false,
+          "stderr": "reeflog: 20 events after cursor 0 → cursor now 20",
+          "stdoutBytes": 4691,
+          "fileAfter": "20\n",
+          "verdict": {
+            "ok": true,
+            "reason": null
+          }
+        },
+        "fixed": {
+          "exit": 0,
+          "rows": 20,
+          "refused": false,
+          "stderr": "reeflog: 20 events after cursor 0 → cursor now 20",
+          "stdoutBytes": 4691,
+          "fileAfter": "20\n",
+          "verdict": {
+            "ok": true,
+            "reason": null
+          }
+        }
+      },
+      "measured": "guard: baseline exit=0 rows=20 | fixed exit=0 rows=20"
+    },
+    {
+      "id": "G2-valid-resume",
+      "kind": "guard",
+      "must": "delivered-5",
+      "why": "resumes exactly: rows 16..20, no replay",
+      "cursor": "15\n",
+      "trees": {
+        "baseline": {
+          "exit": 0,
+          "rows": 5,
+          "refused": false,
+          "stderr": "reeflog: 5 events after cursor 15 → cursor now 20",
+          "stdoutBytes": 1175,
+          "fileAfter": "20\n",
+          "verdict": {
+            "ok": true,
+            "reason": null
+          }
+        },
+        "fixed": {
+          "exit": 0,
+          "rows": 5,
+          "refused": false,
+          "stderr": "reeflog: 5 events after cursor 15 → cursor now 20",
+          "stdoutBytes": 1175,
+          "fileAfter": "20\n",
+          "verdict": {
+            "ok": true,
+            "reason": null
+          }
+        }
+      },
+      "measured": "guard: baseline exit=0 rows=5 | fixed exit=0 rows=5"
+    },
+    {
+      "id": "G3-write-cursor-file-form",
+      "kind": "guard",
+      "must": "delivered-16",
+      "why": "the exact form write_cursor produces must stay readable",
+      "cursor": "4\n",
+      "trees": {
+        "baseline": {
+          "exit": 0,
+          "rows": 16,
+          "refused": false,
+          "stderr": "reeflog: 16 events after cursor 4 → cursor now 20",
+          "stdoutBytes": 3755,
+          "fileAfter": "20\n",
+          "verdict": {
+            "ok": true,
+            "reason": null
+          }
+        },
+        "fixed": {
+          "exit": 0,
+          "rows": 16,
+          "refused": false,
+          "stderr": "reeflog: 16 events after cursor 4 → cursor now 20",
+          "stdoutBytes": 3755,
+          "fileAfter": "20\n",
+          "verdict": {
+            "ok": true,
+            "reason": null
+          }
+        }
+      },
+      "measured": "guard: baseline exit=0 rows=16 | fixed exit=0 rows=16"
+    },
+    {
+      "id": "G4-ahead-of-tip",
+      "kind": "guard",
+      "must": "delivered-0-ok",
+      "why": "ahead of the tip is legal: 0 rows, exit 0, file untouched",
+      "cursor": "5000\n",
+      "trees": {
+        "baseline": {
+          "exit": 0,
+          "rows": 0,
+          "refused": false,
+          "stderr": "reeflog: 0 events after cursor 5000 → cursor now 5000",
+          "stdoutBytes": 0,
+          "fileAfter": "5000\n",
+          "verdict": {
+            "ok": true,
+            "reason": null
+          }
+        },
+        "fixed": {
+          "exit": 0,
+          "rows": 0,
+          "refused": false,
+          "stderr": "reeflog: 0 events after cursor 5000 → cursor now 5000",
+          "stdoutBytes": 0,
+          "fileAfter": "5000\n",
+          "verdict": {
+            "ok": true,
+            "reason": null
+          }
+        }
+      },
+      "measured": "guard: baseline exit=0 rows=0 | fixed exit=0 rows=0"
+    },
+    {
+      "id": "G5-reorg-channel",
+      "kind": "guard",
+      "must": "delivered-0-ok",
+      "why": "the retraction channel reads cursors the same way",
+      "cursor": "0\n",
+      "trees": {
+        "baseline": {
+          "exit": 0,
+          "rows": 0,
+          "refused": false,
+          "stderr": "reeflog: 0 reorg(s) after cursor 0 → cursor now 0",
+          "stdoutBytes": 0,
+          "fileAfter": "0\n",
+          "verdict": {
+            "ok": true,
+            "reason": null
+          }
+        },
+        "fixed": {
+          "exit": 0,
+          "rows": 0,
+          "refused": false,
+          "stderr": "reeflog: 0 reorg(s) after cursor 0 → cursor now 0",
+          "stdoutBytes": 0,
+          "fileAfter": "0\n",
+          "verdict": {
+            "ok": true,
+            "reason": null
+          }
+        }
+      },
+      "measured": "guard: baseline exit=0 rows=0 | fixed exit=0 rows=0"
+    }
+  ],
+  "failures": 0,
+  "verdict": "all cases behave as specified on the FIXED tree"
+}
