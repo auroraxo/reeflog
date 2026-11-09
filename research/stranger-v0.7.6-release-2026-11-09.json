@@ -1,0 +1,66 @@
+{
+  "measuredAt": "2026-11-09",
+  "what": "the published v0.7.6 release, reached the way a stranger reaches it: GitHub release asset + empty-app npm install",
+  "tag": "v0.7.6",
+  "releaseUrl": "https://github.com/auroraxo/reeflog/releases/tag/v0.7.6",
+  "assets": [
+    {
+      "name": "reeflog-linux-amd64.tar.gz",
+      "sha256": "cbe2653416cc71e12ac3df3ed56b8c7cb270270baac60304d65d5af561a4d1e1",
+      "digestMatchesApi": true
+    },
+    {
+      "name": "reeflog-macos-arm64.tar.gz",
+      "sha256": "c907288ab76bd240e85accfd15877ef3baf82640209ccf4865eb73c2e14d2624",
+      "digestMatchesApi": true
+    }
+  ],
+  "linux": {
+    "version": "reeflog 0.7.6"
+  },
+  "darwin": {
+    "archive": "tar -t -> exactly one entry (reeflog)",
+    "file": "Mach-O 64-bit arm64 executable",
+    "containsVersion": "0.7.6",
+    "executed": false,
+    "note": "this host is linux-x64; the macOS asset is integrity-checked only, not executed"
+  },
+  "domainCases": {
+    "source": "research/url-flag-domain-2026-11-09.json",
+    "measuredWith": "node tools/measure-url-flag-domain.mjs --fixed <downloaded release asset binary>",
+    "baseline": "git archive v0.7.5 -> 0/11 refusals (6 accepted with exit 0, 5 refused by the transport), 6/6 guards",
+    "publishedAsset": "11/11 refusals, 6/6 guards, 0 killed",
+    "bothArmsPublishedAsset": "the published binary measured against itself: 11/11 refused, 6/6 guards"
+  },
+  "emptyApp": {
+    "steps": [
+      "mkdir empty dir",
+      "npm init -y",
+      "npm install github:auroraxo/reeflog#v0.7.6",
+      "import { bootstrap } from 'reeflog-client'; await bootstrap()"
+    ],
+    "bootstrap": {
+      "bin": "<install dir>/reeflog",
+      "cached": false,
+      "binNote": "the install directory is the caller's own; the path is not recorded in this artifact on purpose"
+    },
+    "installedVersion": "reeflog 0.7.6",
+    "refusalThroughInstalledBinary": {
+      "case": "start --ws https://api.mainnet-beta.solana.com",
+      "exit": 1,
+      "stderr": "reeflog: error: flag --ws expects a ws or wss URL \u2014 got `https://api.mainnet-beta.solana.com` (scheme `https` is not spoken by this command's consumer; e.g. --ws wss://api.mainnet-beta.solana.com)",
+      "namesFlag": true,
+      "namesExactValue": true,
+      "journalLeftBehind": false,
+      "secondCase": {
+        "case": "verify --rpc not-a-url",
+        "exit": 1,
+        "stderr": "reeflog: error: flag --rpc expects an absolute URL with scheme http or https \u2014 got `not-a-url` (e.g. --rpc https://api.mainnet-beta.solana.com)",
+        "namesFlag": true,
+        "namesExactValue": true
+      },
+      "guard": "start --ws wss://api.mainnet-beta.solana.com --rpc https://api.mainnet-beta.solana.com -> exit 0, the run proceeded and created its journal (the value was accepted)"
+    }
+  },
+  "hostPathInArtifact": false
+}
