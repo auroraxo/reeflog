@@ -1,0 +1,402 @@
+{
+  "what": "The --ws / --rpc URL value domain: a URL the CONSUMER cannot speak must be refused by the PARSER, with the flag and the value named, before anything is opened or created.",
+  "date": "2026-11-09",
+  "baselineBinary": "git archive v0.7.5",
+  "fixedBinary": "this tree",
+  "consumers": {
+    "--rpc": "ureq resolves http/https only (ureq-proto SchemeExt::default_port -> None for anything else -> \"unknown scheme\")",
+    "--ws": "tokio-tungstenite uri_mode accepts ws/wss only (_ => Err(UnsupportedUrlScheme))"
+  },
+  "baseline": {
+    "source": "git archive v0.7.5",
+    "refusals": 0,
+    "refusalCases": 11,
+    "guards": 6,
+    "guardCases": 6,
+    "cases": [
+      {
+        "id": "ws-scheme-ftp",
+        "ok": false,
+        "exit": 0,
+        "killed": false,
+        "journalCreated": true,
+        "refused": false,
+        "ms": 1573,
+        "why": "accepted (exit 0) — the parser refused nothing",
+        "stderr": ""
+      },
+      {
+        "id": "ws-scheme-https",
+        "ok": false,
+        "exit": 0,
+        "killed": false,
+        "journalCreated": true,
+        "refused": false,
+        "ms": 1553,
+        "why": "accepted (exit 0) — the parser refused nothing",
+        "stderr": ""
+      },
+      {
+        "id": "ws-empty",
+        "ok": false,
+        "exit": 0,
+        "killed": false,
+        "journalCreated": true,
+        "refused": false,
+        "ms": 1560,
+        "why": "accepted (exit 0) — the parser refused nothing",
+        "stderr": ""
+      },
+      {
+        "id": "ws-single-slash",
+        "ok": false,
+        "exit": 0,
+        "killed": false,
+        "journalCreated": true,
+        "refused": false,
+        "ms": 1538,
+        "why": "accepted (exit 0) — the parser refused nothing",
+        "stderr": ""
+      },
+      {
+        "id": "ws-no-host",
+        "ok": false,
+        "exit": 0,
+        "killed": false,
+        "journalCreated": true,
+        "refused": false,
+        "ms": 1548,
+        "why": "accepted (exit 0) — the parser refused nothing",
+        "stderr": ""
+      },
+      {
+        "id": "ws-no-scheme",
+        "ok": false,
+        "exit": 0,
+        "killed": false,
+        "journalCreated": true,
+        "refused": false,
+        "ms": 1547,
+        "why": "accepted (exit 0) — the parser refused nothing",
+        "stderr": ""
+      },
+      {
+        "id": "rpc-scheme-ftp",
+        "ok": false,
+        "exit": 3,
+        "killed": false,
+        "journalCreated": false,
+        "refused": false,
+        "ms": 15,
+        "why": "refused, but the flag is not named: reeflog: verify INCOMPLETE (error=None, truncated=false, pages=0) — the scan proves nothing about the journal's completeness",
+        "stderr": "reeflog: verify INCOMPLETE (error=None, truncated=false, pages=0) — the scan proves nothing about the journal's completeness"
+      },
+      {
+        "id": "rpc-scheme-ws",
+        "ok": false,
+        "exit": 3,
+        "killed": false,
+        "journalCreated": false,
+        "refused": false,
+        "ms": 8,
+        "why": "refused, but the flag is not named: reeflog: verify INCOMPLETE (error=None, truncated=false, pages=0) — the scan proves nothing about the journal's completeness",
+        "stderr": "reeflog: verify INCOMPLETE (error=None, truncated=false, pages=0) — the scan proves nothing about the journal's completeness"
+      },
+      {
+        "id": "rpc-no-scheme",
+        "ok": false,
+        "exit": 3,
+        "killed": false,
+        "journalCreated": false,
+        "refused": false,
+        "ms": 14,
+        "why": "refused, but the flag is not named: reeflog: verify INCOMPLETE (error=None, truncated=false, pages=0) — the scan proves nothing about the journal's completeness",
+        "stderr": "reeflog: verify INCOMPLETE (error=None, truncated=false, pages=0) — the scan proves nothing about the journal's completeness"
+      },
+      {
+        "id": "rpc-empty",
+        "ok": false,
+        "exit": 3,
+        "killed": false,
+        "journalCreated": false,
+        "refused": false,
+        "ms": 8,
+        "why": "refused, but the flag is not named: reeflog: verify INCOMPLETE (error=None, truncated=false, pages=0) — the scan proves nothing about the journal's completeness",
+        "stderr": "reeflog: verify INCOMPLETE (error=None, truncated=false, pages=0) — the scan proves nothing about the journal's completeness"
+      },
+      {
+        "id": "rpc-no-host",
+        "ok": false,
+        "exit": 3,
+        "killed": false,
+        "journalCreated": false,
+        "refused": false,
+        "ms": 11,
+        "why": "refused, but the flag is not named: reeflog: verify INCOMPLETE (error=None, truncated=false, pages=0) — the scan proves nothing about the journal's completeness",
+        "stderr": "reeflog: verify INCOMPLETE (error=None, truncated=false, pages=0) — the scan proves nothing about the journal's completeness"
+      },
+      {
+        "id": "guard-rpc-http",
+        "ok": true,
+        "exit": 3,
+        "killed": false,
+        "journalCreated": false,
+        "refused": false,
+        "ms": 9,
+        "why": "not refused (reached the consumer)",
+        "stderr": "reeflog: verify INCOMPLETE (error=None, truncated=false, pages=0) — the scan proves nothing about the journal's completeness"
+      },
+      {
+        "id": "guard-rpc-https",
+        "ok": true,
+        "exit": 3,
+        "killed": false,
+        "journalCreated": false,
+        "refused": false,
+        "ms": 15,
+        "why": "not refused (reached the consumer)",
+        "stderr": "reeflog: verify INCOMPLETE (error=None, truncated=false, pages=0) — the scan proves nothing about the journal's completeness"
+      },
+      {
+        "id": "guard-rpc-port-path-query",
+        "ok": true,
+        "exit": 3,
+        "killed": false,
+        "journalCreated": false,
+        "refused": false,
+        "ms": 10,
+        "why": "not refused (reached the consumer)",
+        "stderr": "reeflog: verify INCOMPLETE (error=None, truncated=false, pages=0) — the scan proves nothing about the journal's completeness"
+      },
+      {
+        "id": "guard-ws-plain",
+        "ok": true,
+        "exit": 0,
+        "killed": false,
+        "journalCreated": true,
+        "refused": false,
+        "ms": 44,
+        "why": "not refused (ran)",
+        "stderr": ""
+      },
+      {
+        "id": "guard-ws-wss-default",
+        "ok": true,
+        "exit": 0,
+        "killed": false,
+        "journalCreated": true,
+        "refused": false,
+        "ms": 35,
+        "why": "not refused (ran)",
+        "stderr": ""
+      },
+      {
+        "id": "guard-ws-uppercase-scheme",
+        "ok": true,
+        "exit": 0,
+        "killed": false,
+        "journalCreated": true,
+        "refused": false,
+        "ms": 40,
+        "why": "not refused (ran)",
+        "stderr": ""
+      }
+    ]
+  },
+  "fixed": {
+    "source": "this tree",
+    "refusals": 11,
+    "refusalCases": 11,
+    "guards": 6,
+    "guardCases": 6,
+    "cases": [
+      {
+        "id": "ws-scheme-ftp",
+        "ok": true,
+        "exit": 1,
+        "killed": false,
+        "journalCreated": false,
+        "refused": true,
+        "ms": 16,
+        "why": "refused by the parser in 16 ms, flag and value named",
+        "stderr": "reeflog: error: flag --ws expects a ws or wss URL — got `ftp://127.0.0.1:9/x` (scheme `ftp` is not spoken by this command's consumer; e.g. --ws wss://api.mainnet-beta.solana.com)"
+      },
+      {
+        "id": "ws-scheme-https",
+        "ok": true,
+        "exit": 1,
+        "killed": false,
+        "journalCreated": false,
+        "refused": true,
+        "ms": 7,
+        "why": "refused by the parser in 7 ms, flag and value named",
+        "stderr": "reeflog: error: flag --ws expects a ws or wss URL — got `https://127.0.0.1:18099/x` (scheme `https` is not spoken by this command's consumer; e.g. --ws wss://api.mainnet-beta.solana.com)"
+      },
+      {
+        "id": "ws-empty",
+        "ok": true,
+        "exit": 1,
+        "killed": false,
+        "journalCreated": false,
+        "refused": true,
+        "ms": 10,
+        "why": "refused by the parser in 10 ms, flag and value named",
+        "stderr": "reeflog: error: flag --ws expects an absolute URL (ws/wss) , got an empty value (e.g. --ws wss://api.mainnet-beta.solana.com)"
+      },
+      {
+        "id": "ws-single-slash",
+        "ok": true,
+        "exit": 1,
+        "killed": false,
+        "journalCreated": false,
+        "refused": true,
+        "ms": 9,
+        "why": "refused by the parser in 9 ms, flag and value named",
+        "stderr": "reeflog: error: flag --ws expects an absolute URL with scheme ws or wss — got `ws:/127.0.0.1:9` (e.g. --ws wss://api.mainnet-beta.solana.com)"
+      },
+      {
+        "id": "ws-no-host",
+        "ok": true,
+        "exit": 1,
+        "killed": false,
+        "journalCreated": false,
+        "refused": true,
+        "ms": 13,
+        "why": "refused by the parser in 13 ms, flag and value named",
+        "stderr": "reeflog: error: flag --ws expects a URL with a host — got `wss://` (e.g. --ws wss://api.mainnet-beta.solana.com)"
+      },
+      {
+        "id": "ws-no-scheme",
+        "ok": true,
+        "exit": 1,
+        "killed": false,
+        "journalCreated": false,
+        "refused": true,
+        "ms": 6,
+        "why": "refused by the parser in 6 ms, flag and value named",
+        "stderr": "reeflog: error: flag --ws expects an absolute URL with scheme ws or wss — got `127.0.0.1:9` (e.g. --ws wss://api.mainnet-beta.solana.com)"
+      },
+      {
+        "id": "rpc-scheme-ftp",
+        "ok": true,
+        "exit": 1,
+        "killed": false,
+        "journalCreated": false,
+        "refused": true,
+        "ms": 7,
+        "why": "refused by the parser in 7 ms, flag and value named",
+        "stderr": "reeflog: error: flag --rpc expects a http or https URL — got `ftp://127.0.0.1:9/x` (scheme `ftp` is not spoken by this command's consumer; e.g. --rpc https://api.mainnet-beta.solana.com)"
+      },
+      {
+        "id": "rpc-scheme-ws",
+        "ok": true,
+        "exit": 1,
+        "killed": false,
+        "journalCreated": false,
+        "refused": true,
+        "ms": 7,
+        "why": "refused by the parser in 7 ms, flag and value named",
+        "stderr": "reeflog: error: flag --rpc expects a http or https URL — got `ws://127.0.0.1:9/x` (scheme `ws` is not spoken by this command's consumer; e.g. --rpc https://api.mainnet-beta.solana.com)"
+      },
+      {
+        "id": "rpc-no-scheme",
+        "ok": true,
+        "exit": 1,
+        "killed": false,
+        "journalCreated": false,
+        "refused": true,
+        "ms": 16,
+        "why": "refused by the parser in 16 ms, flag and value named",
+        "stderr": "reeflog: error: flag --rpc expects an absolute URL with scheme http or https — got `not-a-url` (e.g. --rpc https://api.mainnet-beta.solana.com)"
+      },
+      {
+        "id": "rpc-empty",
+        "ok": true,
+        "exit": 1,
+        "killed": false,
+        "journalCreated": false,
+        "refused": true,
+        "ms": 9,
+        "why": "refused by the parser in 9 ms, flag and value named",
+        "stderr": "reeflog: error: flag --rpc expects an absolute URL (http/https) , got an empty value (e.g. --rpc https://api.mainnet-beta.solana.com)"
+      },
+      {
+        "id": "rpc-no-host",
+        "ok": true,
+        "exit": 1,
+        "killed": false,
+        "journalCreated": false,
+        "refused": true,
+        "ms": 6,
+        "why": "refused by the parser in 6 ms, flag and value named",
+        "stderr": "reeflog: error: flag --rpc expects a URL with a host — got `https://` (e.g. --rpc https://api.mainnet-beta.solana.com)"
+      },
+      {
+        "id": "guard-rpc-http",
+        "ok": true,
+        "exit": 3,
+        "killed": false,
+        "journalCreated": false,
+        "refused": false,
+        "ms": 9,
+        "why": "not refused (reached the consumer)",
+        "stderr": "reeflog: verify INCOMPLETE (error=None, truncated=false, pages=0) — the scan proves nothing about the journal's completeness"
+      },
+      {
+        "id": "guard-rpc-https",
+        "ok": true,
+        "exit": 3,
+        "killed": false,
+        "journalCreated": false,
+        "refused": false,
+        "ms": 13,
+        "why": "not refused (reached the consumer)",
+        "stderr": "reeflog: verify INCOMPLETE (error=None, truncated=false, pages=0) — the scan proves nothing about the journal's completeness"
+      },
+      {
+        "id": "guard-rpc-port-path-query",
+        "ok": true,
+        "exit": 3,
+        "killed": false,
+        "journalCreated": false,
+        "refused": false,
+        "ms": 11,
+        "why": "not refused (reached the consumer)",
+        "stderr": "reeflog: verify INCOMPLETE (error=None, truncated=false, pages=0) — the scan proves nothing about the journal's completeness"
+      },
+      {
+        "id": "guard-ws-plain",
+        "ok": true,
+        "exit": 0,
+        "killed": false,
+        "journalCreated": true,
+        "refused": false,
+        "ms": 48,
+        "why": "not refused (ran)",
+        "stderr": ""
+      },
+      {
+        "id": "guard-ws-wss-default",
+        "ok": true,
+        "exit": 0,
+        "killed": false,
+        "journalCreated": true,
+        "refused": false,
+        "ms": 54,
+        "why": "not refused (ran)",
+        "stderr": ""
+      },
+      {
+        "id": "guard-ws-uppercase-scheme",
+        "ok": true,
+        "exit": 0,
+        "killed": false,
+        "journalCreated": true,
+        "refused": false,
+        "ms": 39,
+        "why": "not refused (ran)",
+        "stderr": ""
+      }
+    ]
+  }
+}

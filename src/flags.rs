@@ -173,6 +173,78 @@ fn check_numeric_value(flag: &str, value: &str) -> Result<(), String> {
     Ok(())
 }
 
+/// Flags whose value must be an absolute URL of a scheme the CONSUMER can
+/// speak, with a host. Measured 2026-11-09 on the published v0.7.5 tree:
+/// these two flags had NO domain in the parser at all, while the webhook
+/// target URL (a config file, one layer further from the operator) already
+/// required `http://` or `https://` at load.
+///
+/// The domains are the consumers', not an opinion:
+///
+/// * `--rpc` is POSTed to by `ureq`, which resolves only `http`/`https`
+///   (ureq-proto's `SchemeExt::default_port` returns `None` for anything
+///   else, and the resolver reports "unknown scheme") — `ftp://`, `ws://`
+///   and a bare `not-a-url` all reached the transport and failed there,
+///   AFTER the journal was opened, in ureq's words rather than reeflog's;
+/// * `--ws` is handed to `tokio-tungstenite`, whose
+///   `tungstenite::client::uri_mode` accepts only `ws`/`wss`
+///   (`_ => Err(UnsupportedUrlScheme)`) — `https://` opened a journal, ran
+///   its full duration and recorded a gap for a scheme that can never
+///   connect, and `--ws ''` ran the daemon at all.
+///
+/// Accepted schemes are compared case-insensitively: MEASURED on v0.7.5,
+/// `--ws WS://127.0.0.1:9/x` reached TCP connect, so the consumers accept an
+/// uppercase scheme and a stricter checker would reject a working value.
+const URL_FLAGS: &[(&str, &[&str])] = &[
+    ("--rpc", &["http", "https"]),
+    ("--ws", &["ws", "wss"]),
+];
+
+/// A URL flag's value: a URL the consumer can speak, with a host — nothing
+/// else. A scheme the consumer cannot honour, a missing scheme, a missing
+/// host and an empty value are all the same refusal class as a number
+/// outside a numeric flag's domain: accepting it only moves the failure
+/// into the consumer, where it arrives late, in someone else's words, and
+/// (for `start`) behind a journal the run has already created.
+fn check_url_value(flag: &str, value: &str) -> Result<(), String> {
+    let schemes = match URL_FLAGS.iter().find(|(f, _)| *f == flag) {
+        Some((_, schemes)) => *schemes,
+        None => return Ok(()),
+    };
+    let example = match flag {
+        "--rpc" => "--rpc https://api.mainnet-beta.solana.com",
+        _ => "--ws wss://api.mainnet-beta.solana.com",
+    };
+    if value.trim().is_empty() {
+        return Err(format!(
+            "flag {flag} expects an absolute URL ({}) , got an empty value (e.g. {example})",
+            schemes.join("/")
+        ));
+    }
+    let Some((scheme, rest)) = value.split_once("://") else {
+        return Err(format!(
+            "flag {flag} expects an absolute URL with scheme {} — got `{value}` (e.g. {example})",
+            schemes.join(" or ")
+        ));
+    };
+    if !schemes.iter().any(|s| s.eq_ignore_ascii_case(scheme)) {
+        return Err(format!(
+            "flag {flag} expects a {} URL — got `{value}` (scheme `{scheme}` is not spoken by this command's consumer; e.g. {example})",
+            schemes.join(" or ")
+        ));
+    }
+    // The authority: everything up to the path/query/fragment. It must be
+    // non-empty — `https://` has a scheme and no host, and the consumer
+    // calls that "empty string", after the flag let it through.
+    let authority = rest.split(['/', '?', '#']).next().unwrap_or(rest);
+    if authority.is_empty() {
+        return Err(format!(
+            "flag {flag} expects a URL with a host — got `{value}` (e.g. {example})"
+        ));
+    }
+    Ok(())
+}
+
 /// Flags whose value may be omitted; the bare form is a documented meaning
 /// of its own (`--anchor-slot` = anchor at the journal's own window).
 const OPTIONAL_VALUE: &[&str] = &["--anchor-slot"];
@@ -311,12 +383,14 @@ pub fn normalize(allowed: &'static [&'static str], tokens: &[String]) -> Result<
             match inline {
                 Some(v) if !v.is_empty() => {
                     check_numeric_value(flag, &v)?;
+                    check_url_value(flag, &v)?;
                     out.push(v)
                 }
                 Some(_) => return Err(format!("flag {flag} needs a value")),
                 None => {
                     if let Some(v) = optional_value_consume(tokens, i) {
                         check_numeric_value(flag, &v)?;
+                        check_url_value(flag, &v)?;
                         out.push(v);
                         i += 1;
                     }
@@ -340,6 +414,7 @@ pub fn normalize(allowed: &'static [&'static str], tokens: &[String]) -> Result<
             },
         };
         check_numeric_value(flag, &value)?;
+        check_url_value(flag, &value)?;
         out.push(flag.to_string());
         out.push(value);
         i += 1;

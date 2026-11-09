@@ -97,6 +97,21 @@ refused **before** any journal is opened or created:
   --repair-every …` hung. Measured against the published v0.7.2 binary:
   4/11 cases behaved as specified (2 silent defaults, 3 panics, 1 hang) →
   11/11 — `research/numeric-flag-domain-2026-11-08.json`;
+- a URL flag whose value is not a URL the CONSUMER can speak is also
+  refused, naming the flag and the value (`flag --ws expects a ws or wss URL
+  — got `https://…``) — before any journal is opened. Until 2026-11-09
+  `--ws` and `--rpc` were the only value flags with no domain at all: on the
+  published v0.7.5 binary `start --ws ftp://x/y` exited 0 with a journal it
+  had just created (0/11 cases behaved as specified), `--ws https://…` ran
+  its full duration and recorded a gap for a scheme tungstenite can never
+  speak, and `verify --rpc not-a-url` failed only after opening the journal,
+  in ureq's words (`bad uri: …`) rather than reeflog's. The domains are the
+  consumers', not an opinion: `ureq` resolves `http`/`https` only,
+  `tokio-tungstenite` accepts `ws`/`wss` only — and both compare schemes
+  case-insensitively, so `WS://…`, which the consumer accepts, is accepted
+  here too. Measured against the published v0.7.5 binary: 0/11 refused →
+  11/11, 6/6 guards green on both trees —
+  `research/url-flag-domain-2026-11-09.json`;
 - an argument that is not a flag is refused;
 - `--flag=value` is honoured instead of falling back to the default;
 - `--anchor-slot` keeps its documented **optional** value (bare = anchor at
