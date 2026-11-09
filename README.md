@@ -965,6 +965,56 @@ green over a real defect. The counter now follows the classification (a
 recorded non-2xx status IS a refusal, by construction of where attempts are
 recorded), and the mutation turns the harness red as it must.
 
+### The dead-letter report must match the queue
+
+The dead-letter queue is the one place where "empty" means "a consumer is not
+holding events it was promised". So the report about that queue has to be
+right, and it was not. Measured 2026-11-09 on the **published v0.7.6
+binary** (the sha256 of whose release archive equals the digest the release
+API publishes), against a journal holding planted pending letters and a
+config with two targets:
+
+| command | v0.7.6 answered | the truth was |
+| --- | --- | --- |
+| `dlq list --target bogus` | exit 0, `{"targets": [], "pending_total": 0}` | 3 pending letters |
+| `dlq replay --target bogus` | exit 0, `{"replayed": 0, "failed": 0}` | 3 pending letters |
+| `dlq list --limit 2` | `pending: 2`, `pending_total: 2` | 7 pending letters |
+| `dlq list` (target removed from config) | `pending_total: 0` | 1 pending letter |
+
+Four separate lies. A typo in a target id was indistinguishable from a clean
+queue. `pending` counted **the rows the listing showed**, not the letters that
+are pending — so `webhook status` said `dead_letters: 7` for the same queue
+that `dlq list` called 2. And a letter whose target had left the config was
+invisible: it can never be replayed (no url, no secret) and no command ever
+said so, which breaks the product's promise that nothing is ever lost.
+
+The rule now:
+
+* `--target <id>` must name a target the config knows — an unknown id is a
+  **refusal** that names the flag, the value and the known ids, in both
+  `list` and `replay`;
+* `pending` and `pending_total` count the letters **pending in the journal**,
+  not the rows a `--limit` happened to show; a truncated listing says
+  `truncated: true`;
+* a pending letter whose target is not in the config is **reported as an
+  orphan** (`in_config: false`), counted in the total, and keeps `dlq replay`
+  from exiting 0 — a letter nobody can replay is a fact the operator needs,
+  not a number to round to zero.
+
+Measured on both trees by `tools/measure-dlq-target-domain.mjs`
+(`research/dlq-target-domain-2026-11-09.json`): the published v0.7.6 asset
+violates **5 of 8** cases; this tree violates **0 of 8**, with the three
+guards — a known target is still listed with its letters, a listing without a
+filter still reports every config target, an empty queue still reads healthy
+— unchanged on both trees.
+
+The ladder is `tests/dlq_target_domain.rs` (10 tests) and
+`tools/mutation-ladder-dlq-target-domain.sh` (**5/5 mutations caught**): the
+unknown target is accepted again, `pending` counts the rows shown again, an
+orphaned letter is dropped from the report again, a replay with an orphaned
+letter reads clean again, and the refusal no longer names the offending
+value.
+
 ### Limits
 
 No TLS client authentication and no per-target payload filtering yet; the

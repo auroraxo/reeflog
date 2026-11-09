@@ -1275,6 +1275,34 @@ impl Journal {
             .map_err(|e| e.to_string())
     }
 
+    /// Total count of all pending dead letters across every target in the
+    /// journal, including targets that may have left the configuration.
+    pub fn webhook_total_pending_dead_letters(&self) -> Result<i64, String> {
+        self.db
+            .query_row(
+                "SELECT COUNT(*) FROM webhook_dead_letters WHERE state='pending'",
+                [],
+                |r| r.get(0),
+            )
+            .map_err(|e| e.to_string())
+    }
+
+    /// All distinct targets that have pending dead letters in the journal,
+    /// in alphabetical order. Used to find orphaned targets whose letters
+    /// are unreachable because the config no longer lists them.
+    pub fn webhook_pending_targets(&self) -> Result<Vec<String>, String> {
+        let mut stmt = self
+            .db
+            .prepare("SELECT DISTINCT target FROM webhook_dead_letters WHERE state='pending' ORDER BY target")
+            .map_err(|e| e.to_string())?;
+        let rows = stmt
+            .query_map([], |r| r.get(0))
+            .map_err(|e| e.to_string())?
+            .collect::<Result<Vec<String>, _>>()
+            .map_err(|e| e.to_string())?;
+        Ok(rows)
+    }
+
     /// Read the seal status of a single signature (for assertions).
     #[allow(dead_code)]
     pub fn seal_status_of(&self, signature: &str) -> Result<Option<String>, String> {

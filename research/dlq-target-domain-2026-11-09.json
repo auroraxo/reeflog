@@ -1,0 +1,286 @@
+{
+  "generatedAt": "2026-11-09T06:48:27.491Z",
+  "subject": "the dead-letter queue report must match the queue it reports on",
+  "defect": "published v0.7.6: an unknown --target answered \"nothing pending\" with exit 0; pending counted the rows shown, not the letters pending; a letter whose target left the config was invisible",
+  "baseline": {
+    "source": "published v0.7.6 release asset (sha256 cbe2653416cc71e12ac3df3ed56b8c7cb270270baac60304d65d5af561a4d1e1)",
+    "cases": [
+      {
+        "id": "unknown_target_is_refused",
+        "kind": "list",
+        "exit": 0,
+        "ms": 16,
+        "journal_pending": 3,
+        "report_printed": true,
+        "reported_pending_total": 0,
+        "reported_pending_per_target": {},
+        "refusal_names_flag": false,
+        "refusal_names_value": false,
+        "stderr_head": "",
+        "verdict": "violated",
+        "expected": "refusal"
+      },
+      {
+        "id": "replay_with_unknown_target_is_refused",
+        "kind": "replay",
+        "exit": 0,
+        "ms": 8,
+        "journal_pending": 3,
+        "report_printed": true,
+        "reported_pending_total": null,
+        "reported_pending_per_target": {},
+        "refusal_names_flag": false,
+        "refusal_names_value": false,
+        "stderr_head": "",
+        "verdict": "violated",
+        "expected": "refusal"
+      },
+      {
+        "id": "pending_counts_the_queue_not_the_page",
+        "kind": "list",
+        "exit": 0,
+        "ms": 8,
+        "journal_pending": 7,
+        "report_printed": true,
+        "reported_pending_total": 2,
+        "reported_pending_per_target": {
+          "alpha": 2,
+          "beta": 0
+        },
+        "refusal_names_flag": false,
+        "refusal_names_value": false,
+        "stderr_head": "",
+        "verdict": "violated",
+        "expected": "pending_equals_truth"
+      },
+      {
+        "id": "an_orphaned_letter_is_reported",
+        "kind": "list",
+        "exit": 0,
+        "ms": 12,
+        "journal_pending": 2,
+        "report_printed": true,
+        "reported_pending_total": 1,
+        "reported_pending_per_target": {
+          "alpha": 1,
+          "beta": 0
+        },
+        "refusal_names_flag": false,
+        "refusal_names_value": false,
+        "stderr_head": "",
+        "verdict": "violated",
+        "expected": "pending_equals_truth"
+      },
+      {
+        "id": "a_replay_with_an_orphaned_letter_does_not_read_clean",
+        "kind": "replay",
+        "exit": 0,
+        "ms": 10,
+        "journal_pending": 1,
+        "report_printed": true,
+        "reported_pending_total": null,
+        "reported_pending_per_target": {},
+        "refusal_names_flag": false,
+        "refusal_names_value": false,
+        "stderr_head": "",
+        "verdict": "violated",
+        "expected": "nonzero_exit"
+      },
+      {
+        "id": "guard_a_known_target_is_still_listed",
+        "kind": "list",
+        "exit": 0,
+        "ms": 8,
+        "journal_pending": 2,
+        "report_printed": true,
+        "reported_pending_total": 2,
+        "reported_pending_per_target": {
+          "alpha": 2
+        },
+        "refusal_names_flag": false,
+        "refusal_names_value": false,
+        "stderr_head": "",
+        "verdict": "as_specified",
+        "expected": "pending_equals_truth"
+      },
+      {
+        "id": "guard_a_listing_without_a_filter_reports_every_target",
+        "kind": "list",
+        "exit": 0,
+        "ms": 16,
+        "journal_pending": 1,
+        "report_printed": true,
+        "reported_pending_total": 1,
+        "reported_pending_per_target": {
+          "alpha": 1,
+          "beta": 0
+        },
+        "refusal_names_flag": false,
+        "refusal_names_value": false,
+        "stderr_head": "",
+        "verdict": "as_specified",
+        "expected": "pending_equals_truth"
+      },
+      {
+        "id": "guard_an_empty_queue_reads_healthy",
+        "kind": "list",
+        "exit": 0,
+        "ms": 7,
+        "journal_pending": 0,
+        "report_printed": true,
+        "reported_pending_total": 0,
+        "reported_pending_per_target": {
+          "alpha": 0,
+          "beta": 0
+        },
+        "refusal_names_flag": false,
+        "refusal_names_value": false,
+        "stderr_head": "",
+        "verdict": "as_specified",
+        "expected": "healthy"
+      }
+    ],
+    "violations": 5
+  },
+  "fixed": {
+    "source": "this tree",
+    "cases": [
+      {
+        "id": "unknown_target_is_refused",
+        "kind": "list",
+        "exit": 1,
+        "ms": 9,
+        "journal_pending": 3,
+        "report_printed": false,
+        "reported_pending_total": null,
+        "reported_pending_per_target": null,
+        "refusal_names_flag": true,
+        "refusal_names_value": true,
+        "stderr_head": "reeflog: error: flag --target got `bogus` — no such target: not in this config and no pending dead letters under that id (known targets: alpha, beta)",
+        "verdict": "as_specified",
+        "expected": "refusal"
+      },
+      {
+        "id": "replay_with_unknown_target_is_refused",
+        "kind": "replay",
+        "exit": 1,
+        "ms": 8,
+        "journal_pending": 3,
+        "report_printed": false,
+        "reported_pending_total": null,
+        "reported_pending_per_target": null,
+        "refusal_names_flag": true,
+        "refusal_names_value": true,
+        "stderr_head": "reeflog: error: flag --target got `bogus` — no such target in this config (known targets: alpha, beta)",
+        "verdict": "as_specified",
+        "expected": "refusal"
+      },
+      {
+        "id": "pending_counts_the_queue_not_the_page",
+        "kind": "list",
+        "exit": 0,
+        "ms": 8,
+        "journal_pending": 7,
+        "report_printed": true,
+        "reported_pending_total": 7,
+        "reported_pending_per_target": {
+          "alpha": 7,
+          "beta": 0
+        },
+        "refusal_names_flag": false,
+        "refusal_names_value": false,
+        "stderr_head": "",
+        "verdict": "as_specified",
+        "expected": "pending_equals_truth"
+      },
+      {
+        "id": "an_orphaned_letter_is_reported",
+        "kind": "list",
+        "exit": 0,
+        "ms": 6,
+        "journal_pending": 2,
+        "report_printed": true,
+        "reported_pending_total": 2,
+        "reported_pending_per_target": {
+          "alpha": 1,
+          "beta": 0,
+          "gone": 1
+        },
+        "refusal_names_flag": false,
+        "refusal_names_value": false,
+        "stderr_head": "",
+        "verdict": "as_specified",
+        "expected": "pending_equals_truth"
+      },
+      {
+        "id": "a_replay_with_an_orphaned_letter_does_not_read_clean",
+        "kind": "replay",
+        "exit": 3,
+        "ms": 9,
+        "journal_pending": 1,
+        "report_printed": true,
+        "reported_pending_total": null,
+        "reported_pending_per_target": {},
+        "refusal_names_flag": false,
+        "refusal_names_value": false,
+        "stderr_head": "reeflog: 1 dead letter(s) belong to target(s) no longer in this config — add them back to replay",
+        "verdict": "as_specified",
+        "expected": "nonzero_exit"
+      },
+      {
+        "id": "guard_a_known_target_is_still_listed",
+        "kind": "list",
+        "exit": 0,
+        "ms": 13,
+        "journal_pending": 2,
+        "report_printed": true,
+        "reported_pending_total": 2,
+        "reported_pending_per_target": {
+          "alpha": 2
+        },
+        "refusal_names_flag": false,
+        "refusal_names_value": false,
+        "stderr_head": "",
+        "verdict": "as_specified",
+        "expected": "pending_equals_truth"
+      },
+      {
+        "id": "guard_a_listing_without_a_filter_reports_every_target",
+        "kind": "list",
+        "exit": 0,
+        "ms": 22,
+        "journal_pending": 1,
+        "report_printed": true,
+        "reported_pending_total": 1,
+        "reported_pending_per_target": {
+          "alpha": 1,
+          "beta": 0
+        },
+        "refusal_names_flag": false,
+        "refusal_names_value": false,
+        "stderr_head": "",
+        "verdict": "as_specified",
+        "expected": "pending_equals_truth"
+      },
+      {
+        "id": "guard_an_empty_queue_reads_healthy",
+        "kind": "list",
+        "exit": 0,
+        "ms": 12,
+        "journal_pending": 0,
+        "report_printed": true,
+        "reported_pending_total": 0,
+        "reported_pending_per_target": {
+          "alpha": 0,
+          "beta": 0
+        },
+        "refusal_names_flag": false,
+        "refusal_names_value": false,
+        "stderr_head": "",
+        "verdict": "as_specified",
+        "expected": "healthy"
+      }
+    ],
+    "violations": 0
+  }
+}

@@ -1838,12 +1838,22 @@ fn run_webhook_push(args: &[String]) {
     // other. Pending dead letters are reported per target and hold the exit
     // code, exactly like a blocked target does: the queue moving on is what
     // the dead-letter queue is FOR, and silence is still not health.
-    let mut pending_dead_letters = 0i64;
-    for t in &targets {
-        pending_dead_letters += j
-            .webhook_dead_letter_count(&t.id)
-            .unwrap_or_else(|e| die(e));
-    }
+    //
+    // The total is the JOURNAL's count, not the config's: a letter whose
+    // target has left the config is exactly the letter that can never be
+    // replayed from here, and rounding it away would report the queue
+    // healthy while an event nobody holds sits in it (measured on the
+    // published v0.7.6 binary, 2026-11-09).
+    let config_pending: i64 = targets
+        .iter()
+        .map(|t| j.webhook_dead_letter_count(&t.id).unwrap_or_else(|e| die(e)))
+        .sum();
+    let orphaned_pending =
+        (j.webhook_total_pending_dead_letters()
+            .unwrap_or_else(|e| die(e))
+            - config_pending)
+            .max(0);
+    let pending_dead_letters = config_pending + orphaned_pending;
     let pending_per_target: Vec<(String, i64)> = targets
         .iter()
         .map(|t| {
@@ -1877,6 +1887,7 @@ fn run_webhook_push(args: &[String]) {
             })).collect::<Vec<_>>(),
             "blocked_targets": blocked,
             "dead_letters_pending": pending_dead_letters,
+            "orphaned_dead_letters": orphaned_pending.max(0),
         }))
         .unwrap()
     );
@@ -1887,6 +1898,11 @@ fn run_webhook_push(args: &[String]) {
         std::process::exit(3);
     }
     if pending_dead_letters > 0 {
+        if orphaned_pending > 0 {
+            eprintln!(
+                "reeflog: {orphaned_pending} event(s) sit in the dead-letter queue for target(s) no longer in this config — they cannot be replayed until the target is re-added; inspect with `reeflog webhook dlq list`"
+            );
+        }
         eprintln!(
             "reeflog: {pending_dead_letters} event(s) sit in the dead-letter queue — the queue keeps moving, but these consumers do not hold these events yet; inspect with `reeflog webhook dlq list`"
         );
@@ -1930,6 +1946,24 @@ fn run_webhook_status(args: &[String]) {
 /// the event is kept verbatim, with the reason and the attempt count, so
 /// nothing is ever lost and the operator can see exactly what a consumer
 /// rejected.
+///
+/// Two truths this report must not bend (measured on the published v0.7.6
+/// binary, 2026-11-09):
+///
+/// * `pending` counts the letters that are PENDING, not the rows the limit
+///   happened to show — before the fix, `--limit 2` reported `pending: 2`
+///   while the journal held 7, and `webhook status` said 7 for the same
+///   queue;
+/// * a pending letter whose target has left the config is still reported
+///   (with `in_config: false` and counted in `pending_total`): it can never
+///   be replayed from here, and a queue that rounds it away reports itself
+///   healthy while an event nobody holds sits in it.
+///
+/// `--target` must name a target this command can know: one in the config,
+/// or one the journal holds pending letters for. An id that is neither is a
+/// REFUSAL naming the flag, the value and the known targets — the silent
+/// "empty queue" answer a typo used to get is indistinguishable from a
+/// clean one, and "clean" is a promise.
 fn run_webhook_dlq_list(args: &[String]) {
     let db = PathBuf::from(arg(args, "--db").unwrap_or_else(|| "reeflog.db".into()));
     let j = Journal::open(&db).unwrap_or_else(|e| die(e));
@@ -1939,20 +1973,44 @@ fn run_webhook_dlq_list(args: &[String]) {
         .and_then(|s| s.parse().ok())
         .unwrap_or(100);
     let only = arg(args, "--target");
+    let journal_pending = j.webhook_pending_targets().unwrap_or_else(|e| die(e));
+
+    if let Some(id) = &only {
+        let in_config = targets.iter().any(|t| &t.id == id);
+        let in_journal = journal_pending.iter().any(|t| t == id);
+        if !in_config && !in_journal {
+            let known = targets
+                .iter()
+                .map(|t| t.id.as_str())
+                .collect::<Vec<_>>()
+                .join(", ");
+            die(format!(
+                "flag --target got `{id}` — no such target: not in this config and no pending dead letters under that id (known targets: {known})"
+            ));
+        }
+    }
 
     let mut out = Vec::new();
+    let mut total = 0i64;
     for t in &targets {
         if let Some(only) = &only {
             if &t.id != only {
                 continue;
             }
         }
+        let pending = j
+            .webhook_dead_letter_count(&t.id)
+            .unwrap_or_else(|e| die(e));
         let rows = j
             .webhook_dead_letters(&t.id, limit)
             .unwrap_or_else(|e| die(e));
+        total += pending;
         out.push(json!({
             "target": t.id,
-            "pending": rows.len(),
+            "in_config": true,
+            "pending": pending,
+            "listed": rows.len(),
+            "truncated": pending > rows.len() as i64,
             "dead_letters": rows.iter().map(|r| json!({
                 "target": r.target,
                 "kind": r.kind,
@@ -1967,13 +2025,54 @@ fn run_webhook_dlq_list(args: &[String]) {
             })).collect::<Vec<_>>(),
         }));
     }
-    let total: usize = out
-        .iter()
-        .map(|t| t["dead_letters"].as_array().map(|a| a.len()).unwrap_or(0))
-        .sum();
+    // Pending letters whose target is no longer in this config: reported as
+    // their own entries, never folded into an empty report.
+    let mut orphaned = 0i64;
+    for id in &journal_pending {
+        if targets.iter().any(|t| &t.id == id) {
+            continue;
+        }
+        if let Some(only) = &only {
+            if only != id {
+                continue;
+            }
+        }
+        let pending = j
+            .webhook_dead_letter_count(id)
+            .unwrap_or_else(|e| die(e));
+        let rows = j
+            .webhook_dead_letters(id, limit)
+            .unwrap_or_else(|e| die(e));
+        total += pending;
+        orphaned += pending;
+        out.push(json!({
+            "target": id,
+            "in_config": false,
+            "pending": pending,
+            "listed": rows.len(),
+            "truncated": pending > rows.len() as i64,
+            "dead_letters": rows.iter().map(|r| json!({
+                "target": r.target,
+                "kind": r.kind,
+                "seq": r.seq,
+                "event_id": r.event_id,
+                "reason": r.reason,
+                "status": r.status,
+                "attempts": r.attempts,
+                "first_failed_at": r.first_failed_at,
+                "last_failed_at": r.last_failed_at,
+                "state": r.state,
+            })).collect::<Vec<_>>(),
+        }));
+    }
     println!(
         "{}",
-        serde_json::to_string_pretty(&json!({"targets": out, "pending_total": total})).unwrap()
+        serde_json::to_string_pretty(&json!({
+            "targets": out,
+            "pending_total": total,
+            "orphaned_pending": orphaned,
+        }))
+        .unwrap()
     );
 }
 
@@ -1983,6 +2082,15 @@ fn run_webhook_dlq_list(args: &[String]) {
 /// owed, so the replay sends the same body and therefore the same signature
 /// — a receiver that dedups on the event id sees exactly the same event as
 /// before, and one that never saw it gets it now.
+///
+/// Two correctness rules this command now enforces:
+///
+/// * `--target <id>` must name a target in THIS config (an orphaned target
+///   cannot be replayed because its url and secret are unknown; an unknown
+///   id is refused naming the flag, the value and the config targets);
+/// * an unreachable dead letter (because its target left the config) keeps
+///   a full-pass replay from exiting 0: the command cannot report clean
+///   success while events remain un-deliverable in the mailbox.
 fn run_webhook_dlq_replay(args: &[String]) {
     let db = PathBuf::from(arg(args, "--db").unwrap_or_else(|| "reeflog.db".into()));
     let j = Journal::open(&db).unwrap_or_else(|e| die(e));
@@ -1992,6 +2100,29 @@ fn run_webhook_dlq_replay(args: &[String]) {
         .and_then(|s| s.parse().ok())
         .unwrap_or(100);
     let only = arg(args, "--target");
+
+    if let Some(id) = &only {
+        if !targets.iter().any(|t| &t.id == id) {
+            let known = targets
+                .iter()
+                .map(|t| t.id.as_str())
+                .collect::<Vec<_>>()
+                .join(", ");
+            let journal_has = j
+                .webhook_dead_letter_count(id)
+                .map(|n| n > 0)
+                .unwrap_or(false);
+            if journal_has {
+                die(format!(
+                    "target `{id}` has dead letters in the journal, but is not in this config — add its url and secret back to replay it"
+                ));
+            } else {
+                die(format!(
+                    "flag --target got `{id}` — no such target in this config (known targets: {known})"
+                ));
+            }
+        }
+    }
 
     let mut replayed = 0i64;
     let mut failed = 0i64;
@@ -2064,18 +2195,40 @@ fn run_webhook_dlq_replay(args: &[String]) {
             "failed": target_failed,
         }));
     }
+
+    // When the whole queue was asked for (no --target), orphaned letters
+    // that could not even be attempted must keep the command from reading
+    // as "cleanly finished".
+    let orphaned = if only.is_none() {
+        let config_pending: i64 = targets
+            .iter()
+            .map(|t| j.webhook_dead_letter_count(&t.id).unwrap_or(0))
+            .sum();
+        let total = j.webhook_total_pending_dead_letters().unwrap_or(0);
+        (total - config_pending).max(0)
+    } else {
+        0
+    };
+
     println!(
         "{}",
         serde_json::to_string_pretty(&json!({
             "targets": out,
             "replayed": replayed,
             "failed": failed,
+            "unreachable_orphans": orphaned,
         }))
         .unwrap()
     );
     if failed > 0 {
         eprintln!(
             "reeflog: {failed} dead letter(s) still refused — they stay in the dead-letter queue, nothing is dropped"
+        );
+        std::process::exit(3);
+    }
+    if orphaned > 0 {
+        eprintln!(
+            "reeflog: {orphaned} dead letter(s) belong to target(s) no longer in this config — add them back to replay"
         );
         std::process::exit(3);
     }
