@@ -1008,6 +1008,18 @@ guards — a known target is still listed with its letters, a listing without a
 filter still reports every config target, an empty queue still reads healthy
 — unchanged on both trees.
 
+The fix first reached only the branch, so the release that carried it is
+itself measured: v0.7.7 (linux asset, archive sha256 equal to the digest the
+release API publishes) violates **0 of 8** against the same baseline
+(`research/dlq-target-domain-published-v0.7.7-2026-11-09.json`, pinned by
+`tests/dlq_target_published_v077.rs`), and the same two cases were driven by
+hand through the empty-app install path (`npm install
+github:auroraxo/reeflog#v0.7.7` → `bootstrap()` → `reeflog 0.7.7`): an
+unknown `--target` is a refusal naming the flag, the value and the known
+targets (exit 1), and `dlq list --limit 2` over a journal holding three
+letters reports `pending: 3, listed: 2, truncated: true` — the queue, not the
+page.
+
 The ladder is `tests/dlq_target_domain.rs` (10 tests) and
 `tools/mutation-ladder-dlq-target-domain.sh` (**5/5 mutations caught**): the
 unknown target is accepted again, `pending` counts the rows shown again, an

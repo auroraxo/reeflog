@@ -98,7 +98,14 @@ function baselineBinary() {
 
 function fixedBinary() {
   const given = argOf('--fixed');
-  if (given) return { bin: path.resolve(given), source: 'given' };
+  if (given) {
+    // The caller may point --fixed at an ARBITRARY binary — most importantly
+    // a downloaded release asset. "given" would say nothing about which
+    // artifact was measured, so --fixed-source carries that name into the
+    // artifact (digests are recorded by the caller's own verify step).
+    const source = argOf('--fixed-source') || 'given';
+    return { bin: path.resolve(given), source };
+  }
   execFileSync('cargo', ['build', '--release', '--locked'], { cwd: ROOT, stdio: 'inherit' });
   return { bin: path.join(ROOT, 'target', 'release', 'reeflog'), source: 'this tree' };
 }
