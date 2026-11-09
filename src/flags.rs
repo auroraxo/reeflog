@@ -215,31 +215,67 @@ fn check_url_value(flag: &str, value: &str) -> Result<(), String> {
         "--rpc" => "--rpc https://api.mainnet-beta.solana.com",
         _ => "--ws wss://api.mainnet-beta.solana.com",
     };
+    check_url_domain(&format!("flag {flag}"), value, schemes, example)
+}
+
+/// The URL domain rule, shared by every layer that hands a URL to a
+/// consumer: an absolute URL, a scheme the CONSUMER speaks, and a host.
+///
+/// This is the ONE implementation, and it exists because two layers checked
+/// the same consumer's URLs with two different rules. Measured 2026-11-09 on
+/// the published v0.7.7 tree: the webhook CONFIG judged its target URL with
+/// a PREFIX test (`url.starts_with("http://") || url.starts_with("https://")`)
+/// — the FORM of a URL, not its MEANING — while the FLAG layer for the very
+/// same consumer judged scheme and host properly. Two faces, both measured
+/// against the real poster:
+///
+/// * `HTTP://host/hook` -> REFUSED by the config ("must be http:// or
+///   https://"), although the consumer that posts it answers 200 to exactly
+///   that URL: ureq lowercases the scheme before resolving it. The
+///   operator is locked out of a working value by the checker, while the
+///   same URL on the same consumer is accepted one layer down;
+/// * `http://` -> ACCEPTED by the config, and then every delivery fails in
+///   the transport with "http: empty string": the config passed, the queue
+///   blocked, and the reason arrives in ureq's words, behind a delivery
+///   pass that already started.
+///
+/// So the rule is the consumer's, and it is checked once:
+/// `label` says who is complaining (the flag parser or the config loader),
+/// `schemes` are the schemes that consumer speaks, `example` is a working
+/// value in the same shape.
+pub fn check_url_domain(
+    label: &str,
+    value: &str,
+    schemes: &[&str],
+    example: &str,
+) -> Result<(), String> {
     if value.trim().is_empty() {
         return Err(format!(
-            "flag {flag} expects an absolute URL ({}) , got an empty value (e.g. {example})",
+            "{label} expects an absolute URL ({}) , got an empty value (e.g. {example})",
             schemes.join("/")
         ));
     }
     let Some((scheme, rest)) = value.split_once("://") else {
         return Err(format!(
-            "flag {flag} expects an absolute URL with scheme {} — got `{value}` (e.g. {example})",
+            "{label} expects an absolute URL with scheme {} — got `{value}` (e.g. {example})",
             schemes.join(" or ")
         ));
     };
+    // The scheme is compared case-insensitively because the CONSUMER is:
+    // MEASURED, `ureq` answers 200 to `HTTP://…` and `HtTp://…`.
     if !schemes.iter().any(|s| s.eq_ignore_ascii_case(scheme)) {
         return Err(format!(
-            "flag {flag} expects a {} URL — got `{value}` (scheme `{scheme}` is not spoken by this command's consumer; e.g. {example})",
+            "{label} expects a {} URL — got `{value}` (scheme `{scheme}` is not spoken by this consumer; e.g. {example})",
             schemes.join(" or ")
         ));
     }
     // The authority: everything up to the path/query/fragment. It must be
     // non-empty — `https://` has a scheme and no host, and the consumer
-    // calls that "empty string", after the flag let it through.
+    // calls that "empty string", after the check let it through.
     let authority = rest.split(['/', '?', '#']).next().unwrap_or(rest);
     if authority.is_empty() {
         return Err(format!(
-            "flag {flag} expects a URL with a host — got `{value}` (e.g. {example})"
+            "{label} expects a URL with a host — got `{value}` (e.g. {example})"
         ));
     }
     Ok(())

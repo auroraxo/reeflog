@@ -810,6 +810,7 @@ behaviour the file does not describe.
 
 | Key | Domain | What is refused |
 |---|---|---|
+| `url` | absolute URL of scheme `http` or `https` (case-insensitive) with a host | `http://` or `https://` with no host (the consumer dies with "http: empty string" on first delivery), empty authority (`http:///x`), missing scheme, non-http scheme (`ftp://…`) |
 | `timeout_ms` | whole milliseconds in `1..=3600000` (1 hour) | `0` (the poster would silently re-read it as 1 ms), anything above the 1-hour ceiling (a timeout no process will live to see — an attempt that cannot finish within an hour is stuck, not slow), a fraction, a negative number, a string, an integer beyond `u64` |
 | `dead_letter_after` | non-negative integer in `i64` | a fraction, a negative number, an integer outside `i64` (the count is compared against an `i64` refusal counter) |
 
@@ -1026,6 +1027,45 @@ unknown target is accepted again, `pending` counts the rows shown again, an
 orphaned letter is dropped from the report again, a replay with an orphaned
 letter reads clean again, and the refusal no longer names the offending
 value.
+
+### The webhook URL domain is the consumer's domain, not a prefix
+
+Measured 2026-11-09 against the **published v0.7.7 binary** (the sha256 of
+whose release archive equals the digest published by GitHub Releases):
+`load_targets` judged the target URL with a string prefix test
+(`url.starts_with("http://") || url.starts_with("https://")`) — the FORM of
+a URL, not its meaning. Two faces, both measured:
+
+| Case | What v0.7.7 did | What the consumer does |
+|---|---|---|
+| `"url": "HTTP://127.0.0.1:8794/hook"` | **REFUSED** (`"url" must be http:// or https://`) | `ureq` (the poster's transport) lowercases the scheme: answers **HTTP 200** to `HTTP://` and `HtTp://` from a live receiver |
+| `"url": "http://"` | **ACCEPTED** (exit 0, report printed, queue configured) | every delivery dies in transport with `http: empty string` |
+| `"url": "http:///x"` | **ACCEPTED** | every delivery dies with `http: invalid format` |
+| `"url": "https://"` | **ACCEPTED** | every delivery dies with `http: empty string` |
+
+The flag parser had already closed this exact defect for the very same
+consumer (`--rpc`, v0.7.6): scheme checked case-insensitively, host required,
+refusal naming the offending value. The config loader, one layer up, still
+used the prefix test.
+
+The fix is ONE implementation for both layers (`check_url_domain` in
+`src/flags.rs`), shared by the flag parser and `load_targets`: scheme
+compared case-insensitively, authority required, and the refusal names the
+key, the offending value, the expected domain and an example before any
+delivery is attempted.
+
+Measured on both trees by `tools/measure-webhook-url-domain.mjs`
+(`research/webhook-url-domain-2026-11-09.json`, pinned by
+`tests/webhook_url_measurement.rs`): the published v0.7.7 asset violates
+**5 of 8** cases; this tree violates **0 of 8**, with the three guards
+(lowercase `http://`, lowercase `https://`, non-http scheme refused)
+unchanged on both trees.
+
+The ladder is `tests/webhook_url_domain.rs` (12 tests) and
+`tools/mutation-ladder-webhook-url.sh` (**5/5 mutations caught**): the host
+requirement dropped, the scheme check made case-sensitive again, the scheme
+check dropped entirely, the value no longer named, and `webhook.rs` reverted
+to the prefix test.
 
 ### Limits
 

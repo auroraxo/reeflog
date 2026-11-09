@@ -278,9 +278,15 @@ pub fn load_targets(path: &Path) -> Result<Vec<Target>, String> {
         if secret.is_empty() {
             return Err(format!("target #{i}: \"secret\" must not be empty"));
         }
-        if !(url.starts_with("http://") || url.starts_with("https://")) {
-            return Err(format!("target #{i}: \"url\" must be http:// or https://"));
-        }
+        // The URL domain rule, shared with the flag parser (measured 2026-11-09):
+        // judges scheme case-insensitively (the consumer speaks `HTTP://`)
+        // and requires a host (`http://` is not a URL the consumer can deliver to).
+        reeflog::flags::check_url_domain(
+            &format!("target #{i} url"),
+            url,
+            &["http", "https"],
+            "http://127.0.0.1:8080/hook",
+        )?;
         if out.iter().any(|t| t.id == id) {
             return Err(format!("duplicate target id {id:?}"));
         }
