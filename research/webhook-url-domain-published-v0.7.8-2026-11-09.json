@@ -1,0 +1,161 @@
+{
+  "measuredAt": "2026-11-09T20:41:53.024Z",
+  "baselineSource": "gh release download v0.7.7 (digest verified)",
+  "fixedSource": "gh release download v0.7.8 (digest verified)",
+  "summary": {
+    "totalCases": 8,
+    "defectCases": 5,
+    "guardCases": 3,
+    "baselineViolations": 5,
+    "fixedViolations": 0,
+    "verdict": "fixed"
+  },
+  "baseline": [
+    {
+      "id": "nohost-http",
+      "kind": "refusal",
+      "url": "http://",
+      "exit": 0,
+      "violated": true,
+      "reason": "accepted_when_it_should_be_refused",
+      "stderr": ""
+    },
+    {
+      "id": "nohost-https",
+      "kind": "refusal",
+      "url": "https://",
+      "exit": 0,
+      "violated": true,
+      "reason": "accepted_when_it_should_be_refused",
+      "stderr": ""
+    },
+    {
+      "id": "empty-auth",
+      "kind": "refusal",
+      "url": "http:///x",
+      "exit": 0,
+      "violated": true,
+      "reason": "accepted_when_it_should_be_refused",
+      "stderr": ""
+    },
+    {
+      "id": "uppercase-scheme",
+      "kind": "accept",
+      "url": "HTTP://127.0.0.1:9/hook",
+      "exit": 1,
+      "violated": true,
+      "reason": "refused_when_it_should_be_accepted: reeflog: error: target #0: \"url\" must be http:// or https://",
+      "stderr": "reeflog: error: target #0: \"url\" must be http:// or https://"
+    },
+    {
+      "id": "mixed-case-scheme",
+      "kind": "accept",
+      "url": "HtTp://127.0.0.1:9/hook",
+      "exit": 1,
+      "violated": true,
+      "reason": "refused_when_it_should_be_accepted: reeflog: error: target #0: \"url\" must be http:// or https://",
+      "stderr": "reeflog: error: target #0: \"url\" must be http:// or https://"
+    },
+    {
+      "id": "guard-lowercase-http",
+      "kind": "accept",
+      "url": "http://127.0.0.1:9/hook",
+      "exit": 0,
+      "violated": false,
+      "reason": "as_specified",
+      "stderr": ""
+    },
+    {
+      "id": "guard-lowercase-https",
+      "kind": "accept",
+      "url": "https://127.0.0.1:9/hook",
+      "exit": 0,
+      "violated": false,
+      "reason": "as_specified",
+      "stderr": ""
+    },
+    {
+      "id": "guard-non-http-scheme",
+      "kind": "guard_refusal",
+      "url": "ftp://x/y",
+      "exit": 1,
+      "violated": false,
+      "reason": "as_specified",
+      "stderr": "reeflog: error: target #0: \"url\" must be http:// or https://"
+    }
+  ],
+  "fixed": [
+    {
+      "id": "nohost-http",
+      "kind": "refusal",
+      "url": "http://",
+      "exit": 1,
+      "violated": false,
+      "reason": "as_specified",
+      "stderr": "reeflog: error: target #0 url expects a URL with a host — got `http://` (e.g. http://127.0.0.1:8080/hook)"
+    },
+    {
+      "id": "nohost-https",
+      "kind": "refusal",
+      "url": "https://",
+      "exit": 1,
+      "violated": false,
+      "reason": "as_specified",
+      "stderr": "reeflog: error: target #0 url expects a URL with a host — got `https://` (e.g. http://127.0.0.1:8080/hook)"
+    },
+    {
+      "id": "empty-auth",
+      "kind": "refusal",
+      "url": "http:///x",
+      "exit": 1,
+      "violated": false,
+      "reason": "as_specified",
+      "stderr": "reeflog: error: target #0 url expects a URL with a host — got `http:///x` (e.g. http://127.0.0.1:8080/hook)"
+    },
+    {
+      "id": "uppercase-scheme",
+      "kind": "accept",
+      "url": "HTTP://127.0.0.1:9/hook",
+      "exit": 0,
+      "violated": false,
+      "reason": "as_specified",
+      "stderr": ""
+    },
+    {
+      "id": "mixed-case-scheme",
+      "kind": "accept",
+      "url": "HtTp://127.0.0.1:9/hook",
+      "exit": 0,
+      "violated": false,
+      "reason": "as_specified",
+      "stderr": ""
+    },
+    {
+      "id": "guard-lowercase-http",
+      "kind": "accept",
+      "url": "http://127.0.0.1:9/hook",
+      "exit": 0,
+      "violated": false,
+      "reason": "as_specified",
+      "stderr": ""
+    },
+    {
+      "id": "guard-lowercase-https",
+      "kind": "accept",
+      "url": "https://127.0.0.1:9/hook",
+      "exit": 0,
+      "violated": false,
+      "reason": "as_specified",
+      "stderr": ""
+    },
+    {
+      "id": "guard-non-http-scheme",
+      "kind": "guard_refusal",
+      "url": "ftp://x/y",
+      "exit": 1,
+      "violated": false,
+      "reason": "as_specified",
+      "stderr": "reeflog: error: target #0 url expects a http or https URL — got `ftp://x/y` (scheme `ftp` is not spoken by this consumer; e.g. http://127.0.0.1:8080/hook)"
+    }
+  ]
+}

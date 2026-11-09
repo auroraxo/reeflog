@@ -31,6 +31,12 @@
 // Usage:
 //   node tools/measure-webhook-url-domain.mjs
 //   node tools/measure-webhook-url-domain.mjs --baseline <bin> --fixed <bin>
+//   node tools/measure-webhook-url-domain.mjs --fixed-release v0.7.8 --out <file>
+//
+// `--fixed-release <tag>` measures a RELEASED artifact (downloaded from
+// GitHub Releases and verified against the digest the release API publishes)
+// as the FIXED side — the claim "the fix reached the artifact, not only the
+// branch", which is the defect class this repository has hit twice.
 //
 // Exit: 0 all cases behave as specified on the FIXED tree, 1 a case failed,
 // 2 setup failed.
@@ -59,20 +65,18 @@ function argOf(flag) {
 
 // --- the trees -------------------------------------------------------------
 
-function baselineBinary() {
-  const given = argOf('--baseline');
-  if (given) return { bin: path.resolve(given), source: 'given' };
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'reeflog-whurl-baseline-'));
-  const tar = path.join(dir, 'baseline.tar.gz');
+function releaseBinary(tag) {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'reeflog-whurl-release-'));
+  const tar = path.join(dir, 'release.tar.gz');
   execFileSync(
     'gh',
-    ['release', 'download', 'v0.7.7', '--repo', 'auroraxo/reeflog',
+    ['release', 'download', tag, '--repo', 'auroraxo/reeflog',
      '-p', 'reeflog-linux-amd64.tar.gz', '-O', tar],
     { cwd: ROOT, stdio: 'inherit' },
   );
   const digest = execFileSync(
     'gh',
-    ['api', 'repos/auroraxo/reeflog/releases/tags/v0.7.7', '--jq',
+    ['api', `repos/auroraxo/reeflog/releases/tags/${tag}`, '--jq',
      '.assets[] | select(.name=="reeflog-linux-amd64.tar.gz") | .digest'],
     { cwd: ROOT, encoding: 'utf8' },
   ).trim().replace(/^sha256:/, '');
@@ -81,10 +85,18 @@ function baselineBinary() {
     throw new Error(`the downloaded archive does not match the release digest (${local} != ${digest})`);
   }
   execFileSync('tar', ['-xzf', tar, '-C', dir], { stdio: 'inherit' });
-  return { bin: path.join(dir, 'reeflog'), source: 'gh release download v0.7.7 (digest verified)' };
+  return { bin: path.join(dir, 'reeflog'), source: `gh release download ${tag} (digest verified)` };
+}
+
+function baselineBinary() {
+  const given = argOf('--baseline');
+  if (given) return { bin: path.resolve(given), source: 'given' };
+  return releaseBinary('v0.7.7');
 }
 
 function fixedBinary() {
+  const releaseTag = argOf('--fixed-release');
+  if (releaseTag) return releaseBinary(releaseTag);
   const given = argOf('--fixed');
   if (given) return { bin: path.resolve(given), source: 'given' };
   execFileSync('cargo', ['build', '--release', '--locked'], { cwd: ROOT, stdio: 'inherit' });

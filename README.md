@@ -1061,11 +1061,22 @@ Measured on both trees by `tools/measure-webhook-url-domain.mjs`
 (lowercase `http://`, lowercase `https://`, non-http scheme refused)
 unchanged on both trees.
 
+The fix first reached only the branch, so the release that carried it is
+itself measured: v0.7.8 (linux asset, archive sha256 equal to the digest
+the release API publishes) violates **0 of 8** against the same baseline
+(`research/webhook-url-domain-published-v0.7.8-2026-11-09.json`, pinned by
+`tests/webhook_url_published_v078.rs`, falsified five ways — the count, the
+verdict, a dropped case id, a source line pointing at the branch, an
+injected host path).
+
 The ladder is `tests/webhook_url_domain.rs` (12 tests) and
 `tools/mutation-ladder-webhook-url.sh` (**5/5 mutations caught**): the host
 requirement dropped, the scheme check made case-sensitive again, the scheme
 check dropped entirely, the value no longer named, and `webhook.rs` reverted
-to the prefix test.
+to the prefix test. The end-to-end case drives an uppercase-scheme target
+against a local receiver: the URL loads **and delivers** (`delivered: 1`,
+`blocked: false`, push exit 0), while the no-host URL is refused before any
+delivery runs.
 
 ### Limits
 

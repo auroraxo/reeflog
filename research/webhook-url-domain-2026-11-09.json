@@ -1,5 +1,5 @@
 {
-  "measuredAt": "2026-11-09T20:20:14.276Z",
+  "measuredAt": "2026-11-09T20:40:42.041Z",
   "baselineSource": "gh release download v0.7.7 (digest verified)",
   "fixedSource": "this tree (cargo build --release)",
   "summary": {
