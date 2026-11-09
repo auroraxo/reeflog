@@ -1,6 +1,6 @@
 {
   "name": "reeflog-client",
-  "version": "0.7.6",
+  "version": "0.7.7",
   "description": "Node client for reeflog, the durable local mailbox for Solana events: cursor-based event delivery, retractions, health and repair.",
   "license": "MIT",
   "type": "module",
