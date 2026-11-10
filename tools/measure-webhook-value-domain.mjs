@@ -1,13 +1,19 @@
 #!/usr/bin/env node
 // The BEFORE/AFTER measurement for the webhook value domain: the SAME
-// values, run against the PUBLISHED v0.7.8 binary and against the FIXED
-// build, with a receiver that records what actually arrives.
+// values, run against a BASELINE binary and against the FIXED binary, with
+// a receiver that records what actually arrives.
 //
-//   node research/measure-webhook-value-domain.mjs <baseline-bin> <fixed-bin> <out.json>
+//   node tools/measure-webhook-value-domain.mjs <baseline-bin> <fixed-bin> <out.json> [baseline-label] [fixed-label]
 //
-// The baseline is the published v0.7.8 asset (the release archive's sha256
+// The baseline is usually the published asset (the release archive's sha256
 // equals the digest GitHub Releases publishes). The fixed binary is the
-// tree's own build.
+// tree's own build — or a PUBLISHED asset, when the release itself is what
+// must be measured.
+//
+// The artifact NAMES the binaries it measured: each side's `--version` is
+// read from the binary itself, and the label the caller passed is kept.
+// (Before 2026-11-10 the labels were hardcoded, so an artifact could claim
+// to have measured the tree while it measured something else.)
 //
 // What it records per case: whether the CONFIG was accepted, and whether
 // the delivery actually reached the receiver, with the transport's own
@@ -17,12 +23,22 @@ import { spawnSync, spawn } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 
-const BASELINE = process.argv[2];
-const FIXED = process.argv[3];
+const BASELINE = path.resolve(process.argv[2]);
+const FIXED = path.resolve(process.argv[3]);
 const OUT = process.argv[4];
+const BASELINE_LABEL = process.argv[5] || null;
+const FIXED_LABEL = process.argv[6] || null;
 if (!BASELINE || !FIXED || !OUT) {
-  console.error('usage: measure-webhook-value-domain.mjs <baseline-bin> <fixed-bin> <out.json>');
+  console.error('usage: measure-webhook-value-domain.mjs <baseline-bin> <fixed-bin> <out.json> [baseline-label] [fixed-label]');
   process.exit(2);
+}
+
+// The version is read from the BINARY, so the artifact cannot claim to
+// have measured something it did not.
+function versionOf(bin) {
+  const v = spawnSync(bin, ['--version'], { encoding: 'utf8' });
+  const m = /(\d+\.\d+\.\d+)/.exec(v.stdout || '');
+  return m ? m[1] : null;
 }
 
 const PROGRAM = 'whirLbMiicVdio4qvUfM5KAg6Ct8VwpYzGff3uctyCc';
@@ -119,8 +135,14 @@ for (const c of cases) {
 const out = {
   artifact: 'webhook-value-domain-before-after',
   measuredAt: new Date().toISOString(),
-  baseline: { binary: 'published v0.7.8 asset', version: '0.7.8' },
-  fixed: { binary: 'tree build', version: '0.7.8' },
+  baseline: {
+    binary: BASELINE_LABEL || 'baseline binary',
+    version: versionOf(BASELINE),
+  },
+  fixed: {
+    binary: FIXED_LABEL || 'fixed binary',
+    version: versionOf(FIXED),
+  },
   method:
     'the same config values against both binaries, with a receiver process that records ' +
     'what arrives; the baseline is the PUBLISHED v0.7.8 asset',
