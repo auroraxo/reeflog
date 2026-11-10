@@ -6,6 +6,7 @@
 
 mod accounts;
 mod backfill;
+mod cursorfile;
 mod journal;
 mod owners;
 mod account_data;
@@ -1235,11 +1236,15 @@ async fn run_start(args: &[String]) {
 fn run_tail(args: &[String]) {
     let db = PathBuf::from(arg(args, "--db").unwrap_or_else(|| "reeflog.db".into()));
     let cursor_path = PathBuf::from(require(args, "--cursor"));
-    // The cursor is read BEFORE the journal is opened: a cursor file that
-    // does not carry a cursor must be refused, and a refusal must never come
-    // after the tool has already opened the state it is about to contradict.
-    let after: i64 = read_cursor(&cursor_path);
+    // The cursor CONTENT is read BEFORE the journal is opened: a cursor file
+    // that does not carry a cursor must be refused, and a refusal must never
+    // come after the tool has already opened the state it is about to
+    // contradict. Provenance needs the journal's own id, so the crossing
+    // check (`honour_cursor`) runs immediately after the open and before a
+    // single row is read.
+    let cursor = read_cursor(&cursor_path);
     let j = Journal::open(&db).unwrap_or_else(|e| die(e));
+    let after: i64 = honour_cursor(&cursor, &j, cursorfile::Channel::Events, &cursor_path);
     let limit: i64 = arg(args, "--limit")
         .and_then(|s| s.parse().ok())
         .unwrap_or(1000);
@@ -1325,12 +1330,12 @@ fn run_tail(args: &[String]) {
     // into silent, permanent data loss behind the flag.
     let advance_to = last_consumed_seq;
     if advance_to > after {
-        write_cursor(&cursor_path, advance_to);
+        write_cursor(&cursor_path, &j, cursorfile::Channel::Events, advance_to);
     }
     eprintln!(
         "reeflog: {} events after cursor {after} → cursor now {}{}{}",
         if only_with_accounts { delivered } else { rows.len() },
-        read_cursor(&cursor_path),
+        cursor_position(&cursor_path),
         if skipped_final > 0 {
             format!(" ({skipped_final} row(s) skipped: no account envelope and a recorded outcome — not fillable, consumed)")
         } else {
@@ -1393,10 +1398,13 @@ fn classify_for_accounts_filter(r: &EventRow) -> AccountsFilter {
     AccountsFilter::RecordedOutcome
 }
 
-fn read_cursor(path: &Path) -> i64 {
+fn read_cursor(path: &Path) -> Option<cursorfile::Cursor> {
+    // `None` = no file: the documented first run. An EXISTING file that does
+    // not carry a readable cursor is a refusal here, BEFORE the journal is
+    // opened — the v0.7.4 rule, now shared by both cursor forms.
     let raw = match std::fs::read_to_string(path) {
         Ok(s) => s,
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return 0,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return None,
         Err(e) => {
             die(format!(
                 "cursor {}: {e} — refusing to guess a position",
@@ -1404,33 +1412,61 @@ fn read_cursor(path: &Path) -> i64 {
             ))
         }
     };
-    let trimmed = raw.trim();
-    if trimmed.is_empty() {
-        die(format!(
-            "cursor {} is empty — refusing to restart at 0 behind your back; delete it to start from the beginning",
-            path.display()
-        ));
-    }
-    match trimmed.parse::<i64>() {
-        Ok(n) if n >= 0 => n,
-        Ok(n) => die(format!(
-            "cursor {} holds `{trimmed}` ({n}) — a cursor is a position, never negative; refusing",
-            path.display()
-        )),
-        Err(_) => die(format!(
-            "cursor {} holds `{trimmed}` — not a non-negative whole number inside i64; refusing to restart at 0 (delete the file to start from the beginning)",
-            path.display()
-        )),
+    match cursorfile::parse(&raw, &path.display().to_string()) {
+        Ok(c) => Some(c),
+        Err(why) => die(why),
     }
 }
 
-fn write_cursor(path: &Path, seq: i64) {
+/// The provenance gate: a structured cursor is honoured only by the same
+/// channel of the same journal; a bare hand-written number carries no claim
+/// and stays legal. Needs the journal open, so it runs right AFTER
+/// `Journal::open` — the content refusal (which must precede the open) is
+/// done by `read_cursor`.
+fn honour_cursor(
+    cursor: &Option<cursorfile::Cursor>,
+    j: &Journal,
+    channel: cursorfile::Channel,
+    path: &Path,
+) -> i64 {
+    let c = match cursor {
+        None => return 0,
+        Some(c) => c,
+    };
+    if !c.structured {
+        return c.value;
+    }
+    let id = j.journal_id().unwrap_or_else(|e| die(format!("journal id: {e}")));
+    match cursorfile::honour(c, channel, &id, &path.display().to_string()) {
+        Ok(_) => c.value,
+        Err(why) => die(why),
+    }
+}
+
+fn write_cursor(path: &Path, j: &Journal, channel: cursorfile::Channel, seq: i64) {
     if let Some(parent) = path.parent() {
         if !parent.as_os_str().is_empty() {
             let _ = std::fs::create_dir_all(parent);
         }
     }
-    std::fs::write(path, format!("{seq}\n")).unwrap_or_else(|e| die(format!("cursor write: {e}")));
+    let id = j.journal_id().unwrap_or_else(|e| die(format!("journal id: {e}")));
+    std::fs::write(path, cursorfile::render(channel, &id, seq))
+        .unwrap_or_else(|e| die(format!("cursor write: {e}")));
+}
+
+/// The numeric position a cursor file holds, in either form, for reporting
+/// ("cursor now N"). A refusal that leaves a file untouched must still be
+/// able to print what the file says — so this NEVER dies: it reports what it
+/// can read and `?` when the file holds neither form.
+fn cursor_position(path: &Path) -> String {
+    let raw = match std::fs::read_to_string(path) {
+        Ok(s) => s,
+        Err(_) => return "?".into(),
+    };
+    match cursorfile::parse(&raw, &path.display().to_string()) {
+        Ok(c) => c.value.to_string(),
+        Err(_) => "?".into(),
+    }
 }
 
 fn run_verify(args: &[String]) {
@@ -1607,9 +1643,10 @@ fn run_reorg_check(args: &[String]) {
 fn run_reorg_tail(args: &[String]) {
     let db = PathBuf::from(arg(args, "--db").unwrap_or_else(|| "reeflog.db".into()));
     let cursor_path = PathBuf::from(require(args, "--cursor"));
-    // Same order as `tail`: the cursor is validated before the journal opens.
-    let after: i64 = read_cursor(&cursor_path);
+    // Same order as `tail`: content before the open, provenance right after.
+    let cursor = read_cursor(&cursor_path);
     let j = Journal::open(&db).unwrap_or_else(|e| die(e));
+    let after: i64 = honour_cursor(&cursor, &j, cursorfile::Channel::Reorgs, &cursor_path);
     let limit: i64 = arg(args, "--limit")
         .and_then(|s| s.parse().ok())
         .unwrap_or(1000);
@@ -1630,12 +1667,12 @@ fn run_reorg_tail(args: &[String]) {
         );
     }
     if let Some(last) = rows.last() {
-        write_cursor(&cursor_path, last.id);
+        write_cursor(&cursor_path, &j, cursorfile::Channel::Reorgs, last.id);
     }
     eprintln!(
         "reeflog: {} reorg(s) after cursor {after} → cursor now {}",
         rows.len(),
-        read_cursor(&cursor_path)
+        cursor_position(&cursor_path)
     );
 }
 

@@ -60,11 +60,27 @@ fn delivered_signatures(out: &Output) -> Vec<String> {
         .collect()
 }
 
+/// The numeric position the cursor file holds. reeflog writes the structured
+/// (provenance-carrying) form since v0.7.13; these tests pin the POSITION of
+/// delivery, not the encoding — see `tests/cursor_provenance.rs`.
 fn cursor_of(dir: &Path) -> String {
-    std::fs::read_to_string(dir.join("cursor.txt"))
+    let raw = std::fs::read_to_string(dir.join("cursor.txt"))
         .unwrap_or_default()
         .trim()
-        .to_string()
+        .to_string();
+    if raw.starts_with('{') {
+        let needle = "\"value\":";
+        let start = raw
+            .find(needle)
+            .unwrap_or_else(|| panic!("a structured cursor must carry {needle}: {raw}"))
+            + needle.len();
+        let rest = &raw[start..];
+        let end = rest
+            .find(|c: char| !c.is_ascii_digit())
+            .unwrap_or(rest.len());
+        return rest[..end].to_string();
+    }
+    raw
 }
 
 /// Create a journal and plant rows in exactly the states the delivery filter

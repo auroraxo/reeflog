@@ -11,4 +11,5 @@
 //! The rest of the product stays behind the CLI: the journal, the daemon and
 //! the webhook poster are not stable API and are deliberately not exported.
 
+pub mod cursorfile;
 pub mod flags;

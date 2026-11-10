@@ -76,6 +76,30 @@ fn stdout_of(out: &Output) -> String {
     String::from_utf8_lossy(&out.stdout).into_owned()
 }
 
+/// The numeric POSITION a cursor file holds, in either form it may be
+/// written: a bare whole number (the operator's deliberate rewind) or the
+/// structured cursor reeflog writes since v0.7.13 (`"value":N`, provenance
+/// in the rest). These tests pin the POSITION — "the cursor advanced to the
+/// tip" — and must not re-pin the encoding; `tests/cursor_provenance.rs`
+/// owns the encoding contract.
+fn cursor_position(cursor: &Path) -> String {
+    let raw = std::fs::read_to_string(cursor).expect("cursor readable");
+    let trimmed = raw.trim();
+    if trimmed.starts_with('{') {
+        let needle = "\"value\":";
+        let start = trimmed
+            .find(needle)
+            .unwrap_or_else(|| panic!("a structured cursor must carry {needle}: {trimmed}"))
+            + needle.len();
+        let rest = &trimmed[start..];
+        let end = rest
+            .find(|c: char| !c.is_ascii_digit())
+            .unwrap_or(rest.len());
+        return rest[..end].to_string();
+    }
+    trimmed.to_string()
+}
+
 /// A journal with a program and `rows` planted events, so a full replay is
 /// visible in the output and a refusal can be told apart from "no rows".
 fn with_rows(tag: &str, rows: i64) -> PathBuf {
@@ -288,7 +312,7 @@ fn a_missing_cursor_file_is_a_first_run_and_delivers_everything() {
     );
     assert_eq!(delivered_rows(&out), 12, "the first run delivers all rows");
     assert_eq!(
-        std::fs::read_to_string(&cursor).expect("cursor written").trim(),
+        cursor_position(&cursor),
         "12",
         "the cursor advances to the tip"
     );
@@ -325,10 +349,7 @@ fn a_valid_cursor_resumes_exactly_where_it_stopped() {
     );
     assert!(first.status.success(), "resume must succeed");
     assert_eq!(delivered_rows(&first), 3, "16, 17, 18 are delivered");
-    assert_eq!(
-        std::fs::read_to_string(&cursor).expect("cursor").trim(),
-        "18"
-    );
+    assert_eq!(cursor_position(&cursor), "18");
 
     let second = run(
         &dir,
@@ -385,7 +406,7 @@ fn a_cursor_ahead_of_the_tip_delivers_nothing_and_is_not_an_error() {
     assert_eq!(
         std::fs::read_to_string(&cursor).expect("cursor").trim(),
         "5000",
-        "an unchanged cursor must not be rewritten"
+        "an unchanged cursor must not be rewritten — the bare file stays byte-identical"
     );
 }
 

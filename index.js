@@ -107,6 +107,31 @@ function cursorFor(channel, db) {
   return path.resolve(`${db}.${channel}.cursor`);
 }
 
+/**
+ * The numeric POSITION a cursor file holds, in either form it may carry:
+ * a bare whole number (the operator's deliberate rewind) or the structured
+ * cursor reeflog writes since v0.7.13 (`{"v":1,"channel":…,"journal":…,
+ * "value":N}`). The client reports the position, never the encoding.
+ * @param {string} file cursor file path
+ * @returns {number} the position, 0 when there is no file
+ */
+function cursorPosition(file) {
+  if (!fs.existsSync(file)) return 0;
+  const raw = fs.readFileSync(file, 'utf8').trim();
+  if (!raw) return 0;
+  if (raw.startsWith('{')) {
+    try {
+      const v = JSON.parse(raw);
+      if (Number.isInteger(v?.value)) return v.value;
+    } catch {
+      // fall through to 0 — a cursor we cannot read is no position
+    }
+    return 0;
+  }
+  const n = Number(raw);
+  return Number.isInteger(n) ? n : 0;
+}
+
 export class Reeflog {
   /**
    * @param {object} opts
@@ -172,9 +197,7 @@ export class Reeflog {
       events,
       held,
       cursor: cursorFile,
-      cursorValue: fs.existsSync(cursorFile)
-        ? Number(fs.readFileSync(cursorFile, 'utf8').trim())
-        : 0,
+      cursorValue: cursorPosition(cursorFile),
       exitCode: r.exitCode,
     };
   }
@@ -190,9 +213,7 @@ export class Reeflog {
     return {
       retractions: parseJsonLines(r.lines),
       cursor: cursorFile,
-      cursorValue: fs.existsSync(cursorFile)
-        ? Number(fs.readFileSync(cursorFile, 'utf8').trim())
-        : 0,
+      cursorValue: cursorPosition(cursorFile),
       exitCode: r.exitCode,
     };
   }

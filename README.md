@@ -1406,6 +1406,39 @@ reads cursors the same way. Ladder: `tests/cursor_state.rs` (7 defect cases
 RED on v0.7.3, 6 guards green on both trees), artifact pinned by
 `tests/cursor_state_measurement.rs`.
 
+## A cursor knows where it came from
+
+A strict read still left the cursor anonymous: one bare number, written by
+whichever command last ran, with no record of **which journal** or **which
+channel** it belonged to. reeflog keeps two cursors per journal — `tail`
+stores an event `seq`, `reorg tail` stores a reorg `id` — and each reader
+accepted any number from any source. Measured 2026-11-10 against the
+published v0.7.12 binary, 20 events + 3 reorgs per journal, one crossing per
+case (`research/cursor-provenance-2026-11-10.json`):
+
+| The crossing | v0.7.12 did | Now |
+|---|---|---|
+| event cursor `20` handed to `reorg tail` | exit 0, `0 reorg(s)` — **3 reorgs silently lost** | refused, 0 rows, file untouched |
+| reorg cursor `3` handed to `tail` | exit 0, **17 delivered events replayed** | refused, 0 rows |
+| cursor copied to another journal | exit 0, `0 events after cursor 20` — a fresh mailbox read as drained | refused, 0 rows |
+
+The rule: a cursor reeflog **wrote** now carries its provenance — one line,
+`{"v":1,"channel":"events","journal":"3b07e3569b86c5e2","value":20}` — and is
+honoured only by the same channel of the same journal. Any other use is a
+refusal that names the file, both sides of the crossing, and the repair; it
+delivers nothing, exits non-zero, and leaves the file byte-identical so the
+operator can still see what it said. A **bare** hand-written number stays
+legal — `0` to restart, `15` to resume, an ahead-of-tip value to wait: it is
+the documented deliberate rewind, makes no claim about its origin, and a
+reader that refuses the operator's own numbers is worse than the defect.
+The journal's id is seeded once at `init` and stored in the journal itself;
+the summary line still reports the plain number (`cursor now 20`), and the
+Node client's `cursorValue` reads the position out of either form.
+Ladder: `tests/cursor_provenance.rs` (4 crossing cases RED on the pre-fix
+tree, 7 guards green on both), mutations caught by
+`tools/mutation-ladder-cursor-provenance.sh` (7/7), both trees measured by
+`tools/measure-cursor-provenance.mjs`.
+
 ## Repeated use
 
 ```bash

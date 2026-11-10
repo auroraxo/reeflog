@@ -1,0 +1,340 @@
+{
+  "tool": "measure-cursor-provenance",
+  "date": "2026-11-10",
+  "events": 20,
+  "reorgs": 3,
+  "baseline": {
+    "source": "published v0.7.12 release asset (sha256 ab28aac213d2e5158d27086c22acb2947ab4f756d21d0b5da3adc614e5aac856)",
+    "bin": "baseline-reeflog"
+  },
+  "fixed": {
+    "source": "this tree",
+    "bin": "this-tree-reeflog"
+  },
+  "defect": "published v0.7.12: a cursor file was a bare number with no channel and no journal; handing it to the other channel or another journal exited 0 and delivered the wrong thing — silent starvation (0 rows, undelivered backlog), duplicate replay, or a permanent gap",
+  "rule": "a cursor reeflog wrote is honoured only by the same channel of the same journal; a crossing is refused with nothing delivered and the file untouched; a bare hand-written number stays legal",
+  "cases": [
+    {
+      "id": "D1-events-cursor-on-reorgs-channel",
+      "kind": "defect",
+      "why": "tail cursor handed to `reorg tail`: baseline exits 0 with \"0 reorg(s)\" while 3 reorgs sit undelivered — silent starvation",
+      "trees": {
+        "baseline": {
+          "exit": 0,
+          "rows": 0,
+          "refused": false,
+          "stderr": "reeflog: 0 reorg(s) after cursor 20 → cursor now 20",
+          "cursorWrittenByFirstStep": "20",
+          "cursorAfterFinalStep": "20",
+          "verdict": {
+            "ok": false,
+            "reason": "crossing accepted: exit=0 rows=0"
+          }
+        },
+        "fixed": {
+          "exit": 1,
+          "rows": 0,
+          "refused": true,
+          "stderr": "reeflog: error: cursor c.txt does not belong here — it was written by the `events` channel and this command reads `reorgs` — refusing to read a position from another channel or journal (use the cursor this command wrote, or write a bare who",
+          "cursorWrittenByFirstStep": "{\"v\":1,\"channel\":\"events\",\"journal\":\"bf8a08ea427cc83b\",\"value\":20}",
+          "cursorAfterFinalStep": "{\"v\":1,\"channel\":\"events\",\"journal\":\"bf8a08ea427cc83b\",\"value\":20}",
+          "verdict": {
+            "ok": true,
+            "reason": null
+          }
+        }
+      },
+      "measured": "defect: baseline exit=0 rows=0 refused=false | fixed exit=1 rows=0 refused=true"
+    },
+    {
+      "id": "D2-reorgs-cursor-on-events-channel",
+      "kind": "defect",
+      "why": "reorg cursor handed to `tail`: baseline exits 0 and REPLAYS already-delivered events — duplicate delivery sold as a resume",
+      "trees": {
+        "baseline": {
+          "exit": 0,
+          "rows": 17,
+          "refused": false,
+          "stderr": "reeflog: 17 events after cursor 3 → cursor now 20",
+          "cursorWrittenByFirstStep": "3",
+          "cursorAfterFinalStep": "20",
+          "verdict": {
+            "ok": false,
+            "reason": "crossing accepted: exit=0 rows=17"
+          }
+        },
+        "fixed": {
+          "exit": 1,
+          "rows": 0,
+          "refused": true,
+          "stderr": "reeflog: error: cursor c.txt does not belong here — it was written by the `reorgs` channel and this command reads `events` — refusing to read a position from another channel or journal (use the cursor this command wrote, or write a bare who",
+          "cursorWrittenByFirstStep": "{\"v\":1,\"channel\":\"reorgs\",\"journal\":\"4c12ee71f439a9d1\",\"value\":3}",
+          "cursorAfterFinalStep": "{\"v\":1,\"channel\":\"reorgs\",\"journal\":\"4c12ee71f439a9d1\",\"value\":3}",
+          "verdict": {
+            "ok": true,
+            "reason": null
+          }
+        }
+      },
+      "measured": "defect: baseline exit=0 rows=17 refused=false | fixed exit=1 rows=0 refused=true"
+    },
+    {
+      "id": "D3-cursor-copied-to-another-journal",
+      "kind": "defect",
+      "why": "cursor file copied to a different journal (backup/clone/staging): baseline exits 0 with \"0 events after cursor 20\" — journal B never delivers a single row",
+      "trees": {
+        "baseline": {
+          "exit": 0,
+          "rows": 0,
+          "refused": false,
+          "stderr": "reeflog: 0 events after cursor 20 → cursor now 20",
+          "cursorWrittenByFirstStep": "20",
+          "cursorAfterFinalStep": "20",
+          "verdict": {
+            "ok": false,
+            "reason": "crossing accepted: exit=0 rows=0"
+          }
+        },
+        "fixed": {
+          "exit": 1,
+          "rows": 0,
+          "refused": true,
+          "stderr": "reeflog: error: cursor c.txt does not belong here — it names journal 12ad32e7603b38bc and this journal is 80a75ec4657f1edd — refusing to read a position from another channel or journal (use the cursor this command wrote, or write a bare who",
+          "cursorWrittenByFirstStep": "{\"v\":1,\"channel\":\"events\",\"journal\":\"12ad32e7603b38bc\",\"value\":20}",
+          "cursorAfterFinalStep": "{\"v\":1,\"channel\":\"events\",\"journal\":\"12ad32e7603b38bc\",\"value\":20}",
+          "verdict": {
+            "ok": true,
+            "reason": null
+          }
+        }
+      },
+      "measured": "defect: baseline exit=0 rows=0 refused=false | fixed exit=1 rows=0 refused=true"
+    },
+    {
+      "id": "D4-crossing-refusal-leaves-file-untouched",
+      "kind": "defect",
+      "why": "the refusal may not \"help\" by resetting the cursor — the crossing file must stay byte-identical so the operator can still see what it was",
+      "trees": {
+        "baseline": {
+          "exit": 0,
+          "rows": 0,
+          "refused": false,
+          "stderr": "reeflog: 0 reorg(s) after cursor 20 → cursor now 20",
+          "cursorWrittenByFirstStep": "20",
+          "cursorAfterFinalStep": "20",
+          "verdict": {
+            "ok": false,
+            "reason": "crossing accepted: exit=0 rows=0"
+          }
+        },
+        "fixed": {
+          "exit": 1,
+          "rows": 0,
+          "refused": true,
+          "stderr": "reeflog: error: cursor c.txt does not belong here — it was written by the `events` channel and this command reads `reorgs` — refusing to read a position from another channel or journal (use the cursor this command wrote, or write a bare who",
+          "cursorWrittenByFirstStep": "{\"v\":1,\"channel\":\"events\",\"journal\":\"c863ad9d137b2f20\",\"value\":20}",
+          "cursorAfterFinalStep": "{\"v\":1,\"channel\":\"events\",\"journal\":\"c863ad9d137b2f20\",\"value\":20}",
+          "verdict": {
+            "ok": true,
+            "reason": null
+          }
+        }
+      },
+      "measured": "defect: baseline exit=0 rows=0 refused=false | fixed exit=1 rows=0 refused=true"
+    },
+    {
+      "id": "G1-first-run-no-file-delivers-all",
+      "kind": "guard",
+      "why": "no cursor file is still the documented first run: every event delivered, exit 0",
+      "trees": {
+        "baseline": {
+          "exit": 0,
+          "rows": 20,
+          "refused": false,
+          "stderr": "reeflog: 20 events after cursor 0 → cursor now 20",
+          "cursorWrittenByFirstStep": null,
+          "cursorAfterFinalStep": null,
+          "verdict": {
+            "ok": true,
+            "reason": null
+          }
+        },
+        "fixed": {
+          "exit": 0,
+          "rows": 20,
+          "refused": false,
+          "stderr": "reeflog: 20 events after cursor 0 → cursor now 20",
+          "cursorWrittenByFirstStep": null,
+          "cursorAfterFinalStep": null,
+          "verdict": {
+            "ok": true,
+            "reason": null
+          }
+        }
+      },
+      "measured": "guard: baseline exit=0 rows=20 refused=false | fixed exit=0 rows=20 refused=false"
+    },
+    {
+      "id": "G2-bare-hand-written-number-stays-legal",
+      "kind": "guard",
+      "why": "a bare `15` written by a human is a deliberate resume position — it must keep working on BOTH channels of the journal it names by argument",
+      "trees": {
+        "baseline": {
+          "exit": 0,
+          "rows": 5,
+          "refused": false,
+          "stderr": "reeflog: 5 events after cursor 15 → cursor now 20",
+          "cursorWrittenByFirstStep": null,
+          "cursorAfterFinalStep": null,
+          "verdict": {
+            "ok": true,
+            "reason": null
+          }
+        },
+        "fixed": {
+          "exit": 0,
+          "rows": 5,
+          "refused": false,
+          "stderr": "reeflog: 5 events after cursor 15 → cursor now 20",
+          "cursorWrittenByFirstStep": null,
+          "cursorAfterFinalStep": null,
+          "verdict": {
+            "ok": true,
+            "reason": null
+          }
+        }
+      },
+      "measured": "guard: baseline exit=0 rows=5 refused=false | fixed exit=0 rows=5 refused=false"
+    },
+    {
+      "id": "G3-same-channel-resume-exactly",
+      "kind": "guard",
+      "why": "the happy path must not regress: first run delivers 20, second run on the SAME file delivers 0 and the cursor value stays at the tip",
+      "trees": {
+        "baseline": {
+          "exit": 0,
+          "rows": 0,
+          "refused": false,
+          "stderr": "reeflog: 0 events after cursor 20 → cursor now 20",
+          "cursorWrittenByFirstStep": null,
+          "cursorAfterFinalStep": null,
+          "verdict": {
+            "ok": true,
+            "reason": null
+          }
+        },
+        "fixed": {
+          "exit": 0,
+          "rows": 0,
+          "refused": false,
+          "stderr": "reeflog: 0 events after cursor 20 → cursor now 20",
+          "cursorWrittenByFirstStep": null,
+          "cursorAfterFinalStep": null,
+          "verdict": {
+            "ok": true,
+            "reason": null
+          }
+        }
+      },
+      "measured": "guard: baseline exit=0 rows=0 refused=false | fixed exit=0 rows=0 refused=false"
+    },
+    {
+      "id": "G4-two-channel-files-both-work",
+      "kind": "guard",
+      "why": "the documented layout — separate files per channel — must keep working: events cursor in e.txt, reorgs cursor in r.txt, each honoured",
+      "trees": {
+        "baseline": {
+          "exit": 0,
+          "rows": 3,
+          "refused": false,
+          "stderr": "reeflog: 3 reorg(s) after cursor 0 → cursor now 3",
+          "cursorWrittenByFirstStep": null,
+          "cursorAfterFinalStep": null,
+          "verdict": {
+            "ok": true,
+            "reason": null
+          }
+        },
+        "fixed": {
+          "exit": 0,
+          "rows": 3,
+          "refused": false,
+          "stderr": "reeflog: 3 reorg(s) after cursor 0 → cursor now 3",
+          "cursorWrittenByFirstStep": null,
+          "cursorAfterFinalStep": null,
+          "verdict": {
+            "ok": true,
+            "reason": null
+          }
+        }
+      },
+      "measured": "guard: baseline exit=0 rows=3 refused=false | fixed exit=0 rows=3 refused=false"
+    },
+    {
+      "id": "G5-invalid-content-still-refused",
+      "kind": "guard",
+      "why": "the v0.7.4 content gate survives the new format: `abc` in a cursor file is refused, not treated as provenance",
+      "trees": {
+        "baseline": {
+          "exit": 1,
+          "rows": 0,
+          "refused": true,
+          "stderr": "reeflog: error: cursor c.txt holds `abc` — not a non-negative whole number inside i64; refusing to restart at 0 (delete the file to start from the beginning)",
+          "cursorWrittenByFirstStep": null,
+          "cursorAfterFinalStep": null,
+          "verdict": {
+            "ok": true,
+            "reason": null
+          }
+        },
+        "fixed": {
+          "exit": 1,
+          "rows": 0,
+          "refused": true,
+          "stderr": "reeflog: error: cursor c.txt holds `abc` — not a non-negative whole number inside i64; refusing to guess a position (a bare whole number from 0 up is a deliberate rewind; delete the file to start from the beginning)",
+          "cursorWrittenByFirstStep": null,
+          "cursorAfterFinalStep": null,
+          "verdict": {
+            "ok": true,
+            "reason": null
+          }
+        }
+      },
+      "measured": "guard: baseline exit=1 rows=0 refused=true | fixed exit=1 rows=0 refused=true"
+    },
+    {
+      "id": "G6-summary-line-names-a-plain-number",
+      "kind": "guard",
+      "why": "operators grep the summary — \"cursor now N\" must still carry the plain numeric position after a delivering run",
+      "trees": {
+        "baseline": {
+          "exit": 0,
+          "rows": 20,
+          "refused": false,
+          "stderr": "reeflog: 20 events after cursor 0 → cursor now 20",
+          "cursorWrittenByFirstStep": null,
+          "cursorAfterFinalStep": null,
+          "verdict": {
+            "ok": true,
+            "reason": null
+          }
+        },
+        "fixed": {
+          "exit": 0,
+          "rows": 20,
+          "refused": false,
+          "stderr": "reeflog: 20 events after cursor 0 → cursor now 20",
+          "cursorWrittenByFirstStep": null,
+          "cursorAfterFinalStep": null,
+          "verdict": {
+            "ok": true,
+            "reason": null
+          }
+        }
+      },
+      "measured": "guard: baseline exit=0 rows=20 refused=false | fixed exit=0 rows=20 refused=false"
+    }
+  ],
+  "failures": 0,
+  "verdict": "all cases behave as specified on the FIXED tree (4 crossings refused, 6 guards green)"
+}

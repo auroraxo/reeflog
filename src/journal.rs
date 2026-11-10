@@ -5,6 +5,7 @@
 //! their own table — a gap must be reported, never swallowed.
 
 use rusqlite::{params, Connection, OptionalExtension};
+use sha2::Digest;
 use std::path::Path;
 
 pub const SCHEMA: &str = r#"
@@ -129,6 +130,9 @@ const MIGRATIONS: &[(&str, &str)] = &[
 
 pub struct Journal {
     pub db: Connection,
+    /// The path the journal was opened from — part of the seed of its id, so
+    /// two journals created apart get different ids.
+    pub path_display: String,
 }
 
 #[derive(Debug, Clone)]
@@ -200,7 +204,10 @@ impl Journal {
                 db.execute_batch(ddl).map_err(|e| e.to_string())?;
             }
         }
-        Ok(Journal { db })
+        Ok(Journal {
+            db,
+            path_display: path.display().to_string(),
+        })
     }
 
     pub fn meta_get(&self, key: &str) -> Result<Option<String>, String> {
@@ -208,6 +215,41 @@ impl Journal {
             .query_row("SELECT value FROM meta WHERE key=?1", params![key], |r| r.get(0))
             .optional()
             .map_err(|e| e.to_string())
+    }
+
+    /// The journal's own identity: a stable id stored in the journal's meta
+    /// table, created on first use.
+    ///
+    /// Why a journal needs an id of its own (measured 2026-11-10, see
+    /// `src/cursorfile.rs`): a cursor file only means "resume exactly where
+    /// you stopped" if it says WHICH journal it belongs to. Without that, a
+    /// cursor copied to another journal reads as "already delivered" and the
+    /// consumer never sees a single event — with exit 0.
+    ///
+    /// The id lives in the journal FILE, so a copy of the journal carries the
+    /// same identity: a copy of a journal IS the same journal (the same
+    /// events, the same history), and its cursors must keep working. Two
+    /// journals that were created apart get different ids.
+    pub fn journal_id(&self) -> Result<String, String> {
+        if let Some(id) = self.meta_get("journal_id")? {
+            if !id.is_empty() {
+                return Ok(id);
+            }
+        }
+        let program = self.meta_get("program")?.unwrap_or_default();
+        // The id must differ for two journals created apart, and be stable
+        // for one journal. Time + program + the path it was created at give
+        // both; the value is then STORED, so later copies keep it.
+        let seed = format!(
+            "{}|{}|{}|{}",
+            program,
+            now_ms(),
+            std::process::id(),
+            self.path_display
+        );
+        let id = hex::encode(sha2::Sha256::digest(seed.as_bytes()))[..16].to_string();
+        self.meta_set("journal_id", &id)?;
+        Ok(id)
     }
 
     pub fn meta_set(&self, key: &str, value: &str) -> Result<(), String> {
