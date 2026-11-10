@@ -101,10 +101,44 @@ function baselineBinary() {
 }
 
 function fixedBinary() {
+  const rel = argOf('--fixed-release');
+  if (rel) return publishedAsset(rel);
   const given = argOf('--fixed');
-  if (given) return { bin: path.resolve(given), source: 'given' };
+  if (given) {
+    const source = argOf('--fixed-source') || 'given';
+    return { bin: path.resolve(given), source };
+  }
   execFileSync('cargo', ['build', '--release', '--locked'], { cwd: ROOT, stdio: 'inherit' });
   return { bin: path.join(ROOT, 'target', 'release', 'reeflog'), source: 'this tree' };
+}
+
+/** The published release asset for a tag, digest-verified — used by the
+ * published-repoint run (--fixed-release): the RELEASE is measured, not the
+ * build and not the checkout. */
+function publishedAsset(tag) {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'reeflog-prov-published-'));
+  const tar = path.join(dir, 'fixed.tar.gz');
+  execFileSync(
+    'gh',
+    ['release', 'download', tag, '--repo', 'auroraxo/reeflog',
+     '-p', 'reeflog-linux-amd64.tar.gz', '-O', tar],
+    { cwd: ROOT, stdio: 'inherit' },
+  );
+  const digest = execFileSync(
+    'gh',
+    ['api', `repos/auroraxo/reeflog/releases/tags/${tag}`, '--jq',
+     '.assets[] | select(.name=="reeflog-linux-amd64.tar.gz") | .digest'],
+    { cwd: ROOT, encoding: 'utf8' },
+  ).trim().replace(/^sha256:/, '');
+  const local = execFileSync('sha256sum', [tar], { encoding: 'utf8' }).split(/\s+/)[0];
+  if (digest && local !== digest) {
+    throw new Error(`the downloaded archive does not match the release digest (${local} != ${digest})`);
+  }
+  execFileSync('tar', ['xzf', tar, '-C', dir], { stdio: 'inherit' });
+  return {
+    bin: path.join(dir, 'reeflog'),
+    source: `published ${tag} release asset (sha256 ${local})`,
+  };
 }
 
 // --- journals with real rows (events AND retractions) -----------------------
