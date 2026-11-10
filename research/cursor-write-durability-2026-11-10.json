@@ -1,9 +1,9 @@
 {
   "tool": "measure-cursor-write-durability",
   "date": "2026-11-10",
-  "defect": "write_cursor used std::fs::write: O_TRUNC before the write, so a failed cursor write (ENOSPC) truncated the cursor after the rows were delivered \u2014 reader then refuses the empty file forever (documented repair: delete = full rewind)",
+  "defect": "write_cursor used std::fs::write: O_TRUNC before the write, so a failed cursor write (ENOSPC) truncated the cursor after the rows were delivered — reader then refuses the empty file forever (documented repair: delete = full rewind)",
   "fix": "stage sibling temp file, fsync, atomic rename, best-effort dir fsync; failed stage keeps the old cursor byte-exactly and refuses naming file + errno + the at-least-once redeliver promise",
-  "injection": "LD_PRELOAD tools/failcursorwrite.c \u2014 fails the write whose buffer is the cursor document ({\"v\":1,) with ENOSPC; content-targeted so it hits the direct write (baseline) and the temp write (fixed) alike",
+  "injection": "LD_PRELOAD tools/failcursorwrite.c — fails the write whose buffer is the cursor document ({\"v\":1,) with ENOSPC; content-targeted so it hits the direct write (baseline) and the temp write (fixed) alike",
   "baseline": {
     "tag": "v0.7.13",
     "archiveSha256": "4a0355f9536e30217b3b0ab2cb1510df1ab1583eafe0e0e8fa0c1cc577399eb6",
@@ -14,7 +14,7 @@
   },
   "summary": {
     "baselineDefectCases": 4,
-    "baselineShowsDefect": 3,
+    "baselineShowsDefect": 4,
     "fixedDefectViolations": 0,
     "guardViolations": 0
   },
@@ -37,7 +37,7 @@
         "exit": 1,
         "delivered": 5,
         "cursorAfter": "0\n",
-        "refusal": "reeflog: error: cursor write c.txt: No space left on device (os error 28) \u2014 the cursor file is UNCHANGED and still holds its previous position; the rows printed above were delivered and will REDLIVER on the next run (delivery is at-least-once), so simply run again"
+        "refusal": "reeflog: error: cursor write c.txt: No space left on device (os error 28) — the cursor file is UNCHANGED and still holds its previous position; the rows printed above were delivered and will REDLIVER on the next run (delivery is at-least-once), so simply run again"
       }
     },
     {
@@ -58,12 +58,12 @@
         "exit": 1,
         "delivered": 2,
         "cursorAfter": "0\n",
-        "refusal": "reeflog: error: cursor write r.txt: No space left on device (os error 28) \u2014 the cursor file is UNCHANGED and still holds its previous position; the rows printed above were delivered and will REDLIVER on the next run (delivery is at-least-once), so simply run again"
+        "refusal": "reeflog: error: cursor write r.txt: No space left on device (os error 28) — the cursor file is UNCHANGED and still holds its previous position; the rows printed above were delivered and will REDLIVER on the next run (delivery is at-least-once), so simply run again"
       }
     },
     {
       "id": "D3",
-      "desc": "first batch: failed write creates no file (pre-fix: empty file \u2014 the wedge)",
+      "desc": "first batch: failed write creates no file (pre-fix: empty file — the wedge)",
       "kind": "defect",
       "expectBaseline": "violates",
       "expectFixed": "refused",
@@ -79,7 +79,7 @@
         "exit": 1,
         "fileExists": false,
         "fileSize": null,
-        "refusal": "reeflog: error: cursor write c.txt: No space left on device (os error 28) \u2014 the cursor file is UNCHANGED and still holds its previous position; the rows printed above were delivered and will REDLIVER on the next run (delivery is at-least-once), so simply run again"
+        "refusal": "reeflog: error: cursor write c.txt: No space left on device (os error 28) — the cursor file is UNCHANGED and still holds its previous position; the rows printed above were delivered and will REDLIVER on the next run (delivery is at-least-once), so simply run again"
       }
     },
     {
@@ -100,7 +100,7 @@
         "keptAfterFail": "0\n",
         "retryExit": 0,
         "retryRows": 5,
-        "cursorNow": "{\"v\":1,\"channel\":\"events\",\"journal\":\"39fc2e6cd628b4c4\",\"value\":5}"
+        "cursorNow": "{\"v\":1,\"channel\":\"events\",\"journal\":\"54f45e7faed69482\",\"value\":5}"
       }
     },
     {
@@ -114,14 +114,14 @@
         "exitA": 0,
         "rowsA": 4,
         "rowsB": 4,
-        "content": "{\"v\":1,\"channel\":\"events\",\"journal\":\"2f822d775d55c938\",\"value\":8}"
+        "content": "{\"v\":1,\"channel\":\"events\",\"journal\":\"d1c4027e5d3af892\",\"value\":8}"
       },
       "fixed": {
         "ok": true,
         "exitA": 0,
         "rowsA": 4,
         "rowsB": 4,
-        "content": "{\"v\":1,\"channel\":\"events\",\"journal\":\"5386a375cdaff9c9\",\"value\":8}"
+        "content": "{\"v\":1,\"channel\":\"events\",\"journal\":\"7666ec5428b600ec\",\"value\":8}"
       }
     },
     {

@@ -9,19 +9,23 @@ cd "$(dirname "$0")/.."
 
 ART="research/cursor-write-durability-2026-11-10.json"
 PIN="tests/cursor_write_durability_measurement.rs"
-TEST="cargo test --release --locked --test cursor_write_durability_measurement"
-
-restore() { cp "$STASH/$1" "$1"; }
-STASH=$(mktemp -d)
-trap 'rm -rf "$STASH"' EXIT
+TEST=(cargo test --release --locked --test cursor_write_durability_measurement)
 
 expect_red() {
-  if "$TEST" >/tmp/reeflog-falsify.log 2>&1; then
+  if "${TEST[@]}" >/tmp/reeflog-falsify.log 2>&1; then
     echo "FALSIFICATION $1 FAILED: pin stayed GREEN against the corrupted artifact"; exit 1
+  elif grep -q "command not found" /tmp/reeflog-falsify.log 2>/dev/null; then
+    echo "FALSIFICATION $1 VACUOUS: the pin never ran"; exit 1
+  elif ! grep -qE "test result: FAILED" /tmp/reeflog-falsify.log; then
+    echo "FALSIFICATION $1 VACUOUS: nonzero exit without a failed test (setup error?)"; tail -5 /tmp/reeflog-falsify.log; exit 1
   else
     echo "FALSIFICATION $1: pin RED as required"
   fi
 }
+
+restore() { cp "$STASH/$(basename "$1")" "$1"; }
+STASH=$(mktemp -d)
+trap 'rm -rf "$STASH"' EXIT
 
 for f in "$ART" "$PIN"; do cp "$f" "$STASH/$(basename "$f")"; done
 cp src/main.rs "$STASH/main.rs"
@@ -58,5 +62,5 @@ restore "$PIN"
 if [ -n "$(git status --porcelain -- "$ART" "$PIN" src/main.rs)" ]; then
   echo "RESTORE FAILED: tree differs from HEAD"; git status --porcelain; exit 1
 fi
-"$TEST" >/tmp/reeflog-falsify-final.log 2>&1 || { echo "FINAL PIN RUN NOT GREEN"; tail -20 /tmp/reeflog-falsify-final.log; exit 1; }
+"${TEST[@]}" >/tmp/reeflog-falsify-final.log 2>&1 || { echo "FINAL PIN RUN NOT GREEN"; tail -20 /tmp/reeflog-falsify-final.log; exit 1; }
 echo "all 3 falsifications caught; tree byte-identical; pin green"

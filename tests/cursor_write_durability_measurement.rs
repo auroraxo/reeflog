@@ -9,12 +9,26 @@
 //! release digest turns it RED — the tree is restored byte-identical after
 //! every falsification.
 
+use std::path::PathBuf;
 use std::process::Command;
 
 const ARTIFACT: &str = "research/cursor-write-durability-2026-11-10.json";
 
+fn repo_root() -> PathBuf {
+    // CARGO_MANIFEST_DIR points at the crate root; the pin reads the
+    // artifact and the ladder by ABSOLUTE path under it, so it does not
+    // depend on the test binary's CWD.
+    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+}
+
 fn read_artifact() -> String {
-    std::fs::read_to_string(ARTIFACT).expect("the pinned measurement artifact exists (run `OUT=research/cursor-write-durability-2026-11-10.json node tools/measure-cursor-write-durability.mjs` from the repo root)")
+    let p = repo_root().join(ARTIFACT);
+    std::fs::read_to_string(&p).unwrap_or_else(|e| {
+        panic!(
+            "the pinned measurement artifact {} must exist (run `OUT=research/cursor-write-durability-2026-11-10.json node tools/measure-cursor-write-durability.mjs` from the repo root): {e}",
+            p.display()
+        )
+    })
 }
 
 fn assert_contains(hay: &str, needle: &str, what: &str) {
@@ -48,12 +62,25 @@ fn pin_baseline_is_the_digest_verified_published_asset() {
         "baseline archive digest",
     );
     assert_contains(&a, "\"tag\": \"v0.7.13\"", "baseline tag");
-    // digest == apiDigest means the download was verified
-    let start = a.find("\"archiveSha256\"").expect("digest key");
-    let api = a[start..].find("\"apiDigest\"").expect("api digest key") + start;
-    let archive = &a[start + 19..start + 19 + 64];
-    let api_digest = &a[api + 15..api + 15 + 64];
-    assert_eq!(archive, api_digest, "downloaded archive digest must equal the Release-API digest");
+    // digest == apiDigest means the download was verified. Parse both by
+    // key, not by a fixed byte offset (an off-by-one here once made this
+    // pin red for the WRONG reason).
+    fn value_of(json: &str, key: &str) -> String {
+        let at = json
+            .find(&format!("\"{key}\""))
+            .unwrap_or_else(|| panic!("artifact holds the key {key}"));
+        let rest = &json[at..];
+        let colon = rest.find(':').expect("key is followed by a colon");
+        let after = rest[colon + 1..].trim_start();
+        let quote = after.find('"').expect("value is a quoted string");
+        let body = &after[quote + 1..];
+        let end = body.find('"').expect("value is terminated");
+        body[..end].to_string()
+    }
+    let archive = value_of(&a, "archiveSha256");
+    let api_digest = value_of(&a, "apiDigest");
+    let api_sha = api_digest.strip_prefix("sha256:").unwrap_or(&api_digest);
+    assert_eq!(archive, api_sha, "downloaded archive digest must equal the Release-API digest");
 }
 
 /// The artifact speaks about the PUBLISHED binary's behaviour, not about a
@@ -90,8 +117,9 @@ fn pin_fixed_refusal_carries_the_redeliver_contract() {
 /// a pin that cannot be re-derived is decoration, not evidence.
 #[test]
 fn pin_ladder_exists_and_names_real_filters() {
-    let ladder = std::fs::read_to_string("tools/mutation-ladder-cursor-write.sh")
-        .expect("the mutation ladder exists");
+    let ladder =
+        std::fs::read_to_string(repo_root().join("tools/mutation-ladder-cursor-write.sh"))
+            .expect("the mutation ladder exists");
     for filter in [
         "d1_tail_failed_write_keeps_the_old_cursor",
         "d2_reorg_tail_failed_write_keeps_the_old_cursor",

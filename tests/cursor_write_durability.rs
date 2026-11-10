@@ -179,6 +179,16 @@ fn d1_tail_failed_write_keeps_the_old_cursor() {
         "0\n",
         "the failed write must not touch the cursor file's content"
     );
+    let stray: Vec<String> = fs::read_dir(&dir)
+        .expect("read dir")
+        .filter_map(|e| e.ok())
+        .map(|e| e.file_name().to_string_lossy().into_owned())
+        .filter(|n| n.ends_with(".tmp"))
+        .collect();
+    assert!(
+        stray.is_empty(),
+        "a failed cursor write must clean up its staged temp file, got: {stray:?}"
+    );
     fs::remove_dir_all(&dir).ok();
 }
 
@@ -242,6 +252,16 @@ fn d3_first_batch_failed_write_leaves_no_file_at_the_cursor_path() {
     assert!(
         err.contains("No space left") || err.contains("os error 28"),
         "refusal must name the ENOSPC errno: {err}"
+    );
+    let stray: Vec<String> = fs::read_dir(&dir)
+        .expect("read dir")
+        .filter_map(|e| e.ok())
+        .map(|e| e.file_name().to_string_lossy().into_owned())
+        .filter(|n| n.ends_with(".tmp"))
+        .collect();
+    assert!(
+        stray.is_empty(),
+        "a failed cursor write must clean up its staged temp file, got: {stray:?}"
     );
     fs::remove_dir_all(&dir).ok();
 }
