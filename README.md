@@ -5,7 +5,7 @@ they did to account balances for selected programs into a cursor-addressed
 append-only log, so a consumer resumes without gaps after a crash,
 disconnect, or reorg.
 
-**Status: v0.7.13 shipped (2026-11-10), v0 working.** Live against mainnet-beta: see *Measured results* below. Install the binary without a Rust toolchain: `npm install github:auroraxo/reeflog#v0.7.13` then `import { bootstrap } from 'reeflog-client'; await bootstrap()` (downloads the prebuilt release archive and verifies its sha256). Or from source: `cargo install --git https://github.com/auroraxo/reeflog --tag v0.7.13`. The full event envelope (logs, balances, instructions, account list with owners, the bytes each account held, and the authority each token account had at the moment of the event), the Node client (see *The Node client*), webhook fan-out, a dead-letter queue, and archive backfill ship in this tree; Yellowstone as a second transport does not.
+**Status: v0.7.14 shipped (2026-11-10), v0 working.** Live against mainnet-beta: see *Measured results* below. Install the binary without a Rust toolchain: `npm install github:auroraxo/reeflog#v0.7.14` then `import { bootstrap } from 'reeflog-client'; await bootstrap()` (downloads the prebuilt release archive and verifies its sha256). Or from source: `cargo install --git https://github.com/auroraxo/reeflog --tag v0.7.14`. The full event envelope (logs, balances, instructions, account list with owners, the bytes each account held, and the authority each token account had at the moment of the event), the Node client (see *The Node client*), webhook fan-out, a dead-letter queue, and archive backfill ship in this tree; Yellowstone as a second transport does not.
 
 ## The idea
 
@@ -1439,6 +1439,48 @@ tree, 7 guards green on both), mutations caught by
 `tools/mutation-ladder-cursor-provenance.sh` (7/7), both trees measured by
 `tools/measure-cursor-provenance.mjs`.
 
+## A failed cursor write never destroys the cursor
+
+Reading the cursor strictly did not help if the **write** of the cursor
+could destroy it. `write_cursor` was `std::fs::write`: open with `O_TRUNC`,
+then write. When that write failed — `ENOSPC`, and this build host hit a
+genuinely full disk twice in the two days before the fix — the cursor file
+was left **zero bytes** *after* the rows had already been printed on stdout.
+Every later run then refused with the reader's own message about an empty
+file being what a crash between truncate and write leaves behind: the reader
+named the state correctly, and the **writer** had produced it. The consumer
+was wedged at exit 1, and the one documented repair (delete the file) means
+rewinding delivery to the very beginning.
+
+Measured 2026-11-10 against the published v0.7.13 binary (archive sha256
+`4a0355f9536e30217b3b0ab2cb1510df1ab1583eafe0e0e8fa0c1cc577399eb6`, equal
+to the Release-API digest), with an `ENOSPC` fault injected only on the
+cursor write (`research/cursor-write-durability-2026-11-10.json`):
+
+| The failed write | v0.7.13 did | Now |
+|---|---|---|
+| `tail` with a hand-written `0` cursor fails mid-run | exit 1, cursor file **0 bytes** — the old position gone | exit 1, cursor file still `0`, refusal names file + errno + the redeliver promise |
+| same face on `reorg tail` | exit 1, truncated | exit 1, unchanged |
+| first batch, no cursor file yet | exit 1, an **empty file appears** — the wedge | no file created at all |
+| run again after the failure | refused forever (`empty file … crash between truncate and write`) | **redelivers the same rows** and advances the cursor |
+
+The rule: the cursor is staged in a sibling temp file, fsynced, and renamed
+over the cursor path — the file always holds the old full cursor or the new
+full cursor, never a hole. A failed stage refuses naming the file, the
+errno, and the contract that makes the refusal safe: *the cursor file is
+UNCHANGED … the rows printed above were delivered and will REDLIVER on the
+next run (delivery is at-least-once), so simply run again*. That is honest
+for the same reason the reader is: the delivery already happened on stdout,
+so at-least-once redelivery is the truth, and a redelivery the consumer has
+seen before is strictly better than a silent rewind to zero.
+
+Ladder: `tests/cursor_write_durability.rs` (4 defect cases RED on the
+pre-fix tree, 4 guards green on both), mutations caught by
+`tools/mutation-ladder-cursor-write.sh` (**7/7**), both trees measured by
+`tools/measure-cursor-write-durability.mjs`; the artifact's verdict is
+pinned by `tests/cursor_write_durability_measurement.rs`, falsified three
+ways (`tools/falsify-cursor-write-pin.sh`).
+
 ## Repeated use
 
 ```bash
@@ -1496,7 +1538,7 @@ the `reeflog` binary, so there is exactly one implementation of the reader
 contract, and a library's idea of the schema cannot drift from the daemon's.
 
 ```bash
-npm install github:auroraxo/reeflog#v0.7.13   # the client ships from this repo
+npm install github:auroraxo/reeflog#v0.7.14   # the client ships from this repo
 ```
 
 The client needs the `reeflog` binary. `bootstrap()` gets it **without a

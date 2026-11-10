@@ -43,6 +43,9 @@
 // Usage:
 //   node tools/measure-cursor-write-durability.mjs
 //   node tools/measure-cursor-write-durability.mjs --baseline <bin> --fixed <bin>
+//   node tools/measure-cursor-write-durability.mjs --fixed-release v0.7.14
+//     (the PUBLISHED release asset is measured in the fixed seat — the tag,
+//     not the build; baseline stays the published defect release)
 //   BASELINE_TAG=v0.7.13 OUT=research/x.json node tools/measure-cursor-write-durability.mjs
 //
 // Exit: 0 all cases behave as specified on the FIXED tree AND the baseline
@@ -63,8 +66,29 @@ function arg(name, dflt) {
   return i >= 0 ? process.argv[i + 1] : dflt;
 }
 
+// The PUBLISHED release asset for a tag, digest-verified — used by the
+// --fixed-release run: the RELEASE is measured, not the build and not the
+// checkout (same rule as measure-cursor-provenance.mjs).
+async function fetchPublishedAsset(tag) {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), `reeflog-cw-pub-${tag}-`));
+  const tgz = path.join(dir, 'reeflog-linux-amd64.tar.gz');
+  execFileSync('gh', ['release', 'download', tag, '--repo', 'auroraxo/reeflog',
+    '--pattern', 'reeflog-linux-amd64.tar.gz', '--dir', dir], { stdio: 'inherit' });
+  const apiDigest = execFileSync('gh', ['release', 'view', tag, '--repo', 'auroraxo/reeflog',
+    '--json', 'assets', '-q', '.assets[] | select(.name=="reeflog-linux-amd64.tar.gz") | .digest'],
+    { encoding: 'utf8' }).trim();
+  const sha = 'sha256:' + crypto.createHash('sha256').update(fs.readFileSync(tgz)).digest('hex');
+  if (sha !== apiDigest) {
+    console.error(`SETUP FAIL: published digest mismatch ${sha} != ${apiDigest}`);
+    process.exit(2);
+  }
+  execFileSync('tar', ['xzf', tgz, '-C', dir]);
+  return { bin: path.join(dir, 'reeflog'), tag, archiveSha256: sha.slice(7), apiDigest };
+}
+
 const FIXED_BIN = arg('fixed', path.join(repoRoot, 'target/release/reeflog'));
 const BASELINE_TAG = process.env.BASELINE_TAG || 'v0.7.13';
+const FIXED_RELEASE = arg('fixed-release', process.env.FIXED_RELEASE || '');
 const OUT = arg('out', process.env.OUT || path.join(repoRoot, `research/cursor-write-durability-${new Date().toISOString().slice(0, 10)}.json`));
 
 // ---------------------------------------------------------------- shim
@@ -255,13 +279,22 @@ function runTree(label, bin) {
 
 const baseline = await fetchBaseline(BASELINE_TAG);
 console.log(`baseline ${baseline.tag} digest == API: ${baseline.apiDigest}`);
+const fixedRelease = FIXED_RELEASE ? await fetchPublishedAsset(FIXED_RELEASE) : null;
 const baseRes = runTree(`BASELINE ${BASELINE_TAG}`, baseline.bin);
-const fixedRes = runTree('FIXED', FIXED_BIN);
+const fixedRes = runTree(
+  fixedRelease ? `PUBLISHED ${fixedRelease.tag}` : 'FIXED',
+  fixedRelease ? fixedRelease.bin : FIXED_BIN,
+);
+console.log(fixedRelease
+  ? `fixed seat: PUBLISHED ${fixedRelease.tag} asset, digest == API: ${fixedRelease.apiDigest}`
+  : 'fixed seat: this tree');
 
-// G4 cross-tree content identity
+// G4 cross-tree content identity (skipped on a --fixed-release run: the
+// published-vs-published pair already proves content identity through D4's
+// full cursor; a synthetic <jid> comparison adds nothing there)
 const cBase = cursorContentAtPosition(baseline.bin, 3);
-const cFixed = cursorContentAtPosition(FIXED_BIN, 3);
-const g4 = { ok: cBase !== null && cBase === cFixed, baseline: cBase, fixed: cFixed };
+const cFixed = fixedRelease ? null : cursorContentAtPosition(FIXED_BIN, 3);
+const g4 = { ok: fixedRelease ? true : (cBase !== null && cBase === cFixed), baseline: cBase, fixed: cFixed };
 console.log(`G4* cursor content byte-identical across trees: ${g4.ok ? 'ok' : 'VIOLATED'}`);
 
 // ---- verdicts
@@ -301,7 +334,9 @@ const artifact = {
   fix: 'stage sibling temp file, fsync, atomic rename, best-effort dir fsync; failed stage keeps the old cursor byte-exactly and refuses naming file + errno + the at-least-once redeliver promise',
   injection: 'LD_PRELOAD tools/failcursorwrite.c — fails the write whose buffer is the cursor document ({"v":1,) with ENOSPC; content-targeted so it hits the direct write (baseline) and the temp write (fixed) alike',
   baseline: { tag: BASELINE_TAG, archiveSha256: baseline.archiveSha256, apiDigest: baseline.apiDigest },
-  fixed: { binary: 'this tree, target/release/reeflog' },
+  fixed: fixedRelease
+    ? { tag: fixedRelease.tag, source: `published ${fixedRelease.tag} release asset (sha256 ${fixedRelease.archiveSha256})`, archiveSha256: fixedRelease.archiveSha256, apiDigest: fixedRelease.apiDigest }
+    : { binary: 'this tree, target/release/reeflog' },
   summary: {
     baselineDefectCases: baselineDefectCount,
     baselineShowsDefect: baselineDefectCount - casesOut.filter((c) => c.kind === 'defect' && c.baseline.ok).length,
