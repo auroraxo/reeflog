@@ -1443,15 +1443,83 @@ fn honour_cursor(
     }
 }
 
+/// The durable cursor write.
+///
+/// Why this is not `std::fs::write` (measured 2026-11-10 on the published
+/// v0.7.13 binary, `research/cursor-write-durability-2026-11-10.json`):
+/// `std::fs::write` opens the path with `O_TRUNC` and then writes. A failed
+/// write left the cursor file TRUNCATED — `tail` had already delivered the
+/// rows on stdout, the file that says where it stopped was empty, and the
+/// next run refused with "an empty file is what a crash between truncate
+/// and write leaves behind": a state the READER names as a crash remnant
+/// while the WRITER kept producing it. The consumer was wedged (every run
+/// exit 1) and the documented repair was deleting the file = full rewind =
+/// replay of everything already delivered. This host hit real ENOSPC twice
+/// in the two days before the fix, so the face is not hypothetical.
+///
+/// The rule: stage the new content in a sibling temp file, flush it to the
+/// disk, rename it over the cursor path — rename is atomic, so the cursor
+/// path always holds the OLD full cursor or the NEW full cursor, never a
+/// hole. A failed stage removes the temp file and refuses, naming the file,
+/// the errno and the delivery contract: nothing at the path changed, the
+/// rows already printed are re-delivered on the next run (at-least-once —
+/// the same contract every other failure face of `tail` already has), and
+/// the parent directory is fsynced best-effort after the rename so the swap
+/// itself survives a crash like the journal's own durable writes.
 fn write_cursor(path: &Path, j: &Journal, channel: cursorfile::Channel, seq: i64) {
+    let display = path.display().to_string();
     if let Some(parent) = path.parent() {
         if !parent.as_os_str().is_empty() {
             let _ = std::fs::create_dir_all(parent);
         }
     }
     let id = j.journal_id().unwrap_or_else(|e| die(format!("journal id: {e}")));
-    std::fs::write(path, cursorfile::render(channel, &id, seq))
-        .unwrap_or_else(|e| die(format!("cursor write: {e}")));
+    let content = cursorfile::render(channel, &id, seq);
+    // Stage: a sibling temp file in the SAME directory — a rename across
+    // filesystems is not atomic, a sibling always is. The pid + seq makes
+    // two writers of the same cursor path use distinct temp names; no
+    // partial content can ever sit at the cursor path.
+    let tmp = path.with_file_name(format!(
+        ".{}.{}.{:x}.tmp",
+        path.file_name()
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_else(|| "cursor".into()),
+        std::process::id(),
+        seq
+    ));
+    let stage = |e: String| -> ! {
+        let _ = std::fs::remove_file(&tmp);
+        die(format!(
+            "cursor write {display}: {e} — the cursor file is UNCHANGED and still holds its previous position; the rows printed above were delivered and will REDLIVER on the next run (delivery is at-least-once), so simply run again"
+        ))
+    };
+    match std::fs::File::create(&tmp) {
+        Ok(mut f) => {
+            use std::io::Write;
+            if let Err(e) = f.write_all(content.as_bytes()) {
+                drop(f);
+                stage(e.to_string());
+            }
+            if let Err(e) = f.sync_all() {
+                drop(f);
+                stage(e.to_string());
+            }
+            drop(f);
+            if let Err(e) = std::fs::rename(&tmp, path) {
+                stage(e.to_string());
+            }
+            // Best-effort dir fsync, like the journal's own seal path: the
+            // rename must survive a crash, not just a failed call.
+            let dir_path = match path.parent() {
+                Some(p) if !p.as_os_str().is_empty() => p.to_path_buf(),
+                _ => PathBuf::from("."),
+            };
+            if let Ok(d) = std::fs::File::open(&dir_path) {
+                let _ = d.sync_all();
+            }
+        }
+        Err(e) => stage(e.to_string()),
+    }
 }
 
 /// The numeric position a cursor file holds, in either form, for reporting
