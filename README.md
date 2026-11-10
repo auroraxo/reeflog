@@ -1481,6 +1481,17 @@ pre-fix tree, 4 guards green on both), mutations caught by
 pinned by `tests/cursor_write_durability_measurement.rs`, falsified three
 ways (`tools/falsify-cursor-write-pin.sh`).
 
+**And again on the published v0.7.14 asset**, so the rule is what a stranger
+actually installs (`research/cursor-write-durability-published-v0.7.14-2026-11-10.json`,
+pinned by `tests/cursor_write_durability_published_v0714.rs`): the published
+v0.7.13 asset violates **4 of 4** defect cases, the published v0.7.14 asset
+violates **0 of 4** — both archives' sha256 equal the digests the Release
+API publishes (`4a0355f9…` / `9b6c3034…`). The pin is falsified three ways
+(`tools/falsify-cursor-write-published-v0714.sh`: a falsified count, an
+injected machine path and a fixed seat repointed at the build instead of the
+release each turn it red; the restored artifact is byte-identical and green
+again).
+
 ## Repeated use
 
 ```bash
