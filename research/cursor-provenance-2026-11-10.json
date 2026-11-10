@@ -36,8 +36,8 @@
           "rows": 0,
           "refused": true,
           "stderr": "reeflog: error: cursor c.txt does not belong here — it was written by the `events` channel and this command reads `reorgs` — refusing to read a position from another channel or journal (use the cursor this command wrote, or write a bare who",
-          "cursorWrittenByFirstStep": "{\"v\":1,\"channel\":\"events\",\"journal\":\"bf8a08ea427cc83b\",\"value\":20}",
-          "cursorAfterFinalStep": "{\"v\":1,\"channel\":\"events\",\"journal\":\"bf8a08ea427cc83b\",\"value\":20}",
+          "cursorWrittenByFirstStep": "{\"v\":1,\"channel\":\"events\",\"journal\":\"49723b0eaa2cb74a\",\"value\":20}",
+          "cursorAfterFinalStep": "{\"v\":1,\"channel\":\"events\",\"journal\":\"49723b0eaa2cb74a\",\"value\":20}",
           "verdict": {
             "ok": true,
             "reason": null
@@ -68,8 +68,8 @@
           "rows": 0,
           "refused": true,
           "stderr": "reeflog: error: cursor c.txt does not belong here — it was written by the `reorgs` channel and this command reads `events` — refusing to read a position from another channel or journal (use the cursor this command wrote, or write a bare who",
-          "cursorWrittenByFirstStep": "{\"v\":1,\"channel\":\"reorgs\",\"journal\":\"4c12ee71f439a9d1\",\"value\":3}",
-          "cursorAfterFinalStep": "{\"v\":1,\"channel\":\"reorgs\",\"journal\":\"4c12ee71f439a9d1\",\"value\":3}",
+          "cursorWrittenByFirstStep": "{\"v\":1,\"channel\":\"reorgs\",\"journal\":\"4521634ca5e0ecf1\",\"value\":3}",
+          "cursorAfterFinalStep": "{\"v\":1,\"channel\":\"reorgs\",\"journal\":\"4521634ca5e0ecf1\",\"value\":3}",
           "verdict": {
             "ok": true,
             "reason": null
@@ -99,9 +99,9 @@
           "exit": 1,
           "rows": 0,
           "refused": true,
-          "stderr": "reeflog: error: cursor c.txt does not belong here — it names journal 12ad32e7603b38bc and this journal is 80a75ec4657f1edd — refusing to read a position from another channel or journal (use the cursor this command wrote, or write a bare who",
-          "cursorWrittenByFirstStep": "{\"v\":1,\"channel\":\"events\",\"journal\":\"12ad32e7603b38bc\",\"value\":20}",
-          "cursorAfterFinalStep": "{\"v\":1,\"channel\":\"events\",\"journal\":\"12ad32e7603b38bc\",\"value\":20}",
+          "stderr": "reeflog: error: cursor c.txt does not belong here — it names journal 88b7fbbb1000b60c and this journal is 8355b93004ab58f5 — refusing to read a position from another channel or journal (use the cursor this command wrote, or write a bare who",
+          "cursorWrittenByFirstStep": "{\"v\":1,\"channel\":\"events\",\"journal\":\"88b7fbbb1000b60c\",\"value\":20}",
+          "cursorAfterFinalStep": "{\"v\":1,\"channel\":\"events\",\"journal\":\"88b7fbbb1000b60c\",\"value\":20}",
           "verdict": {
             "ok": true,
             "reason": null
@@ -132,8 +132,8 @@
           "rows": 0,
           "refused": true,
           "stderr": "reeflog: error: cursor c.txt does not belong here — it was written by the `events` channel and this command reads `reorgs` — refusing to read a position from another channel or journal (use the cursor this command wrote, or write a bare who",
-          "cursorWrittenByFirstStep": "{\"v\":1,\"channel\":\"events\",\"journal\":\"c863ad9d137b2f20\",\"value\":20}",
-          "cursorAfterFinalStep": "{\"v\":1,\"channel\":\"events\",\"journal\":\"c863ad9d137b2f20\",\"value\":20}",
+          "cursorWrittenByFirstStep": "{\"v\":1,\"channel\":\"events\",\"journal\":\"1de1e256910bfbd9\",\"value\":20}",
+          "cursorAfterFinalStep": "{\"v\":1,\"channel\":\"events\",\"journal\":\"1de1e256910bfbd9\",\"value\":20}",
           "verdict": {
             "ok": true,
             "reason": null

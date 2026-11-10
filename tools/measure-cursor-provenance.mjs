@@ -366,7 +366,11 @@ function main() {
     // Labels only: a committed measurement must not carry the path of the
     // machine that produced it.
     baseline: { source: base.source, bin: 'baseline-reeflog' },
-    fixed: { source: fixed.source, bin: 'this-tree-reeflog' },
+    fixed: {
+      source: fixed.source,
+      // honest labels: a --fixed-release run measures the TAG, not the tree
+      bin: fixed.source.startsWith('published') ? 'published-reeflog' : 'this-tree-reeflog',
+    },
     defect:
       'published v0.7.12: a cursor file was a bare number with no channel and no journal; handing it to the other channel or another journal exited 0 and delivered the wrong thing — silent starvation (0 rows, undelivered backlog), duplicate replay, or a permanent gap',
     rule:
