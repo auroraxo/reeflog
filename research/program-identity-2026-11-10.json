@@ -1,0 +1,178 @@
+{
+  "artifact": "program-identity-before-after",
+  "measuredAt": "2026-11-10T08:46:08.661Z",
+  "baseline": {
+    "binary": "published v0.7.10 asset",
+    "version": "0.7.10"
+  },
+  "fixed": {
+    "binary": "tree build",
+    "version": "0.7.10"
+  },
+  "method": "the same calls against both binaries; the journal's recorded program is read back from the journal itself, never from the report of the command under test — the report is the thing that lied. A defect case is violated when the identity CHANGED, or when the disagreement was not refused in reeflog's own voice naming BOTH programs (exit codes cannot tell: a baseline `verify` that silently ignored the flag still ends in an INCOMPLETE scan). A guard case is violated when the identity changed or the guard met an identity refusal.",
+  "cases": [
+    {
+      "case": "init-repoints",
+      "defect": "`init --program <B>` on a journal watching <A> silently RE-POINTED the mailbox (exit 0, \"initialized … for program B\") — the journal changed identity behind the operator",
+      "before": {
+        "exitCode": 0,
+        "refused": false,
+        "recordedProgramBefore": "11111111111111111111111111111111",
+        "recordedProgramAfter": "whirLbMiicVdio4qvUfM5KAg6Ct8VwpYzGff3uctyCc",
+        "identityChanged": true,
+        "namedRecordedProgram": false,
+        "namedGivenProgram": false,
+        "refusedInOwnVoice": false,
+        "stderrText": ""
+      },
+      "after": {
+        "exitCode": 1,
+        "refused": true,
+        "recordedProgramBefore": "11111111111111111111111111111111",
+        "recordedProgramAfter": "11111111111111111111111111111111",
+        "identityChanged": false,
+        "namedRecordedProgram": true,
+        "namedGivenProgram": true,
+        "refusedInOwnVoice": true,
+        "stderrText": "reeflog: error: journal <journal>/reeflog-pi-peNXAv/j.db watches 11111111111111111111111111111111, refusing init --program whirLbMiicVdio4qvUfM5KAg6Ct8VwpYzGff3uctyCc — one journal, one program; the recorded program is the journal's identity, pass --db <other-journal> to work on a different one"
+      }
+    },
+    {
+      "case": "verify-ignores",
+      "defect": "`verify --program <B>` on a journal watching <A> SILENTLY IGNORED the flag (exit 0, a full report) — the operator asked about B and got a verdict about A",
+      "before": {
+        "exitCode": 3,
+        "refused": true,
+        "recordedProgramBefore": "11111111111111111111111111111111",
+        "recordedProgramAfter": "11111111111111111111111111111111",
+        "identityChanged": false,
+        "namedRecordedProgram": false,
+        "namedGivenProgram": false,
+        "refusedInOwnVoice": false,
+        "stderrText": "reeflog: verify INCOMPLETE (error=None, truncated=false, pages=0) — the scan proves nothing about the journal's completeness"
+      },
+      "after": {
+        "exitCode": 1,
+        "refused": true,
+        "recordedProgramBefore": "11111111111111111111111111111111",
+        "recordedProgramAfter": "11111111111111111111111111111111",
+        "identityChanged": false,
+        "namedRecordedProgram": true,
+        "namedGivenProgram": true,
+        "refusedInOwnVoice": true,
+        "stderrText": "reeflog: error: journal <journal>/reeflog-pi-GerQYs/j.db watches 11111111111111111111111111111111, refusing verify --program whirLbMiicVdio4qvUfM5KAg6Ct8VwpYzGff3uctyCc — one journal, one program; the recorded program is the journal's identity, pass --db <other-journal> to work on a different one"
+      }
+    },
+    {
+      "case": "repair-ignores",
+      "defect": "`repair --program <B>` on a journal watching <A> SILENTLY IGNORED the flag — on the command that WRITES to the journal",
+      "before": {
+        "exitCode": 3,
+        "refused": true,
+        "recordedProgramBefore": "11111111111111111111111111111111",
+        "recordedProgramAfter": "11111111111111111111111111111111",
+        "identityChanged": false,
+        "namedRecordedProgram": false,
+        "namedGivenProgram": false,
+        "refusedInOwnVoice": false,
+        "stderrText": "reeflog: repair pass INCOMPLETE — the journal may still hold holes"
+      },
+      "after": {
+        "exitCode": 1,
+        "refused": true,
+        "recordedProgramBefore": "11111111111111111111111111111111",
+        "recordedProgramAfter": "11111111111111111111111111111111",
+        "identityChanged": false,
+        "namedRecordedProgram": true,
+        "namedGivenProgram": true,
+        "refusedInOwnVoice": true,
+        "stderrText": "reeflog: error: journal <journal>/reeflog-pi-cbf4Ca/j.db watches 11111111111111111111111111111111, refusing repair --program whirLbMiicVdio4qvUfM5KAg6Ct8VwpYzGff3uctyCc — one journal, one program; the recorded program is the journal's identity, pass --db <other-journal> to work on a different one"
+      }
+    },
+    {
+      "case": "guard-matching-program",
+      "defect": null,
+      "before": {
+        "exitCode": 3,
+        "refused": true,
+        "recordedProgramBefore": "11111111111111111111111111111111",
+        "recordedProgramAfter": "11111111111111111111111111111111",
+        "identityChanged": false,
+        "namedRecordedProgram": false,
+        "namedGivenProgram": false,
+        "refusedInOwnVoice": false,
+        "stderrText": "reeflog: verify INCOMPLETE (error=None, truncated=false, pages=0) — the scan proves nothing about the journal's completeness"
+      },
+      "after": {
+        "exitCode": 3,
+        "refused": true,
+        "recordedProgramBefore": "11111111111111111111111111111111",
+        "recordedProgramAfter": "11111111111111111111111111111111",
+        "identityChanged": false,
+        "namedRecordedProgram": false,
+        "namedGivenProgram": false,
+        "refusedInOwnVoice": false,
+        "stderrText": "reeflog: verify INCOMPLETE (error=None, truncated=false, pages=0) — the scan proves nothing about the journal's completeness"
+      }
+    },
+    {
+      "case": "guard-silent-caller",
+      "defect": null,
+      "before": {
+        "exitCode": 3,
+        "refused": true,
+        "recordedProgramBefore": "11111111111111111111111111111111",
+        "recordedProgramAfter": "11111111111111111111111111111111",
+        "identityChanged": false,
+        "namedRecordedProgram": false,
+        "namedGivenProgram": false,
+        "refusedInOwnVoice": false,
+        "stderrText": "reeflog: verify INCOMPLETE (error=None, truncated=false, pages=0) — the scan proves nothing about the journal's completeness"
+      },
+      "after": {
+        "exitCode": 3,
+        "refused": true,
+        "recordedProgramBefore": "11111111111111111111111111111111",
+        "recordedProgramAfter": "11111111111111111111111111111111",
+        "identityChanged": false,
+        "namedRecordedProgram": false,
+        "namedGivenProgram": false,
+        "refusedInOwnVoice": false,
+        "stderrText": "reeflog: verify INCOMPLETE (error=None, truncated=false, pages=0) — the scan proves nothing about the journal's completeness"
+      }
+    },
+    {
+      "case": "guard-idempotent-init",
+      "defect": null,
+      "before": {
+        "exitCode": 0,
+        "refused": false,
+        "recordedProgramBefore": "11111111111111111111111111111111",
+        "recordedProgramAfter": "11111111111111111111111111111111",
+        "identityChanged": false,
+        "namedRecordedProgram": false,
+        "namedGivenProgram": false,
+        "refusedInOwnVoice": false,
+        "stderrText": ""
+      },
+      "after": {
+        "exitCode": 0,
+        "refused": false,
+        "recordedProgramBefore": "11111111111111111111111111111111",
+        "recordedProgramAfter": "11111111111111111111111111111111",
+        "identityChanged": false,
+        "namedRecordedProgram": false,
+        "namedGivenProgram": false,
+        "refusedInOwnVoice": false,
+        "stderrText": ""
+      }
+    }
+  ],
+  "summary": {
+    "total": 6,
+    "baselineViolations": 3,
+    "fixedViolations": 0,
+    "baselineIdentityChanges": 1,
+    "fixedIdentityChanges": 0
+  }
+}

@@ -95,6 +95,62 @@ fn require(args: &[String], key: &str) -> String {
     arg(args, key).unwrap_or_else(|| die(format!("missing {key} <value>")))
 }
 
+/// The program identity rule for a journal, in ONE place.
+///
+/// MEASURED 2026-11-10 against the published v0.7.10 binary: the journal
+/// records which program it watches, but only `start` defended that record.
+/// Three faces of the same hole:
+///
+/// * `init --db j.db --program <B>` on a journal watching `<A>` SILENTLY
+///   RE-POINTED it — exit 0, "initialized … for program B" — and every
+///   later command then spoke about B while the events in the journal were
+///   A's. The mailbox changed identity behind the operator's back;
+/// * `verify --program <B>` and `repair --program <B>` SILENTLY IGNORED the
+///   disagreement: they used the journal's program and reported as if the
+///   flag had not been passed (the report still says `program: A`, so the
+///   operator who asked about B gets a verdict about A);
+/// * `start` already refused the very same input with
+///   `journal watches A, refusing --program B` — so the rule existed, it
+///   just applied to one command of four.
+///
+/// The rule: a program recorded in the journal is the journal's identity.
+/// A caller that disagrees is REFUSED, naming the recorded program, the
+/// given program and the command — before anything is scanned, rewritten or
+/// opened for writing. A caller that is silent gets the recorded program
+/// (or, for a journal with none, must supply one).
+fn journal_program_refusal(db: &Path, command: &str, recorded: &str, given: &str) -> String {
+    format!(
+        "journal {} watches {recorded}, refusing {command} --program {given} — one journal, one program; the recorded program is the journal's identity, pass --db <other-journal> to work on a different one",
+        db.display()
+    )
+}
+
+/// The program a command must work on: the journal's own, unless the caller
+/// named the same one. A disagreement is a refusal, never a silent
+/// override and never a silent ignore.
+fn resolve_journal_program(
+    j: &Journal,
+    db: &Path,
+    command: &str,
+    given: Option<&String>,
+) -> String {
+    let recorded = j.meta_get("program").ok().flatten();
+    match (recorded, given) {
+        (Some(rec), Some(g)) => {
+            if g != &rec {
+                die(journal_program_refusal(db, command, &rec, g));
+            }
+            rec
+        }
+        (Some(rec), None) => rec,
+        (None, Some(g)) => g.clone(),
+        (None, None) => die(format!(
+            "journal {} has no program recorded — pass --program <pubkey>",
+            db.display()
+        )),
+    }
+}
+
 /// One alphabet, one source of truth: every decode step looks the character
 /// up here instead of doing arithmetic on ASCII ranges, so the mapping
 /// cannot drift out of sync with itself.
@@ -485,17 +541,18 @@ impl Stats {
 async fn run_start(args: &[String]) {
     let db = PathBuf::from(arg(args, "--db").unwrap_or_else(|| "reeflog.db".into()));
     let j = Journal::open(&db).unwrap_or_else(|e| die(e));
+    let given = arg(args, "--program");
     let program = match j.meta_get("program") {
         Ok(Some(p)) => {
-            if let Some(given) = arg(args, "--program") {
-                if given != p {
-                    die(format!("journal watches {p}, refusing --program {given}"));
+            if let Some(ref g) = given {
+                if g != &p {
+                    die(journal_program_refusal(&db, "start", &p, g));
                 }
             }
             p
         }
         Ok(None) => {
-            let p = arg(args, "--program").unwrap_or_else(|| {
+            let p = given.unwrap_or_else(|| {
                 die(format!(
                     "journal {} has no program recorded — run `reeflog init --db {} --program <pubkey>` (or pass --program)",
                     db.display(),
@@ -1379,11 +1436,7 @@ fn write_cursor(path: &Path, seq: i64) {
 fn run_verify(args: &[String]) {
     let db = PathBuf::from(arg(args, "--db").unwrap_or_else(|| "reeflog.db".into()));
     let j = Journal::open(&db).unwrap_or_else(|e| die(e));
-    let program = j
-        .meta_get("program")
-        .ok()
-        .flatten()
-        .unwrap_or_else(|| require(args, "--program"));
+    let program = resolve_journal_program(&j, &db, "verify", arg(args, "--program").as_ref());
     let rpc_url = arg(args, "--rpc").unwrap_or_else(|| DEFAULT_RPC.into());
     let pages: usize = arg(args, "--pages")
         .and_then(|s| s.parse().ok())
@@ -1458,11 +1511,7 @@ fn run_verify(args: &[String]) {
 fn run_repair(args: &[String]) {
     let db = PathBuf::from(arg(args, "--db").unwrap_or_else(|| "reeflog.db".into()));
     let j = Journal::open(&db).unwrap_or_else(|e| die(e));
-    let program = j
-        .meta_get("program")
-        .ok()
-        .flatten()
-        .unwrap_or_else(|| require(args, "--program"));
+    let program = resolve_journal_program(&j, &db, "repair", arg(args, "--program").as_ref());
     let rpc_url = arg(args, "--rpc").unwrap_or_else(|| DEFAULT_RPC.into());
     let pages: usize = arg(args, "--pages")
         .and_then(|s| s.parse().ok())
@@ -2497,6 +2546,21 @@ fn main() {
             // `init --db probe.db` left a probe.db behind.
             let program = require(&args, "--program");
             let db = PathBuf::from(arg(&args, "--db").unwrap_or_else(|| "reeflog.db".into()));
+            // Measured 2026-11-10 on the published v0.7.10 binary: re-running
+            // `init` with a DIFFERENT program silently re-pointed the journal,
+            // while `start` already refused a mismatched program.
+            // Re-init with the SAME program is idempotent; a different program
+            // is refused, naming the recorded program and the identity rule.
+            if db.exists() {
+                let j = Journal::open(&db).unwrap_or_else(|e| die(e));
+                if let Ok(Some(recorded)) = j.meta_get("program") {
+                    if recorded != program {
+                        die(journal_program_refusal(&db, "init", &recorded, &program));
+                    }
+                    println!("initialized {} for program {program}", db.display());
+                    return;
+                }
+            }
             let j = Journal::open(&db).unwrap_or_else(|e| die(e));
             j.meta_set("program", &program).unwrap_or_else(|e| die(e));
             println!("initialized {} for program {program}", db.display());
