@@ -1,0 +1,157 @@
+{
+  "generatedAt": "2026-11-10T12:41:47.535Z",
+  "subject": "the dlq replay report must describe the queue, not the page its limit attempted",
+  "defect": "published v0.7.11: dlq replay --limit 2 over 7 pending letters exited 0 with \"replayed\": 2, \"failed\": 0 while the journal still held 5 pending — no field named them, no exit code carried them",
+  "baseline": {
+    "source": "published v0.7.11 release asset (sha256 f75898ff9121df1bd280399401893268e161ec95e1af38b0ccabbd656e588ac3)",
+    "cases": [
+      {
+        "id": "a_truncated_replay_reports_the_queue_not_the_page",
+        "exit": 0,
+        "ms": 34,
+        "journal_pending": 5,
+        "delivered": 2,
+        "report_printed": true,
+        "reported_replayed": 2,
+        "reported_remaining": null,
+        "reported_pending_before": null,
+        "stderr_head": "",
+        "verdict": "violated",
+        "expected": "undrained_not_clean"
+      },
+      {
+        "id": "the_default_page_truncates_the_same_way",
+        "exit": 0,
+        "ms": 188,
+        "journal_pending": 1,
+        "delivered": 100,
+        "report_printed": true,
+        "reported_replayed": 100,
+        "reported_remaining": null,
+        "reported_pending_before": null,
+        "stderr_head": "",
+        "verdict": "violated",
+        "expected": "undrained_not_clean"
+      },
+      {
+        "id": "a_full_drain_still_exits_clean",
+        "exit": 0,
+        "ms": 38,
+        "journal_pending": 0,
+        "delivered": 3,
+        "report_printed": true,
+        "reported_replayed": 3,
+        "reported_remaining": null,
+        "reported_pending_before": null,
+        "stderr_head": "",
+        "verdict": "violated",
+        "expected": "drained"
+      },
+      {
+        "id": "an_empty_queue_still_reads_healthy",
+        "exit": 0,
+        "ms": 8,
+        "journal_pending": 0,
+        "delivered": 0,
+        "report_printed": true,
+        "reported_replayed": 0,
+        "reported_remaining": null,
+        "reported_pending_before": null,
+        "stderr_head": "",
+        "verdict": "violated",
+        "expected": "drained"
+      },
+      {
+        "id": "a_scoped_pass_reports_only_its_target",
+        "exit": 0,
+        "ms": 36,
+        "journal_pending": 4,
+        "delivered": 3,
+        "report_printed": true,
+        "reported_replayed": 3,
+        "reported_remaining": null,
+        "reported_pending_before": null,
+        "stderr_head": "",
+        "verdict": "violated",
+        "expected": "drained"
+      }
+    ],
+    "violations": 5
+  },
+  "fixed": {
+    "source": "published v0.7.12 release asset (sha256 ab28aac213d2e5158d27086c22acb2947ab4f756d21d0b5da3adc614e5aac856)",
+    "cases": [
+      {
+        "id": "a_truncated_replay_reports_the_queue_not_the_page",
+        "exit": 3,
+        "ms": 27,
+        "journal_pending": 5,
+        "delivered": 2,
+        "report_printed": true,
+        "reported_replayed": 2,
+        "reported_remaining": 5,
+        "reported_pending_before": 7,
+        "stderr_head": "reeflog: 5 pending dead letter(s) were not reached by this pass — the queue still holds them; run `reeflog webhook dlq replay` again (or raise --limit) to drain it",
+        "verdict": "as_specified",
+        "expected": "undrained_not_clean"
+      },
+      {
+        "id": "the_default_page_truncates_the_same_way",
+        "exit": 3,
+        "ms": 149,
+        "journal_pending": 1,
+        "delivered": 100,
+        "report_printed": true,
+        "reported_replayed": 100,
+        "reported_remaining": 1,
+        "reported_pending_before": 101,
+        "stderr_head": "reeflog: 1 pending dead letter(s) were not reached by this pass — the queue still holds them; run `reeflog webhook dlq replay` again (or raise --limit) to drain it",
+        "verdict": "as_specified",
+        "expected": "undrained_not_clean"
+      },
+      {
+        "id": "a_full_drain_still_exits_clean",
+        "exit": 0,
+        "ms": 30,
+        "journal_pending": 0,
+        "delivered": 3,
+        "report_printed": true,
+        "reported_replayed": 3,
+        "reported_remaining": 0,
+        "reported_pending_before": 3,
+        "stderr_head": "",
+        "verdict": "as_specified",
+        "expected": "drained"
+      },
+      {
+        "id": "an_empty_queue_still_reads_healthy",
+        "exit": 0,
+        "ms": 7,
+        "journal_pending": 0,
+        "delivered": 0,
+        "report_printed": true,
+        "reported_replayed": 0,
+        "reported_remaining": 0,
+        "reported_pending_before": 0,
+        "stderr_head": "",
+        "verdict": "as_specified",
+        "expected": "drained"
+      },
+      {
+        "id": "a_scoped_pass_reports_only_its_target",
+        "exit": 0,
+        "ms": 30,
+        "journal_pending": 4,
+        "delivered": 3,
+        "report_printed": true,
+        "reported_replayed": 3,
+        "reported_remaining": 0,
+        "reported_pending_before": 3,
+        "stderr_head": "",
+        "verdict": "as_specified",
+        "expected": "drained"
+      }
+    ],
+    "violations": 0
+  }
+}

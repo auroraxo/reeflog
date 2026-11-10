@@ -1309,6 +1309,23 @@ a full drain still exits clean, an empty queue still reads healthy, delivery
 itself is unchanged, and `--target` still scopes the pass — unchanged on both
 trees.
 
+**And again on the published v0.7.12 asset**, so the rule is what a stranger
+actually installs (`research/dlq-replay-page-published-v0.7.12-2026-11-10.json`,
+pinned by `tests/dlq_replay_page_published_v0712.rs`): the published v0.7.11
+asset violates **5 of 5**, the published v0.7.12 asset violates **0 of 5** —
+both archives' sha256 equal the digests the Release API publishes
+(`f75898ff…` / `ab28aac2…`). An undrained pass on the published asset exits
+**3** and says so:
+
+```text
+reeflog: 5 pending dead letter(s) were not reached by this pass — the queue
+still holds them; run `reeflog webhook dlq replay` again (or raise --limit)
+to drain it
+```
+
+The pin is falsified two ways (a tampered count and an injected machine path
+both turn it red, the restored artifact is byte-identical and green again).
+
 The ladder is `tests/dlq_replay_page_domain.rs` (8 tests) and
 `tools/mutation-ladder-dlq-replay-page.sh` (**5/5 mutations caught**): the
 truncated replay exits 0 again, the remaining queue is dropped from the
