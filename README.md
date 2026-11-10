@@ -5,7 +5,7 @@ they did to account balances for selected programs into a cursor-addressed
 append-only log, so a consumer resumes without gaps after a crash,
 disconnect, or reorg.
 
-**Status: v0.7.8 shipped (2026-11-09), v0 working.** Live against mainnet-beta: see *Measured results* below. Install the binary without a Rust toolchain: `npm install github:auroraxo/reeflog#v0.7.8` then `import { bootstrap } from 'reeflog-client'; await bootstrap()` (downloads the prebuilt release archive and verifies its sha256). Or from source: `cargo install --git https://github.com/auroraxo/reeflog --tag v0.7.8`. The full event envelope (logs, balances, instructions, account list with owners, the bytes each account held, and the authority each token account had at the moment of the event), the Node client (see *The Node client*), webhook fan-out, a dead-letter queue, and archive backfill ship in this tree; Yellowstone as a second transport does not.
+**Status: v0.7.9 shipped (2026-11-10), v0 working.** Live against mainnet-beta: see *Measured results* below. Install the binary without a Rust toolchain: `npm install github:auroraxo/reeflog#v0.7.9` then `import { bootstrap } from 'reeflog-client'; await bootstrap()` (downloads the prebuilt release archive and verifies its sha256). Or from source: `cargo install --git https://github.com/auroraxo/reeflog --tag v0.7.9`. The full event envelope (logs, balances, instructions, account list with owners, the bytes each account held, and the authority each token account had at the moment of the event), the Node client (see *The Node client*), webhook fan-out, a dead-letter queue, and archive backfill ship in this tree; Yellowstone as a second transport does not.
 
 ## The idea
 
@@ -829,7 +829,7 @@ the measurement is reproducible from this repository:
 # 1. the published baseline (the release asset's sha256 equals the
 #    Release-API digest) — the consumer's behaviour does not change
 #    between releases, but the config refusals do
-gh release download v0.7.8 --repo auroraxo/reeflog -p "*linux*"
+gh release download v0.7.9 --repo auroraxo/reeflog -p "*linux*"
 tar xzf reeflog-linux-amd64.tar.gz
 
 # 2. the probe: one byte (or character) per delivery, against the binary
@@ -1112,6 +1112,56 @@ against a local receiver: the URL loads **and delivers** (`delivered: 1`,
 `blocked: false`, push exit 0), while the no-host URL is refused before any
 delivery runs.
 
+### The webhook config values are judged by the consumer that consumes them
+
+Measured 2026-11-10 against the **published v0.7.8 binary** (the sha256 of
+whose release archive equals the digest published by GitHub Releases), one
+byte or character per delivery, against a receiver that records what
+actually arrives. The webhook config accepted values the consumer cannot
+carry:
+
+* a target `id` with a C0 control byte — accepted (exit 0, report), then
+  **every** delivery died with `http: failed to parse header value`: the id
+  becomes the `X-Reeflog-Event-Id` field value, and ureq builds that field
+  with `http::HeaderValue::from_str`. **32 of the 33** control bytes (all but
+  HTAB) were fatal;
+* a target `id` with a leading space — accepted and delivered, but the
+  receiver **strips** it: the journal stored ` t1` while the consumer saw
+  `t1:event:1`, so the consumer's deduplication key — the field the README
+  tells consumers to dedup on — stopped matching the sender's record;
+* a `url` with a raw space, `<`, `>` or a backtick in the path, or one of
+  `" < > \ ^ \` { | }` in the host — accepted, then every delivery died with
+  `http: invalid uri character`;
+* a `url` with raw non-ASCII in the path — accepted, sent raw, and the
+  receiver answered **HTTP 400**;
+* a `url` with a non-numeric port (`:abc`, `:99999`, a bare `:`) — accepted,
+  and the consumer **silently dialled 80/443** instead of the configured
+  target.
+
+The rules now call the consumer's own parser — `http::Uri` and
+`http::HeaderValue::from_str`, the functions ureq and tokio-tungstenite
+link (one `http` version in `Cargo.lock`) — so the checker cannot drift from
+the code that delivers. The `secret` stays a key: it is an HMAC key and
+never reaches the wire, so only emptiness is out of its domain (measured: a
+secret with a newline, a control byte or non-ASCII bytes delivers, and the
+receiver's own HMAC over the received body verifies every time).
+
+Measured on both trees by `tools/measure-webhook-value-domain.mjs`
+(`research/webhook-value-domain-before-after-2026-11-09.json`, pinned by
+`tests/webhook_value_before_after.rs`): the published v0.7.8 asset accepts
+**11 of 24** sampled values and then fails every delivery with them; this
+tree refuses all 11 up front and still delivers the 9 that always worked.
+
+The raw sweeps are in `research/webhook-value-domain-2026-11-09.json`
+(pinned by `tests/webhook_value_measurement.rs`) and are reproducible from
+this repository — `tools/probe-webhook-value-domain.mjs` is the probe that
+produced them. The ladder is `tests/webhook_value_domain.rs` (22 tests) and
+`tools/mutation-ladder-webhook-value.sh` (**6/6 mutations caught**): the
+leading-whitespace rule dropped, the header validator judging a constant
+instead of the operator's id, the internal-space rule widened into an
+over-refusal, the port-0 rule dropped, the non-ASCII rule dropped, the empty
+secret allowed.
+
 ### Limits
 
 No TLS client authentication and no per-target payload filtering yet; the
@@ -1240,7 +1290,7 @@ the `reeflog` binary, so there is exactly one implementation of the reader
 contract, and a library's idea of the schema cannot drift from the daemon's.
 
 ```bash
-npm install github:auroraxo/reeflog#v0.7.8   # the client ships from this repo
+npm install github:auroraxo/reeflog#v0.7.9   # the client ships from this repo
 ```
 
 The client needs the `reeflog` binary. `bootstrap()` gets it **without a
