@@ -5,7 +5,7 @@ they did to account balances for selected programs into a cursor-addressed
 append-only log, so a consumer resumes without gaps after a crash,
 disconnect, or reorg.
 
-**Status: v0.7.10 shipped (2026-11-10), v0 working.** Live against mainnet-beta: see *Measured results* below. Install the binary without a Rust toolchain: `npm install github:auroraxo/reeflog#v0.7.10` then `import { bootstrap } from 'reeflog-client'; await bootstrap()` (downloads the prebuilt release archive and verifies its sha256). Or from source: `cargo install --git https://github.com/auroraxo/reeflog --tag v0.7.10`. The full event envelope (logs, balances, instructions, account list with owners, the bytes each account held, and the authority each token account had at the moment of the event), the Node client (see *The Node client*), webhook fan-out, a dead-letter queue, and archive backfill ship in this tree; Yellowstone as a second transport does not.
+**Status: v0.7.11 shipped (2026-11-10), v0 working.** Live against mainnet-beta: see *Measured results* below. Install the binary without a Rust toolchain: `npm install github:auroraxo/reeflog#v0.7.11` then `import { bootstrap } from 'reeflog-client'; await bootstrap()` (downloads the prebuilt release archive and verifies its sha256). Or from source: `cargo install --git https://github.com/auroraxo/reeflog --tag v0.7.11`. The full event envelope (logs, balances, instructions, account list with owners, the bytes each account held, and the authority each token account had at the moment of the event), the Node client (see *The Node client*), webhook fan-out, a dead-letter queue, and archive backfill ship in this tree; Yellowstone as a second transport does not.
 
 ## The idea
 
@@ -1202,6 +1202,48 @@ caught**): escaping dropped, escaping narrowed to newlines only, ESC left
 raw, HTAB escaped too (the over-refusal direction), the value no longer
 named.
 
+### One journal, one program
+
+Measured 2026-11-10 against the **published v0.7.10 asset** (the release
+archive's sha256 equals the digest the Release API publishes): the rule "a
+program recorded in the journal is the journal's identity" existed — in
+exactly ONE command of four. The other three disagreed with it, each in its
+own direction:
+
+| command (journal watches `<A>`, caller passes `<B>`) | v0.7.10 answered |
+| --- | --- |
+| `init --program <B>` | exit 0, `initialized … for program B` — the mailbox **silently changed identity** |
+| `verify --program <B>` | exit 0 with a full report — **about A**; the flag was silently ignored |
+| `repair --program <B>` | the same silent ignore, on the command that **writes** to the journal |
+| `start --program <B>` | exit 1, `journal watches A, refusing --program B` — the rule defended itself here |
+
+An operator who re-ran `init` with the wrong id walked away with a journal
+that reported `program: <B>` while holding A's events. An operator who
+asked `verify --program <B>` got a verdict about A, with nothing to show
+that the two differ — on the command whose whole job is to tell the truth
+about a journal. The rule was real; it was just local to `start`.
+
+The rule now:
+
+* a program recorded in the journal **is** the journal's identity;
+* a command given a different program is **refused**, naming the recorded
+  program, the given program and the command — before anything is scanned,
+  rewritten or opened for writing;
+* a command given the same program, or none, is served from the recorded
+  one; `init` with the same program stays idempotent.
+
+Measured on both trees by `tools/measure-program-identity.mjs`
+(`research/program-identity-2026-11-10.json`, pinned by
+`tests/program_identity_measurement.rs`): the published v0.7.10 asset
+violates **3 of 6** cases and changed the journal's identity **1** time;
+this tree violates **0 of 6**, identity changes **0**. The journal's
+recorded program is read back from the journal itself, never from the
+report of the command under test — the report is the thing that lied. The
+ladder is `tests/program_identity_domain.rs` (7 tests: the three defect
+faces are red on the pre-fix tree, guards green on both) and
+`tools/mutation-ladder-program-identity.sh` (**5/5 mutations caught**,
+tree restored byte-identically).
+
 ### Limits
 
 No TLS client authentication and no per-target payload filtering yet; the
@@ -1330,7 +1372,7 @@ the `reeflog` binary, so there is exactly one implementation of the reader
 contract, and a library's idea of the schema cannot drift from the daemon's.
 
 ```bash
-npm install github:auroraxo/reeflog#v0.7.10   # the client ships from this repo
+npm install github:auroraxo/reeflog#v0.7.11   # the client ships from this repo
 ```
 
 The client needs the `reeflog` binary. `bootstrap()` gets it **without a
