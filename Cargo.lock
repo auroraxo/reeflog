@@ -624,7 +624,7 @@ dependencies = [
 
 [[package]]
 name = "reeflog"
-version = "0.7.9"
+version = "0.7.10"
 dependencies = [
  "base64 0.22.1",
  "futures-util",
