@@ -1244,6 +1244,29 @@ faces are red on the pre-fix tree, guards green on both) and
 `tools/mutation-ladder-program-identity.sh` (**5/5 mutations caught**,
 tree restored byte-identically).
 
+**And again on the published v0.7.11 asset**, so the refusal is what a
+stranger actually installs (`research/program-identity-published-v0.7.11-2026-11-10.json`,
+pinned by `tests/program_identity_published_v0711.rs`): the published
+v0.7.10 asset violates **3 of 6** and repoints the journal **1** time, the
+published v0.7.11 asset violates **0 of 6** and repoints it **0** times —
+both archives' sha256 equal the digests the Release API publishes
+(`2f6eded2…` / `f75898ff…`). The pin is falsified two ways
+(`tools/falsify-program-identity-pin-v0711.sh`: a wrong count and an
+injected machine path both turn it red, the restored artifact is
+byte-identical and green again). Installed from an empty directory
+(`npm install github:auroraxo/reeflog#v0.7.11`), the refusal speaks
+naming both programs and the command:
+
+```
+reeflog: error: journal …/j.db watches 11111111111111111111111111111111,
+refusing init --program whirLbMiicVdio4qvUfM5KAg6Ct8VwpYzGff3uctyCc —
+one journal, one program; the recorded program is the journal's identity,
+pass --db <other-journal> to work on a different one
+```
+
+`init`, `verify` and `repair` all exit 1 on a disagreement;
+`init` with the recorded program stays idempotent (exit 0).
+
 ### Limits
 
 No TLS client authentication and no per-target payload filtering yet; the
