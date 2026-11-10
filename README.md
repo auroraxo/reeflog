@@ -810,9 +810,43 @@ behaviour the file does not describe.
 
 | Key | Domain | What is refused |
 |---|---|---|
-| `url` | absolute URL of scheme `http` or `https` (case-insensitive) with a host | `http://` or `https://` with no host (the consumer dies with "http: empty string" on first delivery), empty authority (`http:///x`), missing scheme, non-http scheme (`ftp://…`) |
+| `url` | absolute URL of scheme `http` or `https` (case-insensitive) with a host, a port `1..=65535` when written, and bytes `http::Uri` can carry | `http://` or `https://` with no host (the consumer dies with "http: empty string" on first delivery), empty authority (`http:///x`), missing scheme, non-http scheme (`ftp://…`), a non-numeric or out-of-range port (`:abc`, `:99999`, a bare `:` — the consumer silently dials 80/443 instead), port `0` (nothing ever listens there), a space/control byte/`<` `>` backtick in the path (the parser refuses it as `http: invalid uri character`), one of `" < > \ ^ \` { \| }` in the host, raw non-ASCII in the path or query (the receiver answers 400 — percent-encode it instead) |
+| `id` | non-empty, no leading ASCII whitespace, no control byte except HTAB | empty, a leading space or tab (the receiver strips it, so the consumer's dedup key stops matching the journal), any C0 control byte or DEL (the consumer's header parser refuses the field: every delivery dies with `http: failed to parse header value`) |
+| `secret` | non-empty | empty — an empty secret signs with the empty key, which authenticates nothing. Every other byte is inside the domain: the secret is an HMAC key and never goes on the wire |
 | `timeout_ms` | whole milliseconds in `1..=3600000` (1 hour) | `0` (the poster would silently re-read it as 1 ms), anything above the 1-hour ceiling (a timeout no process will live to see — an attempt that cannot finish within an hour is stuck, not slow), a fraction, a negative number, a string, an integer beyond `u64` |
 | `dead_letter_after` | non-negative integer in `i64` | a fraction, a negative number, an integer outside `i64` (the count is compared against an `i64` refusal counter) |
+
+The `url` and `id` rules are not opinions: they call the CONSUMER's own
+parser — `http::Uri` and `http::HeaderValue::from_str`, the same functions
+ureq and tokio-tungstenite link (one `http` version in Cargo.lock). What the
+checker refuses, the consumer would have refused later, at delivery time,
+in its own words.
+
+Every number behind those rules was measured against a real receiver, and
+the measurement is reproducible from this repository:
+
+```bash
+# 1. the published baseline (the release asset's sha256 equals the
+#    Release-API digest) — the consumer's behaviour does not change
+#    between releases, but the config refusals do
+gh release download v0.7.8 --repo auroraxo/reeflog -p "*linux*"
+tar xzf reeflog-linux-amd64.tar.gz
+
+# 2. the probe: one byte (or character) per delivery, against the binary
+node tools/probe-webhook-value-domain.mjs ./reeflog /tmp/whprobe
+node tools/make-webhook-value-domain-artifact.mjs /tmp/whprobe \
+  research/webhook-value-domain-<date>.json
+
+# 3. the before/after: the same values against the published baseline
+#    and against this tree's build
+node tools/measure-webhook-value-domain.mjs ./reeflog \
+  "$(pwd)/target/release/reeflog" /tmp/before-after.json
+```
+
+The raw sweeps land in `research/webhook-value-domain-<date>.json` and are
+pinned by `tests/webhook_value_measurement.rs`; the before/after counts
+(24 cases, 11 defects in the published baseline, all refused up front by
+this tree) are pinned by `tests/webhook_value_before_after.rs`.
 
 Every refusal names **the key and the offending value** and happens before
 any connection is attempted — a refusal with a report would look like a

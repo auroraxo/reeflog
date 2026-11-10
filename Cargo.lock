@@ -629,6 +629,7 @@ dependencies = [
  "base64 0.22.1",
  "futures-util",
  "hex",
+ "http",
  "rusqlite",
  "serde_json",
  "sha2",

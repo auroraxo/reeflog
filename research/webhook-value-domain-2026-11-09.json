@@ -1,0 +1,492 @@
+{
+  "artifact": "webhook-value-domain",
+  "measuredAt": "2026-11-10T04:15:33.200Z",
+  "subject": "the webhook CONFIG values id / secret / url",
+  "method": "one byte (or one character) per delivery, against the PUBLISHED v0.7.8 binary, with a receiver process that records the raw bytes of X-Reeflog-Event-Id and answers 200",
+  "consumer": {
+    "http": "ureq 3.5 (http::Uri + http::HeaderValue::from_str)",
+    "websocket": "tokio-tungstenite 0.24 / tungstenite 0.24 (http::Uri)",
+    "note": "Cargo.lock resolves ONE http version, linked by both consumers — so the parser that refuses a value is the parser the checker must call"
+  },
+  "id": {
+    "rule": "non-empty; no leading ASCII whitespace; no C0 control byte except HTAB; no DEL. Everything else is inside the domain (internal space/HTAB, trailing whitespace, non-ASCII).",
+    "cases": [
+      {
+        "case": "plain",
+        "configuredId": "t1",
+        "journalId": "t1",
+        "rawHeaderBytes": "t1:event:1",
+        "delivered": 1,
+        "lastError": null,
+        "consumerKeyMatchesJournal": true
+      },
+      {
+        "case": "leading-space",
+        "configuredId": " t1",
+        "journalId": " t1",
+        "rawHeaderBytes": "t1:event:1",
+        "delivered": 1,
+        "lastError": null,
+        "consumerKeyMatchesJournal": false
+      },
+      {
+        "case": "trailing-space",
+        "configuredId": "t1 ",
+        "journalId": "t1 ",
+        "rawHeaderBytes": "t1 :event:1",
+        "delivered": 1,
+        "lastError": null,
+        "consumerKeyMatchesJournal": true
+      },
+      {
+        "case": "internal-space",
+        "configuredId": "a b",
+        "journalId": "a b",
+        "rawHeaderBytes": "a b:event:1",
+        "delivered": 1,
+        "lastError": null,
+        "consumerKeyMatchesJournal": true
+      },
+      {
+        "case": "trailing-tab",
+        "configuredId": "t1\t",
+        "journalId": "t1\t",
+        "rawHeaderBytes": "t1\t:event:1",
+        "delivered": 1,
+        "lastError": null,
+        "consumerKeyMatchesJournal": true
+      },
+      {
+        "case": "internal-tab",
+        "configuredId": "a\tb",
+        "journalId": "a\tb",
+        "rawHeaderBytes": "a\tb:event:1",
+        "delivered": 1,
+        "lastError": null,
+        "consumerKeyMatchesJournal": true
+      },
+      {
+        "case": "non-ascii-umlaut",
+        "configuredId": "tü1",
+        "journalId": "tü1",
+        "rawHeaderBytes": "tÃ¼1:event:1",
+        "delivered": 1,
+        "lastError": null,
+        "consumerKeyMatchesJournal": false
+      },
+      {
+        "case": "non-ascii-emoji",
+        "configuredId": "t1🙂",
+        "journalId": "t1🙂",
+        "rawHeaderBytes": "t1ð:event:1",
+        "delivered": 1,
+        "lastError": null,
+        "consumerKeyMatchesJournal": false
+      },
+      {
+        "case": "control-cr",
+        "configuredId": "a\rb",
+        "journalId": "a\rb",
+        "rawHeaderBytes": null,
+        "delivered": 0,
+        "lastError": "http: failed to parse header value",
+        "consumerKeyMatchesJournal": null
+      }
+    ],
+    "counts": {
+      "delivered": 8,
+      "keyBrokenAtReceiver": 3,
+      "fatalForEveryDelivery": 1
+    },
+    "fatalBytes": [
+      "a\rb"
+    ],
+    "keyBrokenCases": [
+      "leading-space",
+      "non-ascii-umlaut",
+      "non-ascii-emoji"
+    ]
+  },
+  "secret": {
+    "rule": "non-empty only — the secret is an HMAC key and is never sent on the wire",
+    "measured": [
+      {
+        "secret": "s",
+        "delivered": 1,
+        "verified": true
+      },
+      {
+        "secret": "se\ncr\net",
+        "delivered": 1,
+        "verified": true
+      },
+      {
+        "secret": "a\u0001b",
+        "delivered": 1,
+        "verified": true
+      },
+      {
+        "secret": "sécret-ß",
+        "delivered": 1,
+        "verified": true
+      },
+      {
+        "secret": "",
+        "delivered": null,
+        "verified": false,
+        "note": "out of domain: the empty key authenticates nothing"
+      }
+    ],
+    "cases": [
+      {
+        "secret": "s",
+        "delivered": 1,
+        "verified": true
+      },
+      {
+        "secret": "se\ncr\net",
+        "delivered": 1,
+        "verified": true
+      },
+      {
+        "secret": "a\u0001b",
+        "delivered": 1,
+        "verified": true
+      },
+      {
+        "secret": "sécret-ß",
+        "delivered": 1,
+        "verified": true
+      },
+      {
+        "secret": "",
+        "delivered": null,
+        "verified": false,
+        "note": "out of domain: the empty key authenticates nothing"
+      }
+    ]
+  },
+  "url": {
+    "rule": "absolute URL, scheme the consumer speaks (case-insensitively), a host, a port the consumer can dial (1..=65535 — a non-numeric port is silently replaced by 80/443), bytes http::Uri can parse, and an ASCII request-target (percent-encode non-ASCII)",
+    "byPosition": {
+      "authority": {
+        "sampled": 15,
+        "refusedCharacters": [
+          "\"",
+          "<",
+          ">",
+          "\\",
+          "^",
+          "`",
+          "{",
+          "|",
+          "}",
+          "<",
+          ">",
+          "`",
+          " ",
+          "ü",
+          "€"
+        ]
+      },
+      "path": {
+        "sampled": 15,
+        "refusedCharacters": [
+          "<",
+          ">",
+          "`",
+          "<",
+          ">",
+          "`",
+          " ",
+          "ü",
+          "€"
+        ]
+      },
+      "query": {
+        "sampled": 129,
+        "refusedCharacters": [
+          "0x20",
+          "0x22",
+          "0x3c",
+          "0x3e",
+          "0x00",
+          "0x01",
+          "0x02",
+          "0x03",
+          "0x04",
+          "0x05",
+          "0x06",
+          "0x07",
+          "0x08",
+          "0x09",
+          "0x0a",
+          "0x0b",
+          "0x0c",
+          "0x0d",
+          "0x0e",
+          "0x0f",
+          "0x10",
+          "0x11",
+          "0x12",
+          "0x13",
+          "0x14",
+          "0x15",
+          "0x16",
+          "0x17",
+          "0x18",
+          "0x19",
+          "0x1a",
+          "0x1b",
+          "0x1c",
+          "0x1d",
+          "0x1e",
+          "0x1f",
+          "0x7f",
+          "0xfc"
+        ],
+        "refusedNonAscii": 1
+      },
+      "fragment": {
+        "sampled": 129,
+        "refusedCharacters": [],
+        "note": "the fragment is never transmitted — nothing in it can fail"
+      }
+    },
+    "densePathSweep": {
+      "urlPathPrintableAscii": {
+        "delivered": 91,
+        "refused": [
+          "0x3c",
+          "0x3e",
+          "0x60"
+        ]
+      },
+      "idControlBytes": {
+        "delivered": 1,
+        "refused": [
+          "0x00",
+          "0x01",
+          "0x02",
+          "0x03",
+          "0x04",
+          "0x05",
+          "0x06",
+          "0x07",
+          "0x08",
+          "0x0a",
+          "0x0b",
+          "0x0c",
+          "0x0d",
+          "0x0e",
+          "0x0f",
+          "0x10",
+          "0x11",
+          "0x12",
+          "0x13",
+          "0x14",
+          "0x15",
+          "0x16",
+          "0x17",
+          "0x18",
+          "0x19",
+          "0x1a",
+          "0x1b",
+          "0x1c",
+          "0x1d",
+          "0x1e",
+          "0x1f",
+          "0x7f"
+        ]
+      }
+    },
+    "authorityEdgeCases": [
+      {
+        "case": "bad port letters",
+        "url": "http://127.0.0.1:abc/hook",
+        "verdict": "not-delivered(refused with http 404)",
+        "error": "refused with http 404"
+      },
+      {
+        "case": "empty port",
+        "url": "http://127.0.0.1:/hook",
+        "verdict": "not-delivered(refused with http 404)",
+        "error": "refused with http 404"
+      },
+      {
+        "case": "port > 65535",
+        "url": "http://127.0.0.1:99999/hook",
+        "verdict": "not-delivered(refused with http 404)",
+        "error": "refused with http 404"
+      },
+      {
+        "case": "port 0",
+        "url": "http://127.0.0.1:0/hook",
+        "verdict": "not-delivered(io: Connection refused (os error 111))",
+        "error": "io: Connection refused (os error 111)"
+      },
+      {
+        "case": "userinfo",
+        "url": "http://u:***@LOCALHOST/hook",
+        "verdict": "delivered",
+        "error": null
+      },
+      {
+        "case": "userinfo %",
+        "url": "http://us%40er@LOCALHOST/hook",
+        "verdict": "delivered",
+        "error": null
+      },
+      {
+        "case": "% in host",
+        "url": "http://ho%73t:PORT/hook",
+        "verdict": "not-delivered(http: invalid authority)",
+        "error": "http: invalid authority"
+      },
+      {
+        "case": "% alone in host",
+        "url": "http://x%yz:PORT/hook",
+        "verdict": "not-delivered(http: invalid authority)",
+        "error": "http: invalid authority"
+      },
+      {
+        "case": "ipv6",
+        "url": "http://[::1]:PORT/hook",
+        "verdict": "not-delivered(io: Connection refused (os error 111))",
+        "error": "io: Connection refused (os error 111)"
+      },
+      {
+        "case": "bracket no port",
+        "url": "http://[::1]:PORT/hook",
+        "verdict": "not-delivered(io: Connection refused (os error 111))",
+        "error": "io: Connection refused (os error 111)"
+      },
+      {
+        "case": "orphan bracket",
+        "url": "http://[::1:PORT/hook",
+        "verdict": "not-delivered(http: invalid authority)",
+        "error": "http: invalid authority"
+      },
+      {
+        "case": "double @",
+        "url": "http://a@b@LOCALHOST/hook",
+        "verdict": "delivered",
+        "error": null
+      },
+      {
+        "case": "double colon host",
+        "url": "http://a::b:PORT/hook",
+        "verdict": "not-delivered(http: invalid authority)",
+        "error": "http: invalid authority"
+      },
+      {
+        "case": "question in authority",
+        "url": "http://ho?st:PORT/hook",
+        "verdict": "not-delivered(io: failed to lookup address information: Temporary failure in name resolution)",
+        "error": "io: failed to lookup address information: Temporary failure in name resolution"
+      },
+      {
+        "case": "space before scheme",
+        "url": " http://LOCALHOST/hook",
+        "verdict": "CONFIG-REFUSED",
+        "error": "reeflog: error: target #0 url expects a http or https URL — got ` http://127.0.0.1:44303/hook` (scheme ` http` is not spoken by this consumer; e.g. http://127.0.0.1:8080/hook)"
+      },
+      {
+        "case": "trailing space",
+        "url": "http://LOCALHOST/hook ",
+        "verdict": "not-delivered(http: invalid uri character)",
+        "error": "http: invalid uri character"
+      },
+      {
+        "case": "uppercase host",
+        "url": "http://127.0.0.1:PORT/HOOK",
+        "verdict": "delivered",
+        "error": null
+      },
+      {
+        "case": "dot segments",
+        "url": "http://LOCALHOST/a/../b",
+        "verdict": "delivered",
+        "error": null
+      },
+      {
+        "case": "star path",
+        "url": "http://LOCALHOST/*",
+        "verdict": "delivered",
+        "error": null
+      },
+      {
+        "case": "percent-encoded path",
+        "url": "http://LOCALHOST/caf%C3%A9",
+        "verdict": "delivered",
+        "error": null
+      },
+      {
+        "case": "percent-bad escape",
+        "url": "http://LOCALHOST/%zz",
+        "verdict": "delivered",
+        "error": null
+      },
+      {
+        "case": "percent-encoded space path",
+        "url": "http://LOCALHOST/a%20b",
+        "verdict": "delivered",
+        "error": null
+      },
+      {
+        "case": "query percent-bad",
+        "url": "http://LOCALHOST/hook?k=%zz",
+        "verdict": "delivered",
+        "error": null
+      },
+      {
+        "case": "fragment then junk",
+        "url": "http://LOCALHOST/hook#a b",
+        "verdict": "delivered",
+        "error": null
+      },
+      {
+        "case": "two fragments",
+        "url": "http://LOCALHOST/hook#a#b",
+        "verdict": "delivered",
+        "error": null
+      },
+      {
+        "case": "query with hash value",
+        "url": "http://LOCALHOST/hook?k=#frag",
+        "verdict": "delivered",
+        "error": null
+      },
+      {
+        "case": "no scheme",
+        "url": "LOCALHOST/hook",
+        "verdict": "CONFIG-REFUSED",
+        "error": "reeflog: error: target #0 url expects an absolute URL with scheme http or https — got `127.0.0.1:40673/hook` (e.g. http://127.0.0.1:8080/hook)"
+      },
+      {
+        "case": "scheme only",
+        "url": "http:LOCALHOST/hook",
+        "verdict": "CONFIG-REFUSED",
+        "error": "reeflog: error: target #0 url expects an absolute URL with scheme http or https — got `http:127.0.0.1:36205/hook` (e.g. http://127.0.0.1:8080/hook)"
+      },
+      {
+        "case": "backslash as separator",
+        "url": "http:\\LOCALHOST\\hook",
+        "verdict": "CONFIG-REFUSED",
+        "error": "reeflog: error: target #0 url expects an absolute URL with scheme http or https — got `http:\\127.0.0.1:39683\\hook` (e.g. http://127.0.0.1:8080/hook)"
+      },
+      {
+        "case": "file scheme",
+        "url": "file:///etc/passwd",
+        "verdict": "CONFIG-REFUSED",
+        "error": "reeflog: error: target #0 url expects a http or https URL — got `file:///etc/passwd` (scheme `file` is not spoken by this consumer; e.g. http://127.0.0.1:8080/hook)"
+      },
+      {
+        "case": "ws scheme in config",
+        "url": "ws://LOCALHOST/hook",
+        "verdict": "CONFIG-REFUSED",
+        "error": "reeflog: error: target #0 url expects a http or https URL — got `ws://127.0.0.1:44091/hook` (scheme `ws` is not spoken by this consumer; e.g. http://127.0.0.1:8080/hook)"
+      }
+    ]
+  }
+}

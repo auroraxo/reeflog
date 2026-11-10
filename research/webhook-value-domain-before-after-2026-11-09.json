@@ -1,0 +1,382 @@
+{
+  "artifact": "webhook-value-domain-before-after",
+  "measuredAt": "2026-11-10T02:06:32.444Z",
+  "baseline": {
+    "binary": "published v0.7.8 asset",
+    "version": "0.7.8"
+  },
+  "fixed": {
+    "binary": "tree build",
+    "version": "0.7.8"
+  },
+  "method": "the same config values against both binaries, with a receiver process that records what arrives; the baseline is the PUBLISHED v0.7.8 asset",
+  "cases": [
+    {
+      "case": "id-plain",
+      "before": {
+        "configAccepted": true,
+        "configError": null,
+        "delivered": 1,
+        "transportError": null
+      },
+      "after": {
+        "configAccepted": true,
+        "configError": null,
+        "delivered": 1,
+        "transportError": null
+      }
+    },
+    {
+      "case": "id-leading-space",
+      "before": {
+        "configAccepted": true,
+        "configError": null,
+        "delivered": 1,
+        "transportError": null
+      },
+      "after": {
+        "configAccepted": false,
+        "configError": "reeflog: error: target #0 \"id\" has leading whitespace — got ` t1` (an HTTP receiver strips it, so the consumer's event-id would not match the journal; e.g. \"t1\")",
+        "delivered": null,
+        "transportError": null
+      }
+    },
+    {
+      "case": "id-trailing-space",
+      "before": {
+        "configAccepted": true,
+        "configError": null,
+        "delivered": 1,
+        "transportError": null
+      },
+      "after": {
+        "configAccepted": true,
+        "configError": null,
+        "delivered": 1,
+        "transportError": null
+      }
+    },
+    {
+      "case": "id-internal-space",
+      "before": {
+        "configAccepted": true,
+        "configError": null,
+        "delivered": 1,
+        "transportError": null
+      },
+      "after": {
+        "configAccepted": true,
+        "configError": null,
+        "delivered": 1,
+        "transportError": null
+      }
+    },
+    {
+      "case": "id-internal-tab",
+      "before": {
+        "configAccepted": true,
+        "configError": null,
+        "delivered": 1,
+        "transportError": null
+      },
+      "after": {
+        "configAccepted": true,
+        "configError": null,
+        "delivered": 1,
+        "transportError": null
+      }
+    },
+    {
+      "case": "id-carriage-return",
+      "before": {
+        "configAccepted": true,
+        "configError": null,
+        "delivered": 0,
+        "transportError": "http: failed to parse header value"
+      },
+      "after": {
+        "configAccepted": false,
+        "configError": "reeflog: error: target #0 \"id\" contains a forbidden carriage return (\\r) at byte 1 — the consumer's header parser refuses the whole field value (failed to parse header value), so every delivery would fail with `http: failed to parse header value` (got `a\rb`; e.g. \"primary\")",
+        "delivered": null,
+        "transportError": null
+      }
+    },
+    {
+      "case": "id-nul",
+      "before": {
+        "configAccepted": true,
+        "configError": null,
+        "delivered": 0,
+        "transportError": "http: failed to parse header value"
+      },
+      "after": {
+        "configAccepted": false,
+        "configError": "reeflog: error: target #0 \"id\" contains a forbidden NUL byte (\\0) at byte 1 — the consumer's header parser refuses the whole field value (failed to parse header value), so every delivery would fail with `http: failed to parse header value` (got `a\u0000b`; e.g. \"primary\")",
+        "delivered": null,
+        "transportError": null
+      }
+    },
+    {
+      "case": "id-del",
+      "before": {
+        "configAccepted": true,
+        "configError": null,
+        "delivered": 0,
+        "transportError": "http: failed to parse header value"
+      },
+      "after": {
+        "configAccepted": false,
+        "configError": "reeflog: error: target #0 \"id\" contains a forbidden DEL byte (0x7f) at byte 1 — the consumer's header parser refuses the whole field value (failed to parse header value), so every delivery would fail with `http: failed to parse header value` (got `ab`; e.g. \"primary\")",
+        "delivered": null,
+        "transportError": null
+      }
+    },
+    {
+      "case": "id-empty",
+      "before": {
+        "configAccepted": false,
+        "configError": "reeflog: error: target #0: \"id\" must not be empty",
+        "delivered": null,
+        "transportError": null
+      },
+      "after": {
+        "configAccepted": false,
+        "configError": "reeflog: error: target #0 \"id\" must not be empty (e.g. \"primary\")",
+        "delivered": null,
+        "transportError": null
+      }
+    },
+    {
+      "case": "secret-empty",
+      "before": {
+        "configAccepted": false,
+        "configError": "reeflog: error: target #0: \"secret\" must not be empty",
+        "delivered": null,
+        "transportError": null
+      },
+      "after": {
+        "configAccepted": false,
+        "configError": "reeflog: error: target #0 \"secret\" must not be empty — an empty secret signs with the empty key, which authenticates nothing",
+        "delivered": null,
+        "transportError": null
+      }
+    },
+    {
+      "case": "secret-newline",
+      "before": {
+        "configAccepted": true,
+        "configError": null,
+        "delivered": 1,
+        "transportError": null
+      },
+      "after": {
+        "configAccepted": true,
+        "configError": null,
+        "delivered": 1,
+        "transportError": null
+      }
+    },
+    {
+      "case": "secret-nonascii",
+      "before": {
+        "configAccepted": true,
+        "configError": null,
+        "delivered": 1,
+        "transportError": null
+      },
+      "after": {
+        "configAccepted": true,
+        "configError": null,
+        "delivered": 1,
+        "transportError": null
+      }
+    },
+    {
+      "case": "url-space-in-path",
+      "before": {
+        "configAccepted": true,
+        "configError": null,
+        "delivered": 0,
+        "transportError": "http: invalid uri character"
+      },
+      "after": {
+        "configAccepted": false,
+        "configError": "reeflog: error: target #0 url is not a URL the consumer's URI parser can read (invalid uri character) — got `http://127.0.0.1:45935/a b` (e.g. http://127.0.0.1:8080/hook)",
+        "delivered": null,
+        "transportError": null
+      }
+    },
+    {
+      "case": "url-angle-in-path",
+      "before": {
+        "configAccepted": true,
+        "configError": null,
+        "delivered": 0,
+        "transportError": "http: invalid uri character"
+      },
+      "after": {
+        "configAccepted": false,
+        "configError": "reeflog: error: target #0 url is not a URL the consumer's URI parser can read (invalid uri character) — got `http://127.0.0.1:34625/a<b` (e.g. http://127.0.0.1:8080/hook)",
+        "delivered": null,
+        "transportError": null
+      }
+    },
+    {
+      "case": "url-backtick-in-path",
+      "before": {
+        "configAccepted": true,
+        "configError": null,
+        "delivered": 0,
+        "transportError": "http: invalid uri character"
+      },
+      "after": {
+        "configAccepted": false,
+        "configError": "reeflog: error: target #0 url is not a URL the consumer's URI parser can read (invalid uri character) — got `http://127.0.0.1:37405/a`b` (e.g. http://127.0.0.1:8080/hook)",
+        "delivered": null,
+        "transportError": null
+      }
+    },
+    {
+      "case": "url-quote-in-host",
+      "before": {
+        "configAccepted": true,
+        "configError": null,
+        "delivered": 0,
+        "transportError": "http: invalid uri character"
+      },
+      "after": {
+        "configAccepted": false,
+        "configError": "reeflog: error: target #0 url is not a URL the consumer's URI parser can read (invalid uri character) — got `http://ho\"st:44765/hook` (e.g. http://127.0.0.1:8080/hook)",
+        "delivered": null,
+        "transportError": null
+      }
+    },
+    {
+      "case": "url-brace-in-path",
+      "before": {
+        "configAccepted": true,
+        "configError": null,
+        "delivered": 1,
+        "transportError": null
+      },
+      "after": {
+        "configAccepted": true,
+        "configError": null,
+        "delivered": 1,
+        "transportError": null
+      }
+    },
+    {
+      "case": "url-backtick-in-query",
+      "before": {
+        "configAccepted": true,
+        "configError": null,
+        "delivered": 1,
+        "transportError": null
+      },
+      "after": {
+        "configAccepted": true,
+        "configError": null,
+        "delivered": 1,
+        "transportError": null
+      }
+    },
+    {
+      "case": "url-nonascii-in-path",
+      "before": {
+        "configAccepted": true,
+        "configError": null,
+        "delivered": 0,
+        "transportError": "refused with http 400"
+      },
+      "after": {
+        "configAccepted": false,
+        "configError": "reeflog: error: target #0 url contains a non-ASCII character at byte 25 ('ü') — the URI grammar carries the request-target as percent-encoded ASCII and the receiver refuses raw bytes (measured: HTTP 400); percent-encode it (e.g. `at%C3%BCb`) — got `http://127.0.0.1:42525/atüb` (e.g. http://127.0.0.1:8080/hook)",
+        "delivered": null,
+        "transportError": null
+      }
+    },
+    {
+      "case": "url-nonascii-in-host",
+      "before": {
+        "configAccepted": true,
+        "configError": null,
+        "delivered": 0,
+        "transportError": "http: invalid uri character"
+      },
+      "after": {
+        "configAccepted": false,
+        "configError": "reeflog: error: target #0 url is not a URL the consumer's URI parser can read (invalid uri character) — got `http://tüb.example:39499/hook` (e.g. http://127.0.0.1:8080/hook)",
+        "delivered": null,
+        "transportError": null
+      }
+    },
+    {
+      "case": "url-nonnumeric-port",
+      "before": {
+        "configAccepted": true,
+        "configError": null,
+        "delivered": null,
+        "transportError": null
+      },
+      "after": {
+        "configAccepted": false,
+        "configError": "reeflog: error: target #0 url has an invalid port `abc` — the consumer would silently use the default port (80/443) instead of it — got `http://127.0.0.1:abc/hook` (e.g. http://127.0.0.1:8080/hook)",
+        "delivered": null,
+        "transportError": null
+      }
+    },
+    {
+      "case": "url-port-too-large",
+      "before": {
+        "configAccepted": true,
+        "configError": null,
+        "delivered": null,
+        "transportError": null
+      },
+      "after": {
+        "configAccepted": false,
+        "configError": "reeflog: error: target #0 url has an invalid port `99999` — the consumer would silently use the default port (80/443) instead of it — got `http://127.0.0.1:99999/hook` (e.g. http://127.0.0.1:8080/hook)",
+        "delivered": null,
+        "transportError": null
+      }
+    },
+    {
+      "case": "url-no-host",
+      "before": {
+        "configAccepted": false,
+        "configError": "reeflog: error: target #0 url expects a URL with a host — got `http://` (e.g. http://127.0.0.1:8080/hook)",
+        "delivered": null,
+        "transportError": null
+      },
+      "after": {
+        "configAccepted": false,
+        "configError": "reeflog: error: target #0 url expects a URL with a host — got `http://` (e.g. http://127.0.0.1:8080/hook)",
+        "delivered": null,
+        "transportError": null
+      }
+    },
+    {
+      "case": "url-uppercase-scheme",
+      "before": {
+        "configAccepted": true,
+        "configError": null,
+        "delivered": 1,
+        "transportError": null
+      },
+      "after": {
+        "configAccepted": true,
+        "configError": null,
+        "delivered": 1,
+        "transportError": null
+      }
+    }
+  ],
+  "summary": {
+    "total": 24,
+    "baselineAcceptedButFailed": 11,
+    "baselineRefused": 3,
+    "fixedRefused": 15,
+    "fixedAcceptedAndDelivered": 9
+  }
+}

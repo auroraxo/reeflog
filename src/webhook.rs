@@ -272,12 +272,21 @@ pub fn load_targets(path: &Path) -> Result<Vec<Target>, String> {
                 n
             }
         };
-        if id.trim().is_empty() {
-            return Err(format!("target #{i}: \"id\" must not be empty"));
-        }
-        if secret.is_empty() {
-            return Err(format!("target #{i}: \"secret\" must not be empty"));
-        }
+        // The VALUE domain of the remaining config keys, shared with the
+        // flag layer and judged by what the CONSUMER can carry
+        // (measured 2026-11-09):
+        //
+        // * `id` becomes the HTTP field value of `X-Reeflog-Event-Id`, and a
+        //   control character in it kills every delivery with `http: failed to
+        //   parse header value`, while outer whitespace is stripped by the
+        //   receiver — so the consumer's dedup key stops matching the
+        //   journal's. Both were accepted here and configured a dead target.
+        // * `secret` is an HMAC key, never sent on the wire: measured, a
+        //   secret with a newline, a control byte or a non-ASCII byte
+        //   delivers fine and verifies. Only emptiness is out of domain —
+        //   an empty secret authenticates nothing.
+        reeflog::flags::check_target_id_domain(&format!("target #{i} \"id\""), id)?;
+        reeflog::flags::check_secret_domain(&format!("target #{i} \"secret\""), secret)?;
         // The URL domain rule, shared with the flag parser (measured 2026-11-09):
         // judges scheme case-insensitively (the consumer speaks `HTTP://`)
         // and requires a host (`http://` is not a URL the consumer can deliver to).
