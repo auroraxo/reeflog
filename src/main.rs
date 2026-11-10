@@ -2182,7 +2182,17 @@ fn run_webhook_dlq_list(args: &[String]) {
 ///   id is refused naming the flag, the value and the config targets);
 /// * an unreachable dead letter (because its target left the config) keeps
 ///   a full-pass replay from exiting 0: the command cannot report clean
-///   success while events remain un-deliverable in the mailbox.
+///   success while events remain un-deliverable in the mailbox;
+/// * the REPORT describes the QUEUE, not the PAGE its `--limit` attempted.
+///   Measured on the published v0.7.11 binary (2026-11-10): 7 pending
+///   letters, `--limit 2`, a receiver accepting everything -> exit 0 with
+///   `replayed: 2, failed: 0` while the journal still held 5 pending —
+///   nothing in the report named them, and a cron job reading exit 0
+///   believed the queue drained. Same class v0.7.7 closed for `dlq list`;
+///   the listing got the fix, the command an operator automates did not.
+///   The report now carries `pending_before`, `remaining_pending` and
+///   `truncated` per target (and `remaining_pending` on top), and a pass
+///   that never reached letters still pending exits 3 naming the count.
 fn run_webhook_dlq_replay(args: &[String]) {
     let db = PathBuf::from(arg(args, "--db").unwrap_or_else(|| "reeflog.db".into()));
     let j = Journal::open(&db).unwrap_or_else(|e| die(e));
@@ -2218,6 +2228,13 @@ fn run_webhook_dlq_replay(args: &[String]) {
 
     let mut replayed = 0i64;
     let mut failed = 0i64;
+    // The queue this pass is RESPONSIBLE for: read before it starts, so the
+    // report can say what existed, and re-read after, so it can say what
+    // still does. Both are journal facts; the page the limit shaped is
+    // never reported as the queue it stood in for.
+    let mut pending_before = 0i64;
+    let mut remaining = 0i64;
+    let mut never_attempted = 0i64;
     let mut out = Vec::new();
     for t in &targets {
         if let Some(only) = &only {
@@ -2225,9 +2242,15 @@ fn run_webhook_dlq_replay(args: &[String]) {
                 continue;
             }
         }
+        let before = j
+            .webhook_dead_letter_count(&t.id)
+            .unwrap_or_else(|e| die(e));
         let rows = j
             .webhook_dead_letters(&t.id, limit)
             .unwrap_or_else(|e| die(e));
+        let attempted = rows.len() as i64;
+        pending_before += before;
+        never_attempted += (before - attempted).max(0);
         let mut poster = webhook::HttpPoster {
             timeout_ms: t.timeout_ms,
         };
@@ -2281,10 +2304,21 @@ fn run_webhook_dlq_replay(args: &[String]) {
         }
         replayed += target_replayed;
         failed += target_failed;
+        // What the journal still holds for this target AFTER the pass:
+        // failures stay pending, and letters the page never reached stay
+        // pending. One number, read from the queue, not computed from the
+        // report.
+        let after = j
+            .webhook_dead_letter_count(&t.id)
+            .unwrap_or_else(|e| die(e));
+        remaining += after;
         out.push(json!({
             "target": t.id,
+            "pending_before": before,
             "replayed": target_replayed,
             "failed": target_failed,
+            "remaining_pending": after,
+            "truncated": before > attempted,
         }));
     }
 
@@ -2308,6 +2342,9 @@ fn run_webhook_dlq_replay(args: &[String]) {
             "targets": out,
             "replayed": replayed,
             "failed": failed,
+            "pending_before": pending_before,
+            "remaining_pending": remaining,
+            "truncated": never_attempted > 0,
             "unreachable_orphans": orphaned,
         }))
         .unwrap()
@@ -2321,6 +2358,16 @@ fn run_webhook_dlq_replay(args: &[String]) {
     if orphaned > 0 {
         eprintln!(
             "reeflog: {orphaned} dead letter(s) belong to target(s) no longer in this config — add them back to replay"
+        );
+        std::process::exit(3);
+    }
+    // The page ran out before the queue did. Exiting 0 here is the lie this
+    // fix exists to remove: the pass was clean, the mailbox was not drained.
+    // Naming the count and the repair keeps a cron loop honest — it must
+    // run again (or raise --limit) before reading success.
+    if never_attempted > 0 {
+        eprintln!(
+            "reeflog: {never_attempted} pending dead letter(s) were not reached by this pass — the queue still holds them; run `reeflog webhook dlq replay` again (or raise --limit) to drain it"
         );
         std::process::exit(3);
     }

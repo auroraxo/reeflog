@@ -1267,6 +1267,57 @@ pass --db <other-journal> to work on a different one
 `init`, `verify` and `repair` all exit 1 on a disagreement;
 `init` with the recorded program stays idempotent (exit 0).
 
+### The dlq replay report describes the queue, not the page
+
+Measured 2026-11-10 on the **published v0.7.11 binary** (archive sha256
+`f75898ff9121df1bd280399401893268e161ec95e1af38b0ccabbd656e588ac3` equal
+to the GitHub Releases digest), against a receiver that answers 200 to
+everything, on a journal holding 7 pending dead letters:
+
+```
+reeflog webhook dlq replay --db reeflog.db --config wh.json --limit 2
+```
+
+exited **0** with `{"replayed": 2, "failed": 0, "targets": [{"target": "alpha", "replayed": 2, "failed": 0}], "unreachable_orphans": 0}` —
+while the journal still held **5 pending letters**.
+
+Nothing in the report named them, no exit code carried them. The report
+described the page and the command called that the job — the exact class
+v0.7.7 closed for `dlq list` ("`pending` counted the rows the listing
+showed, not the letters pending"): the listing got the fix, the command an
+operator automates did not. A cron job trusting exit 0 ("the command cannot
+report clean success while events remain un-deliverable in the mailbox" —
+the rule this very function documents) believed the queue drained while 5
+owed events sat un-attempted.
+
+The rule now:
+
+* `dlq replay` reports `pending_before` (the queue at the start of the pass),
+  `remaining_pending` (what the journal still holds for the targets this pass
+  was responsible for), and `truncated: true` per target;
+* a pass that leaves letters it never reached pending exits **3** (the same
+  exit-3-means-incomplete contract `tail`/`verify`/`push` use), naming the
+  unreached count and the repair (`run again, or raise --limit`);
+* delivery itself is unchanged: exactly `limit` letters per target are
+  attempted, byte-identical, marked replayed;
+* a full drain, and an empty queue, still exit 0.
+
+Measured on both trees by `tools/measure-dlq-replay-page.mjs`
+(`research/dlq-replay-page-2026-11-10.json`): the published v0.7.11 asset
+violates **5 of 5** cases; this tree violates **0 of 5**, with the guards —
+a full drain still exits clean, an empty queue still reads healthy, delivery
+itself is unchanged, and `--target` still scopes the pass — unchanged on both
+trees.
+
+The ladder is `tests/dlq_replay_page_domain.rs` (8 tests) and
+`tools/mutation-ladder-dlq-replay-page.sh` (**5/5 mutations caught**): the
+truncated replay exits 0 again, the remaining queue is dropped from the
+report again, `pending_before` is dropped again, `truncated` is dropped
+again, and the refusal voice stops naming the unreached count.
+
+The measurement is pinned by `tests/dlq_replay_page_measurement.rs` (5 tests,
+falsified two ways: count tampered → red, host path injected → red).
+
 ### Limits
 
 No TLS client authentication and no per-target payload filtering yet; the
