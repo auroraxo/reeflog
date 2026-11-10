@@ -1,0 +1,200 @@
+{
+  "artifact": "error-voice-before-after",
+  "measuredAt": "2026-11-10T05:16:31.922Z",
+  "baseline": {
+    "binary": "published v0.7.9 asset",
+    "version": "0.7.9"
+  },
+  "fixed": {
+    "binary": "fixed tree build",
+    "version": "0.7.9"
+  },
+  "method": "the same hostile values against both binaries; the verdict is recorded too, because the defect is never the verdict — it is the VOICE the refusal speaks in: a refusal must be ONE line of reeflog's own, and no value it quotes may reach the stream as a raw control byte",
+  "cases": [
+    {
+      "case": "config-id-newline",
+      "hostileValue": "a config `id` carrying a newline",
+      "before": {
+        "exitCode": 1,
+        "refused": true,
+        "stdoutEmpty": true,
+        "reeflogLines": 2,
+        "forgedLines": 1,
+        "controlBytes": 1,
+        "stderrText": "reeflog: error: target #0 \"id\" contains a forbidden newline (\\n) at byte 2 — the consumer's header parser refuses the whole field value (failed to parse header value), so every delivery would fail with `http: failed to parse header value` (got `t1\nreeflog: error: forged`; e.g. \"primary\")\n"
+      },
+      "after": {
+        "exitCode": 1,
+        "refused": true,
+        "stdoutEmpty": true,
+        "reeflogLines": 1,
+        "forgedLines": 0,
+        "controlBytes": 0,
+        "stderrText": "reeflog: error: target #0 \"id\" contains a forbidden newline (\\n) at byte 2 — the consumer's header parser refuses the whole field value (failed to parse header value), so every delivery would fail with `http: failed to parse header value` (got `t1\\nreeflog: error: forged`; e.g. \"primary\")\n"
+      }
+    },
+    {
+      "case": "config-url-newline",
+      "hostileValue": "a config `url` carrying a newline",
+      "before": {
+        "exitCode": 1,
+        "refused": true,
+        "stdoutEmpty": true,
+        "reeflogLines": 2,
+        "forgedLines": 1,
+        "controlBytes": 1,
+        "stderrText": "reeflog: error: target #0 url is not a URL the consumer's URI parser can read (invalid uri character) — got `http://127.0.0.1:9/a\nreeflog: error: forged` (e.g. http://127.0.0.1:8080/hook)\n"
+      },
+      "after": {
+        "exitCode": 1,
+        "refused": true,
+        "stdoutEmpty": true,
+        "reeflogLines": 1,
+        "forgedLines": 0,
+        "controlBytes": 0,
+        "stderrText": "reeflog: error: target #0 url is not a URL the consumer's URI parser can read (invalid uri character) — got `http://127.0.0.1:9/a\\nreeflog: error: forged` (e.g. http://127.0.0.1:8080/hook)\n"
+      }
+    },
+    {
+      "case": "flag-rpc-newline",
+      "hostileValue": "a `--rpc` value carrying a newline",
+      "before": {
+        "exitCode": 1,
+        "refused": true,
+        "stdoutEmpty": true,
+        "reeflogLines": 2,
+        "forgedLines": 1,
+        "controlBytes": 1,
+        "stderrText": "reeflog: error: flag --rpc is not a URL the consumer's URI parser can read (invalid uri character) — got `http://h/a\nreeflog: error: forged` (e.g. --rpc https://api.mainnet-beta.solana.com)\n"
+      },
+      "after": {
+        "exitCode": 1,
+        "refused": true,
+        "stdoutEmpty": true,
+        "reeflogLines": 1,
+        "forgedLines": 0,
+        "controlBytes": 0,
+        "stderrText": "reeflog: error: flag --rpc is not a URL the consumer's URI parser can read (invalid uri character) — got `http://h/a\\nreeflog: error: forged` (e.g. --rpc https://api.mainnet-beta.solana.com)\n"
+      }
+    },
+    {
+      "case": "flag-numeric-newline",
+      "hostileValue": "a `--seconds` value carrying a newline",
+      "before": {
+        "exitCode": 1,
+        "refused": true,
+        "stdoutEmpty": true,
+        "reeflogLines": 2,
+        "forgedLines": 1,
+        "controlBytes": 1,
+        "stderrText": "reeflog: error: flag --seconds expects a non-negative whole number, got `5\nreeflog: error: forged` — not a number (e.g. --seconds 10)\n"
+      },
+      "after": {
+        "exitCode": 1,
+        "refused": true,
+        "stdoutEmpty": true,
+        "reeflogLines": 1,
+        "forgedLines": 0,
+        "controlBytes": 0,
+        "stderrText": "reeflog: error: flag --seconds expects a non-negative whole number, got `5\\nreeflog: error: forged` — not a number (e.g. --seconds 10)\n"
+      }
+    },
+    {
+      "case": "flag-target-newline",
+      "hostileValue": "a `--target` value carrying a newline",
+      "before": {
+        "exitCode": 1,
+        "refused": true,
+        "stdoutEmpty": true,
+        "reeflogLines": 2,
+        "forgedLines": 1,
+        "controlBytes": 1,
+        "stderrText": "reeflog: error: flag --target got `a\nreeflog: error: forged` — no such target: not in this config and no pending dead letters under that id (known targets: alpha)\n"
+      },
+      "after": {
+        "exitCode": 1,
+        "refused": true,
+        "stdoutEmpty": true,
+        "reeflogLines": 1,
+        "forgedLines": 0,
+        "controlBytes": 0,
+        "stderrText": "reeflog: error: flag --target got `a\\nreeflog: error: forged` — no such target: not in this config and no pending dead letters under that id (known targets: alpha)\n"
+      }
+    },
+    {
+      "case": "config-id-esc",
+      "hostileValue": "a config `id` carrying an ESC sequence",
+      "before": {
+        "exitCode": 1,
+        "refused": true,
+        "stdoutEmpty": true,
+        "reeflogLines": 1,
+        "forgedLines": 0,
+        "controlBytes": 1,
+        "stderrText": "reeflog: error: target #0 \"id\" contains a forbidden control character at byte 2 — the consumer's header parser refuses the whole field value (failed to parse header value), so every delivery would fail with `http: failed to parse header value` (got `t1\u001b[31mRED`; e.g. \"primary\")\n"
+      },
+      "after": {
+        "exitCode": 1,
+        "refused": true,
+        "stdoutEmpty": true,
+        "reeflogLines": 1,
+        "forgedLines": 0,
+        "controlBytes": 0,
+        "stderrText": "reeflog: error: target #0 \"id\" contains a forbidden control character at byte 2 — the consumer's header parser refuses the whole field value (failed to parse header value), so every delivery would fail with `http: failed to parse header value` (got `t1\\x1b[31mRED`; e.g. \"primary\")\n"
+      }
+    },
+    {
+      "case": "flag-target-esc",
+      "hostileValue": "a `--target` value carrying an ESC sequence",
+      "before": {
+        "exitCode": 1,
+        "refused": true,
+        "stdoutEmpty": true,
+        "reeflogLines": 1,
+        "forgedLines": 0,
+        "controlBytes": 1,
+        "stderrText": "reeflog: error: flag --target got `a\u001b[31mRED` — no such target: not in this config and no pending dead letters under that id (known targets: alpha)\n"
+      },
+      "after": {
+        "exitCode": 1,
+        "refused": true,
+        "stdoutEmpty": true,
+        "reeflogLines": 1,
+        "forgedLines": 0,
+        "controlBytes": 0,
+        "stderrText": "reeflog: error: flag --target got `a\\x1b[31mRED` — no such target: not in this config and no pending dead letters under that id (known targets: alpha)\n"
+      }
+    },
+    {
+      "case": "plain-refusal",
+      "hostileValue": "a PLAIN value (the guard: the message must not change)",
+      "before": {
+        "exitCode": 1,
+        "refused": true,
+        "stdoutEmpty": true,
+        "reeflogLines": 1,
+        "forgedLines": 0,
+        "controlBytes": 0,
+        "stderrText": "reeflog: error: flag --seconds expects a non-negative whole number, got `abc` — not a number (e.g. --seconds 10)\n"
+      },
+      "after": {
+        "exitCode": 1,
+        "refused": true,
+        "stdoutEmpty": true,
+        "reeflogLines": 1,
+        "forgedLines": 0,
+        "controlBytes": 0,
+        "stderrText": "reeflog: error: flag --seconds expects a non-negative whole number, got `abc` — not a number (e.g. --seconds 10)\n"
+      }
+    }
+  ],
+  "summary": {
+    "total": 8,
+    "baselineRefused": 8,
+    "baselineForgedLines": 5,
+    "baselineControlBytes": 7,
+    "fixedRefused": 8,
+    "fixedForgedLines": 0,
+    "fixedControlBytes": 0
+  }
+}

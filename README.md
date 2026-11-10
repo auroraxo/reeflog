@@ -1162,6 +1162,46 @@ instead of the operator's id, the internal-space rule widened into an
 over-refusal, the port-0 rule dropped, the non-ASCII rule dropped, the empty
 secret allowed.
 
+### The refusal voice must be one line of reeflog's own
+
+Measured 2026-11-10 against the **published v0.7.9 asset** with
+`tools/probe-error-voice.mjs` (`research/error-voice-*.json`). Every refusal
+in the seven hostile cases was *correct* — exit 1, nothing on stdout — and
+the voice was still forgeable, because a refusal names the offending value
+and named it **raw**:
+
+* a value carrying a newline split the refusal into **two** lines, the
+  second one starting with `reeflog: error: ` exactly like a real message.
+  The operator's own input — or a config file from anywhere — wrote a line
+  into the log stream that no log reader can distinguish from reeflog's:
+
+  ```
+  reeflog: error: flag --seconds expects a non-negative whole number, got `5
+  reeflog: error: forged` — not a number (e.g. --seconds 10)
+  ```
+
+* ESC, CR, NUL and DEL reached stderr **raw** — into the terminal (ESC
+  sequences redraw what the operator sees) and into every log file.
+
+5 of 7 cases forged a line, 14 control bytes crossed the stream. The fix is
+one choke point: `die()` escapes the message, so every refusal path gets it
+(`src/main.rs`). Control bytes become their escape (`\n`, `\r`, `\x1b`,
+`\x00`, `\x7f`); **HTAB stays literal** — it cannot end a line, so it
+cannot forge a message, and it is inside the id domain (an HTAB id
+delivers byte-identical, measured 2026-11-09).
+
+The verdict never changed: all 8 cases are still refused, and a plain
+refusal is byte-identical to before. Measured by
+`tools/measure-error-voice.mjs`
+(`research/error-voice-before-after-2026-11-10.json`, pinned by
+`tests/error_voice_measurement.rs`): the published v0.7.9 asset forges **5**
+lines and leaks **7** raw control bytes over 8 cases; this tree forges **0**
+and leaks **0**, refusing the same 8. The ladder is `tests/error_voice.rs`
+(7 tests) and `tools/mutation-ladder-error-voice.sh` (**5/5 mutations
+caught**): escaping dropped, escaping narrowed to newlines only, ESC left
+raw, HTAB escaped too (the over-refusal direction), the value no longer
+named.
+
 ### Limits
 
 No TLS client authentication and no per-target payload filtering yet; the

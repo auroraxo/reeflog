@@ -153,9 +153,38 @@ fn status(dir: &Path, cfg: &Path, db: &Path) -> Output {
     )
 }
 
+/// How a value must appear in a refusal message: every control byte is
+/// quoted in ESCAPE form (`\n`, `\r`, `\x00`, `\x1b`, `\x7f`), HTAB stays a
+/// tab, everything else stays literal.
+///
+/// This table is written out HERE, independently of the implementation, so
+/// the test pins the FORM and not "whatever the code happens to do". The
+/// rule itself is measured (2026-11-10) and pinned by `tests/error_voice.rs`:
+/// a refusal must be ONE line of reeflog's own, and a value it quotes may
+/// not carry a raw control byte.
+fn quoted(value: &str) -> String {
+    let mut out = String::new();
+    for ch in value.chars() {
+        match ch {
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            '\t' => out.push('\t'),
+            '\u{7f}' => out.push_str("\\x7f"),
+            c if (c as u32) < 0x20 => out.push_str(&format!("\\x{:02x}", c as u32)),
+            c => out.push(c),
+        }
+    }
+    out
+}
+
 /// A config the loader accepts must be REFUSED with: non-zero exit, the key
 /// named, the offending VALUE echoed, and no report on stdout (a refused
 /// config must not half-configure anything).
+///
+/// The value is echoed in QUOTE form: since 2026-11-10 a refusal quotes a
+/// control byte as its escape instead of emitting it raw, so the message
+/// stays one line and no control byte reaches the terminal (measured on the
+/// published v0.7.9 asset: the raw form forged a second `reeflog:` line).
 fn assert_refusal(out: &Output, key: &str, value: &str) {
     let err = String::from_utf8_lossy(&out.stderr);
     let low = err.to_lowercase();
@@ -169,10 +198,19 @@ fn assert_refusal(out: &Output, key: &str, value: &str) {
         "the refusal must name the `{key}` key, got: {err}"
     );
     if !value.is_empty() {
+        let quoted_value = quoted(value).to_lowercase();
         assert!(
-            low.contains(&value.to_lowercase()),
-            "the refusal must name the offending value `{value}`, got: {err}"
+            low.contains(&quoted_value),
+            "the refusal must name the offending value `{value}` (quoted as `{quoted_value}`), got: {err}"
         );
+        // …and the RAW form must NOT be there: a value that carries a
+        // control byte must never reach the stream as that byte.
+        if quoted_value != value.to_lowercase() {
+            assert!(
+                !err.contains(value),
+                "the refusal must not emit the value raw (`{value}`), got: {err}"
+            );
+        }
     }
     assert!(
         String::from_utf8_lossy(&out.stdout).trim().is_empty(),

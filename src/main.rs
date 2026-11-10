@@ -36,9 +36,52 @@ const DEFAULT_RPC: &str = "https://api.mainnet-beta.solana.com";
 const PAGE_SIZE: usize = 1000;
 const RECONNECT_BACKOFF_MS: u64 = 1500;
 
+/// Print a refusal and exit 1.
+///
+/// THE VOICE RULE (measured 2026-11-10 on the published v0.7.9 asset, see
+/// `tools/probe-error-voice.mjs`): a refusal is ONE line of reeflog's own,
+/// and no value it quotes may break that line or reach the terminal as a
+/// control byte. The old `die` echoed every message raw, and messages
+/// echo the offending value — so a value carrying a newline split the
+/// refusal into two lines whose second one started with `reeflog: error: `
+/// like a real message (5 of 7 hostile cases), and ESC/CR/NUL/DEL landed
+/// raw in the terminal and the log (14 bytes across those 7 cases).
+///
+/// So the message is escaped at this one choke point instead of at every
+/// format site: every refusal path funnels through `die`, and a value is
+/// echoed in MORE than one message (`--target` is quoted by main.rs, the
+/// config `id` by flags.rs, the cursor file by main.rs). Escaping here
+/// cannot be forgotten at the next refusal that names a value.
+///
+/// HTAB is deliberately kept literal: it cannot end a line, so it cannot
+/// forge a message, and it is inside the id domain (measured 2026-11-09:
+/// an HTAB id delivers byte-identical) — escaping it would rewrite
+/// messages that are correct today.
 fn die(msg: impl std::fmt::Display) -> ! {
-    eprintln!("reeflog: error: {msg}");
+    eprintln!("reeflog: error: {}", escape_for_message(&msg.to_string()));
     std::process::exit(1);
+}
+
+/// Render a value for a refusal message: every control byte becomes its
+/// escape (`\n`, `\r`, `\x00`, `\x1b`, `\x7f`, …), HTAB stays a tab,
+/// everything else stays exactly what the operator typed.
+///
+/// The escapes are lowercase hex so they read the same as they would in
+/// the source that produced the byte, and so a message containing `\x1b`
+/// is text, not a terminal instruction.
+fn escape_for_message(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    for ch in s.chars() {
+        match ch {
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            '\t' => out.push(ch), // HTAB: cannot end a line, stays literal
+            '\u{7f}' => out.push_str("\\x7f"),
+            c if (c as u32) < 0x20 => out.push_str(&format!("\\x{:02x}", c as u32)),
+            c => out.push(c),
+        }
+    }
+    out
 }
 
 fn arg(args: &[String], key: &str) -> Option<String> {
