@@ -1,0 +1,22 @@
+{
+  "measuredAt": "2026-11-11",
+  "source": "published v0.7.16 release tree (git archive v0.7.16) vs this tree",
+  "defect": "published v0.7.16: the npm manifest named 0.7.15 while the crate named 0.7.16; bootstrap() asked the release API for v0.7.15, so a stranger who installed the pinned tag got the previous binary — one release behind the one the README names",
+  "baseline": {
+    "manifest": "0.7.15",
+    "crate": "0.7.16",
+    "requestedTag": "v0.7.15",
+    "error": null,
+    "servesThePinnedRelease": false
+  },
+  "fixed": {
+    "manifest": "0.7.16",
+    "crate": "0.7.16",
+    "requestedTag": "v0.7.16",
+    "error": null,
+    "servesThePinnedRelease": true
+  },
+  "verdict": "defect-present-on-baseline",
+  "baselineServesPinnedRelease": false,
+  "fixedServesPinnedRelease": true
+}
