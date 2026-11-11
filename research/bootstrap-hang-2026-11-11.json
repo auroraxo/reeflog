@@ -1,0 +1,65 @@
+{
+  "measuredAt": "2026-11-11T17:39:17.959Z",
+  "defect": "bootstrap() had no timeout and no redirect bound: a stalling or looping endpoint left the install with no verdict",
+  "baseline": {
+    "tree": "published v0.7.17",
+    "faces": [
+      {
+        "label": "api-stall",
+        "kind": "no-verdict",
+        "message": "child killed at 8000 ms with no verdict",
+        "wallMs": 8029
+      },
+      {
+        "label": "body-stall",
+        "kind": "no-verdict",
+        "message": "child killed at 8000 ms with no verdict",
+        "wallMs": 8022
+      },
+      {
+        "label": "redirect-loop",
+        "kind": "no-verdict",
+        "message": "child killed at 8000 ms with no verdict",
+        "wallMs": 8010,
+        "redirectAttempts": 15216
+      }
+    ],
+    "hangs": 3,
+    "boundedRedirects": false,
+    "verdict": "no-verdict",
+    "tag": "v0.7.17"
+  },
+  "fixed": {
+    "tree": "working tree",
+    "faces": [
+      {
+        "label": "api-stall",
+        "kind": "rejected",
+        "message": "download of http://127.0.0.1:43231/repos/auroraxo/reeflog/releases/tags/v0.7.17 stalled: no response headers within 2000 ms — refusing to wait without a verdict (pass { timeoutMs } to bootstrap() to allow slower links)",
+        "ms": 2012,
+        "wallMs": 2148
+      },
+      {
+        "label": "body-stall",
+        "kind": "rejected",
+        "message": "download of http://127.0.0.1:41635/dl/reeflog-linux-amd64.tar.gz stalled: no bytes for 2000 ms after headers — refusing to wait without a verdict (pass { timeoutMs } to bootstrap() to allow slower links)",
+        "ms": 2016,
+        "wallMs": 2142
+      },
+      {
+        "label": "redirect-loop",
+        "kind": "rejected",
+        "message": "download of http://127.0.0.1:42587/self failed: redirect chain exceeded 5 hops — refusing to follow a redirect loop (this hop: http://127.0.0.1:42587/self)",
+        "ms": 28,
+        "wallMs": 147,
+        "redirectAttempts": 6
+      }
+    ],
+    "hangs": 0,
+    "boundedRedirects": true,
+    "verdict": "every-leg-answers"
+  },
+  "baselineShowsDefect": true,
+  "fixedClean": true,
+  "verdict": "contract-holds"
+}
