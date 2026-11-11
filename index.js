@@ -312,25 +312,95 @@ export const RELEASE_ASSETS = {
   'darwin-arm64': 'reeflog-macos-arm64.tar.gz',
 };
 
-function httpGet(url) {
+/** The bound on one HTTP leg of bootstrap: the SAME no-answer class the
+ *  daemon-side webhook refuses with `timeout_ms` (src/webhook.rs,
+ *  MAX_TIMEOUT_MS — "a webhook whose endpoint hangs must not hang the
+ *  delivery pass") was re-opened on the client. Measured 2026-11-11 against
+ *  the PUBLISHED v0.7.17 tree: an endpoint that accepts the connection and
+ *  never answers left `await bootstrap()` hanging with NO verdict (45 s
+ *  watchdog, research/bootstrap-hang-published-v0717-2026-11-11.json), and a
+ *  self-referential 302 was re-requested 14,937 times in 12 s with none.
+ *
+ *  The rule: every leg gets a verdict inside the budget. The timer is an
+ *  INACTIVITY bound, not a total one — it arms at headers and resets on every
+ *  received byte — so a slow link that makes progress keeps working (guard
+ *  G3), while silence cannot park a stranger's install forever. Redirects
+ *  follow at most MAX_REDIRECTS hops and a loop is REFUSED BY NAME, not
+ *  retried into the ground. */
+export const DEFAULT_GET_TIMEOUT_MS = 30_000;
+export const MAX_REDIRECTS = 5;
+
+function httpGet(url, { timeoutMs = DEFAULT_GET_TIMEOUT_MS, redirectsLeft = MAX_REDIRECTS } = {}) {
   const mod = url.startsWith('https:') ? https : http;
   return new Promise((resolve, reject) => {
+    let settled = false;
+    const fail = (message) => {
+      if (settled) return;
+      settled = true;
+      reject(new ReeflogError(message));
+    };
     const req = mod.get(url, { headers: { 'user-agent': 'reeflog-client' } }, (res) => {
+      // Headers arrived: the headers-phase timer has done its job. Hand the
+      // budget to the between-bytes timer below. (Without this, the socket
+      // idle timeout re-arms on the last byte and races the quiet timer at
+      // the same deadline, then reports a headers stall that never was.)
+      req.setTimeout(0);
       if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
         res.resume();
-        httpGet(res.headers.location).then(resolve, reject);
+        if (redirectsLeft <= 0) {
+          // The loop face, refused. A bounded hop count turning into this
+          // refusal is the whole difference between "mirror hiccup" and
+          // "14,937 re-requests with no verdict".
+          fail(`download of ${url} failed: redirect chain exceeded ${MAX_REDIRECTS} hops — refusing to follow a redirect loop (this hop: ${url})`);
+          return;
+        }
+        let next;
+        try {
+          next = new URL(res.headers.location, url).href;
+        } catch {
+          fail(`download of ${url} failed: HTTP ${res.statusCode} with unparseable redirect target ${JSON.stringify(res.headers.location)}`);
+          return;
+        }
+        httpGet(next, { timeoutMs, redirectsLeft: redirectsLeft - 1 }).then(
+          (b) => { if (!settled) resolve(b); },
+          (e) => fail(e.message),
+        );
         return;
       }
       if (res.statusCode !== 200) {
         res.resume();
-        reject(new ReeflogError(`download of ${url} failed: HTTP ${res.statusCode}`));
+        fail(`download of ${url} failed: HTTP ${res.statusCode}`);
         return;
       }
+      // Headers arrived: the budget now runs BETWEEN bytes. Any single gap
+      // of timeoutMs with no progress is the stall; any byte defers the
+      // verdict, which keeps real slow links on the working side.
+      let quiet = null;
+      const armQuiet = () => {
+        if (quiet) clearTimeout(quiet);
+        quiet = setTimeout(() => {
+          res.destroy();
+          fail(`download of ${url} stalled: no bytes for ${timeoutMs} ms after headers — refusing to wait without a verdict (pass { timeoutMs } to bootstrap() to allow slower links)`);
+        }, timeoutMs);
+        quiet.unref?.();
+      };
+      armQuiet();
       const chunks = [];
-      res.on('data', (d) => chunks.push(d));
-      res.on('end', () => resolve(Buffer.concat(chunks)));
+      res.on('data', (d) => { chunks.push(d); armQuiet(); });
+      res.on('end', () => {
+        if (quiet) clearTimeout(quiet);
+        if (!settled) { settled = true; resolve(Buffer.concat(chunks)); }
+      });
+      res.on('error', () => fail(`download of ${url} failed: connection reset mid-body`));
     });
-    req.on('error', (e) => reject(new ReeflogError(`download of ${url} failed: ${e.message}`)));
+    // No verdict at all inside the budget is the defect; destroy the socket.
+    // (An un-destroyed stalled request also pins the process open — the
+    // pre-fix ladder could not even exit its own runner.)
+    req.setTimeout(timeoutMs, () => {
+      req.destroy();
+      fail(`download of ${url} stalled: no response headers within ${timeoutMs} ms — refusing to wait without a verdict (pass { timeoutMs } to bootstrap() to allow slower links)`);
+    });
+    req.on('error', (e) => fail(`download of ${url} failed: ${e.message}`));
   });
 }
 
@@ -370,6 +440,7 @@ export async function bootstrap({
   dest = path.join(os.homedir(), '.reeflog'),
   apiBase = 'https://api.github.com',
   downloadBase = null,
+  timeoutMs = DEFAULT_GET_TIMEOUT_MS,
 } = {}) {
   const asset = RELEASE_ASSETS[`${platform}-${arch}`];
   if (!asset) {
@@ -409,7 +480,7 @@ export async function bootstrap({
   }
 
   const releaseUrl = `${apiBase}/repos/auroraxo/reeflog/releases/tags/${version}`;
-  const release = JSON.parse((await httpGet(releaseUrl)).toString('utf8'));
+  const release = JSON.parse((await httpGet(releaseUrl, { timeoutMs })).toString('utf8'));
   const entry = (release.assets || []).find((a) => a.name === asset);
   if (!entry) {
     throw new ReeflogError(`release ${version} has no asset named ${asset} — nothing to install`);
@@ -422,7 +493,7 @@ export async function bootstrap({
   }
 
   const url = downloadBase ? `${downloadBase}/${asset}` : entry.browser_download_url;
-  const gz = await httpGet(url);
+  const gz = await httpGet(url, { timeoutMs });
   const actual = createHash('sha256').update(gz).digest('hex');
   if (actual !== expected) {
     throw new ReeflogError(

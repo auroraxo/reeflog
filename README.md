@@ -1698,6 +1698,16 @@ const box = reeflog({ db: 'reeflog.db', bin });
 - **The default tag comes from the package version**, never a hard-coded
   string, so the client can never fetch an older release than the package
   it ships in.
+- **A stalled or looping download gets a verdict, not silence.** Every
+  request `bootstrap()` makes carries a 30 s inactivity budget (tune with
+  `{ timeoutMs }`): no response headers in time, or no bytes between two
+  chunks for that long, destroys the socket and rejects with a named refusal
+  — an install must never hang without an answer. Redirects are followed at
+  most 5 hops; a loop is refused by name. Before v0.7.17 a server that
+  accepted the connection and never answered left `await bootstrap()`
+  hanging forever, and a self-referential 302 re-requested itself 11,727
+  times in 8 s (measured on the published v0.7.17 client:
+  `research/bootstrap-hang-2026-11-11.json`).
 - **Trust is the same anchor as `cargo install --git`**: this repository
   over TLS. It protects against a corrupted or substituted download, not
   against whoever can push tags and releases here. If you want to be
