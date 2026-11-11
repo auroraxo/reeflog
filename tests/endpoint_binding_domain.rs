@@ -114,7 +114,11 @@ fn write_config(dir: &Path, name: &str, targets: &[(&str, &str)]) -> PathBuf {
     let list: Vec<serde_json::Value> = targets
         .iter()
         .map(|(id, url)| {
-            serde_json::json!({ "id": id, "url": url, "secret": "s" })
+            // One secret per target identity: since v0.7.16 one shared
+            // secret on two different endpoints is refused (the signature
+            // cannot tell the two consumers apart) — the endpoint-binding
+            // intent of these fixtures is unchanged.
+            serde_json::json!({ "id": id, "url": url, "secret": format!("s-{id}") })
         })
         .collect();
     let path = dir.join(name);

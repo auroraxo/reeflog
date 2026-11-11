@@ -299,6 +299,17 @@ pub fn load_targets(path: &Path) -> Result<Vec<Target>, String> {
         if out.iter().any(|t| t.id == id) {
             return Err(format!("duplicate target id {id:?}"));
         }
+        // ONE SECRET IS ONE CONSUMER: two rows that share a secret while
+        // pointing at different endpoints are one identity space, not two —
+        // measured 2026-11-11 on the published v0.7.15 asset (4/4 faces;
+        // see `check_secret_uniqueness`). Checked against every row already
+        // accepted, so the offending PAIR is named wherever it sits in the
+        // list. Same url + same secret = one consumer listed twice: legal.
+        for prev in &out {
+            if prev.secret == secret {
+                reeflog::flags::check_secret_uniqueness(&prev.id, &prev.url, id, url)?;
+            }
+        }
         out.push(Target {
             id: id.to_string(),
             url: url.to_string(),

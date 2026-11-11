@@ -446,6 +446,41 @@ pub fn check_secret_domain(label: &str, value: &str) -> Result<(), String> {
     Ok(())
 }
 
+/// ONE SECRET IS ONE CONSUMER — MEASURED 2026-11-11 against the published
+/// v0.7.15 asset (`tools/measure-secret-domain.mjs`, verdict
+/// `SIGNATURE-TARGET-AGNOSTIC`; the distinct-secret guard
+/// `tools/measure-secret-domain-guard.mjs` is 4/4 green). The body a
+/// delivery signs carries no target id, no url and no delivery id — the
+/// headers that do are NOT signed. So with two targets sharing a secret and
+/// pointing at DIFFERENT urls, the pair one receiver accepted verifies at
+/// the other: A's exact bytes replayed at B under a forged `tb:` event-id
+/// header answer 200 from B's own HMAC rule, and the same holds backwards.
+/// One secret therefore authenticates one identity space, not one consumer:
+/// the shared-secret config silently disarms both receivers' verification.
+/// The config loader refuses the pair before a byte moves — naming both
+/// target ids and both endpoints, never the secret itself (a refusal line
+/// that echoes the key leaks it into logs, terminals and CI output).
+/// The same secret on the SAME url stays legal: one consumer listed twice
+/// is nothing a signature can betray.
+pub fn check_secret_uniqueness(
+    id_a: &str,
+    url_a: &str,
+    id_b: &str,
+    url_b: &str,
+) -> Result<(), String> {
+    if url_a == url_b {
+        return Ok(());
+    }
+    Err(format!(
+        "targets {id_a:?} and {id_b:?} share one secret but point at different endpoints \
+         ({url_a} and {url_b}) — the HMAC signs the body, not the consumer, so what one \
+         receiver verifies the other verifies too: a shared secret silently disarms both \
+         (measured v0.7.15: A's accepted bytes replayed at B under a forged event-id \
+         header pass B's own rule). fix: give each endpoint its own secret, or use the \
+         same url on both rows"
+    ))
+}
+
 /// Flags whose value may be omitted; the bare form is a documented meaning
 /// of its own (`--anchor-slot` = anchor at the journal's own window).
 const OPTIONAL_VALUE: &[&str] = &["--anchor-slot"];
