@@ -5,7 +5,7 @@ they did to account balances for selected programs into a cursor-addressed
 append-only log, so a consumer resumes without gaps after a crash,
 disconnect, or reorg.
 
-**Status: v0.7.18 shipped (2026-11-11), v0 working.** Live against mainnet-beta: see *Measured results* below. Install the binary without a Rust toolchain: `npm install github:auroraxo/reeflog#v0.7.18` then `import { bootstrap } from 'reeflog-client'; await bootstrap()` (downloads the prebuilt release archive and verifies its sha256). Or from source: `cargo install --git https://github.com/auroraxo/reeflog --tag v0.7.18`. The full event envelope (logs, balances, instructions, account list with owners, the bytes each account held, and the authority each token account had at the moment of the event), the Node client (see *The Node client*), webhook fan-out, a dead-letter queue, and archive backfill ship in this tree; Yellowstone as a second transport does not.
+**Status: v0.7.19 shipped (2026-11-11), v0 working.** Live against mainnet-beta: see *Measured results* below. Install the binary without a Rust toolchain: `npm install github:auroraxo/reeflog#v0.7.19` then `import { bootstrap } from 'reeflog-client'; await bootstrap()` (downloads the prebuilt release archive and verifies its sha256). Or from source: `cargo install --git https://github.com/auroraxo/reeflog --tag v0.7.19`. The full event envelope (logs, balances, instructions, account list with owners, the bytes each account held, and the authority each token account had at the moment of the event), the Node client (see *The Node client*), webhook fan-out, a dead-letter queue, and archive backfill ship in this tree; Yellowstone as a second transport does not.
 
 ## The idea
 
@@ -1659,7 +1659,7 @@ the `reeflog` binary, so there is exactly one implementation of the reader
 contract, and a library's idea of the schema cannot drift from the daemon's.
 
 ```bash
-npm install github:auroraxo/reeflog#v0.7.18   # the client ships from this repo
+npm install github:auroraxo/reeflog#v0.7.19   # the client ships from this repo
 ```
 
 The client needs the `reeflog` binary. `bootstrap()` gets it **without a
@@ -1708,6 +1708,18 @@ const box = reeflog({ db: 'reeflog.db', bin });
   hanging forever, and a self-referential 302 re-requested itself 11,727
   times in 8 s (measured on the published v0.7.17 client:
   `research/bootstrap-hang-2026-11-11.json`).
+- **An answer that is not a release gets a verdict in the product's voice.**
+  The release API can answer `200` with something that is not a release
+  object: a captive portal's login page (HTML), a corporate proxy, a
+  rate limiter's JSON. Before v0.7.19 the HTML case threw a raw
+  `SyntaxError` out of `bootstrap()` — a crash no `ReeflogError` catch ever
+  saw — and the rate-limit case was refused as `release v0.7.18 has no
+  asset named …`, which sends the stranger to a release page that is fine.
+  Now both refuse with the endpoint's OWN words: the URL that answered, the
+  fact that it answered HTML, and the API's message when it sent one. A
+  release object that genuinely lacks this platform's asset keeps its
+  honest `has no asset named` refusal (measured on the published v0.7.18
+  client: `research/captive-portal-2026-11-11.json`).
 - **Trust is the same anchor as `cargo install --git`**: this repository
   over TLS. It protects against a corrupted or substituted download, not
   against whoever can push tags and releases here. If you want to be
