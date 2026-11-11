@@ -53,11 +53,17 @@ CREATE TABLE IF NOT EXISTS meta (
     value TEXT NOT NULL
 );
 -- Webhook delivery state. One row per target: the event cursor and the
--- retraction cursor. The two cursors are separate because the two channels
--- are separate: a retraction must still reach a consumer whose event queue
--- is blocked.
+-- retraction cursor. The endpoint (the url this state was written for) is
+-- carried IN the row: a cursor is a promise to ONE consumer — measured
+-- 2026-11-11 (published v0.7.14), a target id repointed to a new url
+-- inherited the old endpoint's cursors and silently starved the new consumer
+-- behind exit 0. The same class v0.7.13 closed for cursor FILES (journal_id
+-- in provenance). The two cursors are separate because the two channels are
+-- separate: a retraction must still reach a consumer whose event queue is
+-- blocked.
 CREATE TABLE IF NOT EXISTS webhook_state (
     target       TEXT PRIMARY KEY,
+    endpoint     TEXT NOT NULL DEFAULT '',
     next_seq     INTEGER NOT NULL DEFAULT 0,
     next_reorg_id INTEGER NOT NULL DEFAULT 0,
     last_error   TEXT,
@@ -66,8 +72,13 @@ CREATE TABLE IF NOT EXISTS webhook_state (
 -- Delivery receipts. Written only after the endpoint answered 2xx. They make
 -- a crash between "POST succeeded" and "cursor advanced" harmless: the next
 -- pass sees the receipt and skips the re-send instead of delivering twice.
+-- The receipt names the endpoint it was written for: a receipt written for
+-- one url must never silence a delivery to another. Measured 2026-11-11:
+-- receipts keyed by target id alone made a repointed target starve silently
+-- behind exit 0.
 CREATE TABLE IF NOT EXISTS webhook_receipts (
     target     TEXT NOT NULL,
+    endpoint   TEXT NOT NULL DEFAULT '',
     kind       TEXT NOT NULL,
     seq        INTEGER NOT NULL,
     body_sha256 TEXT NOT NULL,
@@ -126,6 +137,31 @@ const MIGRATIONS: &[(&str, &str)] = &[
     ("payload_state", "ALTER TABLE events ADD COLUMN payload_state TEXT"),
     ("accounts", "ALTER TABLE events ADD COLUMN accounts TEXT"),
     ("account_state", "ALTER TABLE events ADD COLUMN account_state TEXT"),
+];
+
+/// v0.7.15: the webhook STATE and RECEIPT tables gain the delivery endpoint
+/// as an ordinary column (`ALTER TABLE`; the primary keys are unchanged —
+/// one row per id still holds, because a SECOND distinct endpoint for the
+/// same id is refused at the config layer in src/webhook.rs).
+///
+/// A row whose endpoint is empty was written before this rule: it carries
+/// delivery history for ONE endpoint — the url the operator had configured
+/// — and the mailbox cannot invent which one. Such a row is ADOPTED by the
+/// config url it meets first (`adopt_endpoint`), which is a pure
+/// continuation of the old single-endpoint world: same url, same cursors,
+/// no re-delivery. From then on a different url against the same id is a
+/// named refusal — that is the measured defect (published v0.7.14: a
+/// repointed target inherited the old endpoint's cursors and the new
+/// consumer starved behind `delivered: 0, blocked: false, exit 0`).
+const WEBHOOK_MIGRATIONS: &[(&str, &str)] = &[
+    (
+        "webhook_state",
+        "ALTER TABLE webhook_state ADD COLUMN endpoint TEXT NOT NULL DEFAULT ''",
+    ),
+    (
+        "webhook_receipts",
+        "ALTER TABLE webhook_receipts ADD COLUMN endpoint TEXT NOT NULL DEFAULT ''",
+    ),
 ];
 
 pub struct Journal {
@@ -198,6 +234,17 @@ impl Journal {
             let present: bool = db
                 .prepare("SELECT COUNT(*) FROM pragma_table_info('events') WHERE name=?1")
                 .and_then(|mut s| s.query_row(params![column], |r| r.get::<_, i64>(0)))
+                .unwrap_or(0)
+                > 0;
+            if !present {
+                db.execute_batch(ddl).map_err(|e| e.to_string())?;
+            }
+        }
+        for (table, ddl) in WEBHOOK_MIGRATIONS {
+            let sql = format!("SELECT COUNT(*) FROM pragma_table_info('{table}') WHERE name='endpoint'");
+            let present: bool = db
+                .prepare(&sql)
+                .and_then(|mut s| s.query_row([], |r| r.get::<_, i64>(0)))
                 .unwrap_or(0)
                 > 0;
             if !present {
@@ -1027,22 +1074,69 @@ impl Journal {
             .map_err(|e| e.to_string())
     }
 
-    /// Advance (or set) a target's delivery cursors.
+    /// The full state row of a target: (recorded endpoint, event seq,
+    /// retraction id). An endpoint of `""` means the row predates endpoint
+    /// binding (a journal written before v0.7.15) and is adopted by the
+    /// first url that meets it — see `WEBHOOK_MIGRATIONS`.
+    pub fn webhook_state_with_endpoint(
+        &self,
+        target: &str,
+    ) -> Result<Option<(String, i64, i64)>, String> {
+        let row = self
+            .db
+            .query_row(
+                "SELECT endpoint, next_seq, next_reorg_id FROM webhook_state WHERE target=?1",
+                params![target],
+                |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?, r.get::<_, i64>(2)?)),
+            )
+            .optional()
+            .map_err(|e| e.to_string())?;
+        Ok(row)
+    }
+
+    /// Stamp a legacy (endpoint-less) state row, and every legacy receipt of
+    /// the same target, with the url it now belongs to. This is the ONE
+    /// transition from the old single-endpoint world into the new keyed one:
+    /// same url, same cursors, no re-delivery. Returns `true` when a row was
+    /// adopted. A row that already names an endpoint is never re-stamped.
+    pub fn webhook_adopt_endpoint(&self, target: &str, endpoint: &str) -> Result<bool, String> {
+        let updated = self
+            .db
+            .execute(
+                "UPDATE webhook_state SET endpoint=?2, updated_at=?3
+                 WHERE target=?1 AND endpoint=''",
+                params![target, endpoint, now_ms()],
+            )
+            .map_err(|e| e.to_string())?;
+        if updated > 0 {
+            self.db
+                .execute(
+                    "UPDATE webhook_receipts SET endpoint=?2 WHERE target=?1 AND endpoint=''",
+                    params![target, endpoint],
+                )
+                .map_err(|e| e.to_string())?;
+        }
+        Ok(updated > 0)
+    }
+
+    /// Advance (or set) a target's delivery cursors for its endpoint.
     pub fn webhook_set_state(
         &self,
         target: &str,
+        endpoint: &str,
         next_seq: i64,
         next_reorg_id: i64,
     ) -> Result<(), String> {
         self.db
             .execute(
-                "INSERT INTO webhook_state(target,next_seq,next_reorg_id,updated_at)
-                 VALUES(?1,?2,?3,?4)
+                "INSERT INTO webhook_state(target,endpoint,next_seq,next_reorg_id,updated_at)
+                 VALUES(?1,?2,?3,?4,?5)
                  ON CONFLICT(target) DO UPDATE SET
+                   endpoint=excluded.endpoint,
                    next_seq=excluded.next_seq,
                    next_reorg_id=excluded.next_reorg_id,
                    updated_at=excluded.updated_at",
-                params![target, next_seq, next_reorg_id, now_ms()],
+                params![target, endpoint, next_seq, next_reorg_id, now_ms()],
             )
             .map_err(|e| e.to_string())?;
         Ok(())
@@ -1050,26 +1144,39 @@ impl Journal {
 
     /// Record why a target is stuck. The message is a fact about the last
     /// attempt, not a verdict about the target.
-    pub fn webhook_set_error(&self, target: &str, error: Option<&str>) -> Result<(), String> {
+    pub fn webhook_set_error(
+        &self,
+        target: &str,
+        endpoint: &str,
+        error: Option<&str>,
+    ) -> Result<(), String> {
         self.db
             .execute(
-                "INSERT INTO webhook_state(target,next_seq,next_reorg_id,last_error,updated_at)
-                 VALUES(?1,0,0,?2,?3)
-                 ON CONFLICT(target) DO UPDATE SET last_error=excluded.last_error, updated_at=excluded.updated_at",
-                params![target, error, now_ms()],
+                "INSERT INTO webhook_state(target,endpoint,next_seq,next_reorg_id,last_error,updated_at)
+                 VALUES(?1,?2,0,0,?3,?4)
+                 ON CONFLICT(target) DO UPDATE SET endpoint=excluded.endpoint, last_error=excluded.last_error, updated_at=excluded.updated_at",
+                params![target, endpoint, error, now_ms()],
             )
             .map_err(|e| e.to_string())?;
         Ok(())
     }
 
     /// Has this event (or retraction) already been handed over to this
-    /// target? A `true` here means: do not send it again.
-    pub fn webhook_delivered(&self, target: &str, kind: &str, seq: i64) -> Result<bool, String> {
+    /// target AT THIS ENDPOINT? A `true` here means: do not send it again.
+    /// A receipt written for one url can never silence a delivery to
+    /// another — that inherited silence is the measured starvation.
+    pub fn webhook_delivered(
+        &self,
+        target: &str,
+        endpoint: &str,
+        kind: &str,
+        seq: i64,
+    ) -> Result<bool, String> {
         let n: i64 = self
             .db
             .query_row(
-                "SELECT COUNT(*) FROM webhook_receipts WHERE target=?1 AND kind=?2 AND seq=?3",
-                params![target, kind, seq],
+                "SELECT COUNT(*) FROM webhook_receipts WHERE target=?1 AND endpoint=?2 AND kind=?3 AND seq=?4",
+                params![target, endpoint, kind, seq],
                 |r| r.get(0),
             )
             .map_err(|e| e.to_string())?;
@@ -1077,10 +1184,11 @@ impl Journal {
     }
 
     /// Write a delivery receipt. The body hash is stored so a later audit can
-    /// prove which exact bytes were delivered.
+    /// prove which exact bytes were delivered, for which endpoint.
     pub fn webhook_record_delivered(
         &self,
         target: &str,
+        endpoint: &str,
         kind: &str,
         seq: i64,
         body: &str,
@@ -1093,9 +1201,9 @@ impl Journal {
         };
         self.db
             .execute(
-                "INSERT OR IGNORE INTO webhook_receipts(target,kind,seq,body_sha256,delivered_at)
-                 VALUES(?1,?2,?3,?4,?5)",
-                params![target, kind, seq, digest, now_ms()],
+                "INSERT OR IGNORE INTO webhook_receipts(target,endpoint,kind,seq,body_sha256,delivered_at)
+                 VALUES(?1,?2,?3,?4,?5,?6)",
+                params![target, endpoint, kind, seq, digest, now_ms()],
             )
             .map_err(|e| e.to_string())?;
         Ok(())

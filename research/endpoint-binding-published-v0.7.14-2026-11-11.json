@@ -1,0 +1,46 @@
+{
+  "artifact": "endpoint-binding",
+  "source": "published v0.7.14 release asset (linux-amd64; archive sha256 9b6c30348f854af2acbd78ccbb474ae0837db1f34bd806626a7e2796bfe2611e)",
+  "method": "two live 200-OK receivers and the binary own report: t1 -> A (3 events), then the SAME id t1 repointed to B; verdict STARVED means A holds all three, B holds none, and the repointed push still exited 0",
+  "measuredAt": "2026-11-11T07:35:13.305Z",
+  "binaryVersion": "reeflog 0.7.14",
+  "binarySha256": "7303d13242d2f9a26068d5749d880dc768739c07516ccd3ea8c0385f0daeb156",
+  "push1": {
+    "exit": 0,
+    "stderr": ""
+  },
+  "push2": {
+    "exit": 0,
+    "stderr": "",
+    "stdout": "{\n  \"blocked_targets\": 0,\n  \"dead_letters_pending\": 0,\n  \"orphaned_dead_letters\": 0,\n  \"targets\": [\n    {\n      \"blocked\": false,\n      \"blocked_reorg_id\": null,\n      \"blocked_seq\": null,\n      \"dead_lettered\": 0,\n      \"dead_letters_pending\": 0,\n      \"delivered\": 0,\n      \"error\": null,\n      \"failed\": 0,\n      \"next_reorg_id\": 0,\n      \"next_seq\": 3,\n      \"reorg_delivered\": 0,\n      \"target\": \"t1\"\n    }\n  ]\n}\n"
+  },
+  "status2": {
+    "exit": 0,
+    "stdout": "{\n  \"targets\": [\n    {\n      \"dead_letters\": 0,\n      \"delivered\": 3,\n      \"failed_attempts\": 0,\n      \"last_error\": null,\n      \"next_reorg_id\": 0,\n      \"next_seq\": 3,\n      \"pending_events\": 0,\n      \"target\": \"t1\",\n      \"transport_failures\": 0,\n      \"url\": \"http://127.0.0.1:34495/hook\"\n    }\n  ]\n}\n",
+    "stderr": ""
+  },
+  "receiverA": [
+    {
+      "eventId": "t1:event:1",
+      "seq": "1",
+      "sig": "sha256=a7337da2b7a2ec824b5386862a047e653689014bb62d99ec9d92c0d7848c6b04",
+      "len": 234
+    },
+    {
+      "eventId": "t1:event:2",
+      "seq": "2",
+      "sig": "sha256=02e2c713574746321e573a7103612c6e0f00837fe376a8e3d3e236443fbd7a2f",
+      "len": 234
+    },
+    {
+      "eventId": "t1:event:3",
+      "seq": "3",
+      "sig": "sha256=31e9f20c5300c77dda5d9fdab0dbde6b3cc290dd780f94696e008a27e7a58168",
+      "len": 234
+    }
+  ],
+  "receiverB": [],
+  "receiverACount": 3,
+  "receiverBCount": 0,
+  "verdict": "STARVED"
+}

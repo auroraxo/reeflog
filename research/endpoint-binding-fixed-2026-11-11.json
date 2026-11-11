@@ -1,0 +1,46 @@
+{
+  "artifact": "endpoint-binding",
+  "source": "tree build (endpoint binding enforced)",
+  "method": "two live 200-OK receivers and the binary own report: t1 -> A (3 events), then the SAME id t1 repointed to B; verdict STARVED means A holds all three, B holds none, and the repointed push still exited 0",
+  "measuredAt": "2026-11-11T07:35:14.414Z",
+  "binaryVersion": "reeflog 0.7.14",
+  "binarySha256": "239440aac6e6fafe70377aedcd09f33d15de0ab995b69910197ff32be47c00ec",
+  "push1": {
+    "exit": 0,
+    "stderr": ""
+  },
+  "push2": {
+    "exit": 1,
+    "stderr": "reeflog: error: webhook t1: target `t1` is bound to endpoint `http://127.0.0.1:38051/hook` in the journal, but this config points it at `http://127.0.0.1:42433/hook` — delivery state and receipts are bound to the endpoint; give the new endpoint its own target id (measured v0.7.14: a repointed id starved the new consumer silently behind exit 0)",
+    "stdout": ""
+  },
+  "status2": {
+    "exit": 1,
+    "stdout": "",
+    "stderr": "reeflog: error: target `t1` is bound to endpoint `http://127.0.0.1:38051/hook` in the journal, but this config points it at `http://127.0.0.1:42433/hook` — delivery state and receipts are bound to the endpoint; give the new endpoint its own target id (measured v0.7.14: a repointed id starved the new consumer silently behind exit 0)"
+  },
+  "receiverA": [
+    {
+      "eventId": "t1:event:1",
+      "seq": "1",
+      "sig": "sha256=a7337da2b7a2ec824b5386862a047e653689014bb62d99ec9d92c0d7848c6b04",
+      "len": 234
+    },
+    {
+      "eventId": "t1:event:2",
+      "seq": "2",
+      "sig": "sha256=02e2c713574746321e573a7103612c6e0f00837fe376a8e3d3e236443fbd7a2f",
+      "len": 234
+    },
+    {
+      "eventId": "t1:event:3",
+      "seq": "3",
+      "sig": "sha256=31e9f20c5300c77dda5d9fdab0dbde6b3cc290dd780f94696e008a27e7a58168",
+      "len": 234
+    }
+  ],
+  "receiverB": [],
+  "receiverACount": 3,
+  "receiverBCount": 0,
+  "verdict": "STARVED"
+}

@@ -5,7 +5,7 @@ they did to account balances for selected programs into a cursor-addressed
 append-only log, so a consumer resumes without gaps after a crash,
 disconnect, or reorg.
 
-**Status: v0.7.14 shipped (2026-11-10), v0 working.** Live against mainnet-beta: see *Measured results* below. Install the binary without a Rust toolchain: `npm install github:auroraxo/reeflog#v0.7.14` then `import { bootstrap } from 'reeflog-client'; await bootstrap()` (downloads the prebuilt release archive and verifies its sha256). Or from source: `cargo install --git https://github.com/auroraxo/reeflog --tag v0.7.14`. The full event envelope (logs, balances, instructions, account list with owners, the bytes each account held, and the authority each token account had at the moment of the event), the Node client (see *The Node client*), webhook fan-out, a dead-letter queue, and archive backfill ship in this tree; Yellowstone as a second transport does not.
+**Status: v0.7.15 shipped (2026-11-11), v0 working.** Live against mainnet-beta: see *Measured results* below. Install the binary without a Rust toolchain: `npm install github:auroraxo/reeflog#v0.7.15` then `import { bootstrap } from 'reeflog-client'; await bootstrap()` (downloads the prebuilt release archive and verifies its sha256). Or from source: `cargo install --git https://github.com/auroraxo/reeflog --tag v0.7.15`. The full event envelope (logs, balances, instructions, account list with owners, the bytes each account held, and the authority each token account had at the moment of the event), the Node client (see *The Node client*), webhook fan-out, a dead-letter queue, and archive backfill ship in this tree; Yellowstone as a second transport does not.
 
 ## The idea
 
@@ -1492,6 +1492,39 @@ injected machine path and a fixed seat repointed at the build instead of the
 release each turn it red; the restored artifact is byte-identical and green
 again).
 
+## A webhook target belongs to its endpoint
+
+A delivery cursor is a promise to ONE consumer. Until v0.7.15 the journal
+keyed that promise by the target id alone — measured 2026-11-11 against the
+PUBLISHED v0.7.14 asset (`tools/measure-endpoint-binding.mjs`,
+`research/endpoint-binding-published-v0.7.14-2026-11-11.json`): target `t1`
+delivered 3 events to receiver A; the SAME id repointed to receiver B
+(200-OK receiver, same secret) delivered **0**, `webhook push` exited **0**
+reporting `delivered: 0, blocked: false, next_seq: 3`, and `webhook status`
+printed `delivered: 3` next to B's url while `pending_events: 0`. A consumer
+that moves — a new port after a restart, a second environment behind the
+same id — starves behind a green report, and the old consumer's receipts
+silence every event the new one is owed. This is the same class v0.7.13
+closed for cursor *files*: a position that does not say where it applies
+reads as "already delivered" somewhere it never was.
+
+The rule now: the state row and every delivery receipt carry the endpoint
+they were written for, and a config whose url differs from the recorded one
+is **refused before a single byte moves** — exit 1, naming the target id,
+BOTH endpoints and the repair (give the new endpoint its own target id), on
+`webhook push`, `webhook status` and `webhook dlq replay` alike. The journal
+is untouched: the old endpoint's cursors survive the refused pass exactly.
+A state row written before this rule (no endpoint recorded) is **adopted**
+by the url it meets first — same url, same cursors, no re-delivery — so an
+upgrading journal keeps working without ceremony.
+
+Measured after the fix (`research/endpoint-binding-fixed-2026-11-11.json`,
+pinned by `tests/endpoint_binding_measurement.rs`, defect faces also pinned
+as CLI tests in `tests/endpoint_binding_domain.rs`): the published v0.7.14
+asset starves a repointed consumer (A: 3, B: 0, exit 0); this tree refuses
+the same pass with exit 1 naming both endpoints and leaves B at 0 — the
+refusal sends nothing, and nothing inherited was owed to B.
+
 ## Repeated use
 
 ```bash
@@ -1549,7 +1582,7 @@ the `reeflog` binary, so there is exactly one implementation of the reader
 contract, and a library's idea of the schema cannot drift from the daemon's.
 
 ```bash
-npm install github:auroraxo/reeflog#v0.7.14   # the client ships from this repo
+npm install github:auroraxo/reeflog#v0.7.15   # the client ships from this repo
 ```
 
 The client needs the `reeflog` binary. `bootstrap()` gets it **without a

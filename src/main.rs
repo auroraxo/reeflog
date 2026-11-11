@@ -2115,7 +2115,19 @@ fn run_webhook_status(args: &[String]) {
     let targets = webhook::load_targets(&cfg).unwrap_or_else(|e| die(e));
     let mut out = Vec::new();
     for t in &targets {
+        // Status is a report about one consumer. A repointed id would print
+        // the OLD endpoint's delivery record next to the NEW url — measured
+        // on v0.7.14 (`delivered: 3` beside a consumer that held nothing) —
+        // so the same binding rule push enforces applies here: refuse with
+        // both endpoints named instead of printing a record that does not
+        // belong to the configured url.
+        webhook::bind_endpoint(&j, t).unwrap_or_else(|e| die(e));
         let s = j.webhook_summary(&t.id).unwrap_or_else(|e| die(e));
+        let recorded = j
+            .webhook_state_with_endpoint(&t.id)
+            .unwrap_or_else(|e| die(e))
+            .map(|(e, _, _)| e)
+            .unwrap_or_default();
         let pending: i64 = j
             .events_after(s.next_seq, i64::MAX)
             .map(|v| v.len() as i64)
@@ -2124,6 +2136,7 @@ fn run_webhook_status(args: &[String]) {
         out.push(json!({
             "target": s.target,
             "url": t.url,
+            "endpoint_recorded": recorded,
             "next_seq": s.next_seq,
             "next_reorg_id": s.next_reorg_id,
             "delivered": s.delivered,
@@ -2350,6 +2363,10 @@ fn run_webhook_dlq_replay(args: &[String]) {
         let before = j
             .webhook_dead_letter_count(&t.id)
             .unwrap_or_else(|e| die(e));
+        // The replay is a delivery path: the stored bytes must not follow a
+        // repointed url under the same id. The same binding rule as push,
+        // before the first letter moves.
+        webhook::bind_endpoint(&j, t).unwrap_or_else(|e| die(e));
         let rows = j
             .webhook_dead_letters(&t.id, limit)
             .unwrap_or_else(|e| die(e));
@@ -2376,7 +2393,7 @@ fn run_webhook_dlq_replay(args: &[String]) {
             };
             match outcome {
                 webhook::Attempt::Delivered(status) => {
-                    j.webhook_record_delivered(&t.id, &r.kind, r.seq, &r.body)
+                    j.webhook_record_delivered(&t.id, &t.url, &r.kind, r.seq, &r.body)
                         .unwrap_or_else(|e| die(e));
                     j.webhook_record_attempt(
                         &t.id,

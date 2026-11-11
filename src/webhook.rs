@@ -468,6 +468,35 @@ impl TargetReport {
     }
 }
 
+/// Bind a target's delivery state to its endpoint, or refuse.
+///
+/// A state row recorded under a DIFFERENT url means the id was repointed:
+/// inheriting the old cursors is the measured starvation (published
+/// v0.7.14, probe `endpoint-probe-1.json`: the new consumer received 0,
+/// `webhook push` exited 0, and `webhook status` printed the OLD endpoint's
+/// `delivered: 3` next to the new url). So the pass refuses before reading
+/// any cursor, before delivering, and without touching the journal — the
+/// refusal names the target id and BOTH endpoints and states the repair.
+///
+/// A row with an EMPTY endpoint predates this rule (a journal written on
+/// v0.7.14 or older): it carries history for the one url the operator had
+/// configured, and is ADOPTED by the url it meets first — a pure
+/// continuation of the old single-endpoint world: same url, same cursors,
+/// no re-delivery. `true` is returned when a row was adopted.
+pub fn bind_endpoint(j: &Journal, target: &Target) -> Result<bool, String> {
+    match j.webhook_state_with_endpoint(&target.id)? {
+        Some((recorded, _, _)) if recorded.is_empty() => {
+            j.webhook_adopt_endpoint(&target.id, &target.url)
+        }
+        Some((recorded, _, _)) if recorded == target.url => Ok(false),
+        Some((recorded, _, _)) => Err(format!(
+            "target `{}` is bound to endpoint `{recorded}` in the journal, but this config points it at `{}` — delivery state and receipts are bound to the endpoint; give the new endpoint its own target id (measured v0.7.14: a repointed id starved the new consumer silently behind exit 0)",
+            target.id, target.url
+        )),
+        None => Ok(false),
+    }
+}
+
 /// Deliver events to one target, in `seq` order, stopping at the first
 /// failure.
 ///
@@ -482,22 +511,24 @@ pub fn deliver_events(
         target: target.id.clone(),
         ..Default::default()
     };
-    let (next_seq, next_reorg_id) = j
-        .webhook_state(&target.id)?
-        .unwrap_or((0, 0));
+    // The cursors and receipts below belong to ONE consumer — the url this
+    // config carries. A repointed id is refused before a single byte moves;
+    // see `bind_endpoint`.
+    bind_endpoint(j, target)?;
+    let (next_seq, next_reorg_id) = j.webhook_state(&target.id)?.unwrap_or((0, 0));
     rep.next_seq = next_seq;
     rep.next_reorg_id = next_reorg_id;
 
-    let rows = j.events_after(next_seq, limit.max(1))?;
+    let rows = j.events_after(rep.next_seq, limit.max(1))?;
     for r in &rows {
         // A crash between "POST succeeded" and "cursor advanced" leaves a
         // receipt behind: skip the re-send instead of delivering twice.
         // The cursor holds the last seq that WAS handed over (it is the
         // argument of `events_after`, which is strictly greater): storing
         // `seq + 1` here would skip the very event that is still owed.
-        if j.webhook_delivered(&target.id, "event", r.seq)? {
+        if j.webhook_delivered(&target.id, &target.url, "event", r.seq)? {
             rep.next_seq = r.seq;
-            j.webhook_set_state(&target.id, rep.next_seq, rep.next_reorg_id)?;
+            j.webhook_set_state(&target.id, &target.url, rep.next_seq, rep.next_reorg_id)?;
             continue;
         }
         let body = event_body(r);
@@ -516,11 +547,11 @@ pub fn deliver_events(
         };
         match outcome {
             Attempt::Delivered(status) => {
-                j.webhook_record_delivered(&target.id, "event", r.seq, &body)?;
+                j.webhook_record_delivered(&target.id, &target.url, "event", r.seq, &body)?;
                 j.webhook_record_attempt(&target.id, "event", r.seq, Some(status as i64), None)?;
                 rep.delivered += 1;
                 rep.next_seq = r.seq;
-                j.webhook_set_state(&target.id, rep.next_seq, rep.next_reorg_id)?;
+                j.webhook_set_state(&target.id, &target.url, rep.next_seq, rep.next_reorg_id)?;
             }
             Attempt::Refused(status) => {
                 // A refusal is a verdict, not an outage: this target will
@@ -559,11 +590,11 @@ pub fn deliver_events(
                     )?;
                     rep.dead_lettered += 1;
                     rep.next_seq = r.seq;
-                    j.webhook_set_state(&target.id, rep.next_seq, rep.next_reorg_id)?;
+                    j.webhook_set_state(&target.id, &target.url, rep.next_seq, rep.next_reorg_id)?;
                     // The queue keeps moving: the next event is attempted.
                     continue;
                 }
-                j.webhook_set_error(&target.id, Some(&reason))?;
+                j.webhook_set_error(&target.id, &target.url, Some(&reason))?;
                 rep.blocked_seq = Some(r.seq);
                 rep.blocked_error = Some(reason);
                 break;
@@ -575,7 +606,7 @@ pub fn deliver_events(
                     Attempt::Refused(_) => unreachable!(),
                 };
                 j.webhook_record_attempt(&target.id, "event", r.seq, status, err.as_deref())?;
-                j.webhook_set_error(&target.id, err.as_deref())?;
+                j.webhook_set_error(&target.id, &target.url, err.as_deref())?;
                 rep.failed += 1;
                 rep.blocked_seq = Some(r.seq);
                 rep.blocked_error = err;
@@ -601,6 +632,9 @@ pub fn deliver_reorgs(
         target: target.id.clone(),
         ..Default::default()
     };
+    // Same binding as `deliver_events`: refuse a repointed id before any
+    // retraction follows the old endpoint's cursor.
+    bind_endpoint(j, target)?;
     let (next_seq, next_reorg_id) = j
         .webhook_state(&target.id)?
         .unwrap_or((0, 0));
@@ -609,9 +643,9 @@ pub fn deliver_reorgs(
 
     let rows = j.reorgs_after(next_reorg_id, limit.max(1))?;
     for r in &rows {
-        if j.webhook_delivered(&target.id, "reorg", r.id)? {
+        if j.webhook_delivered(&target.id, &target.url, "reorg", r.id)? {
             rep.next_reorg_id = r.id;
-            j.webhook_set_state(&target.id, rep.next_seq, rep.next_reorg_id)?;
+            j.webhook_set_state(&target.id, &target.url, rep.next_seq, rep.next_reorg_id)?;
             continue;
         }
         let body = reorg_body(r);
@@ -630,11 +664,11 @@ pub fn deliver_reorgs(
         };
         match outcome {
             Attempt::Delivered(status) => {
-                j.webhook_record_delivered(&target.id, "reorg", r.id, &body)?;
+                j.webhook_record_delivered(&target.id, &target.url, "reorg", r.id, &body)?;
                 j.webhook_record_attempt(&target.id, "reorg", r.id, Some(status as i64), None)?;
                 rep.reorg_delivered += 1;
                 rep.next_reorg_id = r.id;
-                j.webhook_set_state(&target.id, rep.next_seq, rep.next_reorg_id)?;
+                j.webhook_set_state(&target.id, &target.url, rep.next_seq, rep.next_reorg_id)?;
             }
             other => {
                 let (status, err) = match &other {
@@ -643,7 +677,7 @@ pub fn deliver_reorgs(
                     Attempt::Delivered(_) => unreachable!(),
                 };
                 j.webhook_record_attempt(&target.id, "reorg", r.id, status, err.as_deref())?;
-                j.webhook_set_error(&target.id, err.as_deref())?;
+                j.webhook_set_error(&target.id, &target.url, err.as_deref())?;
                 rep.failed += 1;
                 rep.blocked_reorg_id = Some(r.id);
                 rep.blocked_error = err;
@@ -768,7 +802,7 @@ mod tests {
         assert_eq!(rep.failed, 1);
         assert_eq!(rep.blocked_seq, Some(1));
         assert!(rep.blocked());
-        assert!(!j.webhook_delivered("t1", "event", 1).unwrap());
+        assert!(!j.webhook_delivered("t1", "http://127.0.0.1:1/hook", "event", 1).unwrap());
         // The cursor did not advance: the event stays owed.
         let (next, _) = j.webhook_state("t1").unwrap().unwrap();
         assert_eq!(next, 0);
@@ -800,7 +834,7 @@ mod tests {
         j.append("a", 10, None, Some("[]"), "ws").unwrap();
         // The endpoint answered, but the daemon died before advancing the
         // cursor: the receipt is there, the cursor is not.
-        j.webhook_record_delivered("t1", "event", 1, "{}").unwrap();
+        j.webhook_record_delivered("t1", "http://127.0.0.1:1/hook", "event", 1, "{}").unwrap();
         let mut p = ScriptedPoster::new(vec![Ok(200)]);
         let rep = deliver_events(&j, &target("t1"), &mut p, 10).unwrap();
         assert_eq!(rep.delivered, 0, "the event was already handed over");
@@ -899,7 +933,7 @@ mod tests {
         assert_eq!(rep.next_seq, 1, "the cursor moves past the quarantined event");
         assert_eq!(j.webhook_dead_letter_count("t1").unwrap(), 1);
         // And it was NOT counted as a delivery.
-        assert!(!j.webhook_delivered("t1", "event", 1).unwrap());
+        assert!(!j.webhook_delivered("t1", "http://127.0.0.1:1/hook", "event", 1).unwrap());
     }
 
     #[test]
