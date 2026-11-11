@@ -49,6 +49,7 @@ fn assert_not_contains(text: &str, needle: &str, why: &str) {
 fn both_artifacts_declare_the_tool_and_the_method() {
     for name in [
         "endpoint-binding-published-v0.7.14-2026-11-11.json",
+        "endpoint-binding-published-v0.7.15-2026-11-11.json",
         "endpoint-binding-fixed-2026-11-11.json",
     ] {
         let text = artifact(name);
@@ -102,6 +103,49 @@ fn the_published_v0714_asset_starves_the_repointed_consumer() {
 }
 
 #[test]
+fn the_published_v0715_asset_refuses_the_repointed_consumer() {
+    // The fix is on the TAG a stranger installs: the release asset must
+    // refuse where the published v0.7.14 asset starved.
+    let text = artifact("endpoint-binding-published-v0.7.15-2026-11-11.json");
+    assert_contains(
+        &text,
+        "\"source\": \"published v0.7.15 release asset",
+        "the measured seat is the PUBLISHED v0.7.15 release asset, not the tree",
+    );
+    assert_contains(
+        &text,
+        "8f941253e82f5c1aa594c8b5253d6c603d29ffbf2f5ec7e25f8fbf94d16f5f35",
+        "the published v0.7.15 archive sha256 equals the Release-API digest",
+    );
+    assert_contains(&text, "\"binaryVersion\": \"reeflog 0.7.15\"", "the measured binary's version");
+    assert_contains(
+        &text,
+        "\"receiverACount\": 3",
+        "the first endpoint still received all three events",
+    );
+    assert_contains(
+        &text,
+        "\"receiverBCount\": 0",
+        "the refused pass sent nothing to the new endpoint",
+    );
+    assert_contains(
+        &text,
+        "\"exit\": 1",
+        "the repointed push is REFUSED, not silently successful",
+    );
+    assert_contains(
+        &text,
+        "is bound to endpoint",
+        "the refusal names the recorded endpoint",
+    );
+    assert_contains(
+        &text,
+        "give the new endpoint its own target id",
+        "the refusal names the repair",
+    );
+}
+
+#[test]
 fn this_tree_refuses_the_repointed_consumer() {
     let text = artifact("endpoint-binding-fixed-2026-11-11.json");
     assert_contains(
@@ -146,6 +190,7 @@ fn this_tree_refuses_the_repointed_consumer() {
 fn neither_artifact_carries_a_host_path() {
     for name in [
         "endpoint-binding-published-v0.7.14-2026-11-11.json",
+        "endpoint-binding-published-v0.7.15-2026-11-11.json",
         "endpoint-binding-fixed-2026-11-11.json",
     ] {
         let text = artifact(name);
