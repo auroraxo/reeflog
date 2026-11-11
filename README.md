@@ -5,7 +5,7 @@ they did to account balances for selected programs into a cursor-addressed
 append-only log, so a consumer resumes without gaps after a crash,
 disconnect, or reorg.
 
-**Status: v0.7.16 shipped (2026-11-11), v0 working.** Live against mainnet-beta: see *Measured results* below. Install the binary without a Rust toolchain: `npm install github:auroraxo/reeflog#v0.7.16` then `import { bootstrap } from 'reeflog-client'; await bootstrap()` (downloads the prebuilt release archive and verifies its sha256). Or from source: `cargo install --git https://github.com/auroraxo/reeflog --tag v0.7.16`. The full event envelope (logs, balances, instructions, account list with owners, the bytes each account held, and the authority each token account had at the moment of the event), the Node client (see *The Node client*), webhook fan-out, a dead-letter queue, and archive backfill ship in this tree; Yellowstone as a second transport does not.
+**Status: v0.7.17 shipped (2026-11-11), v0 working.** Live against mainnet-beta: see *Measured results* below. Install the binary without a Rust toolchain: `npm install github:auroraxo/reeflog#v0.7.17` then `import { bootstrap } from 'reeflog-client'; await bootstrap()` (downloads the prebuilt release archive and verifies its sha256). Or from source: `cargo install --git https://github.com/auroraxo/reeflog --tag v0.7.17`. The full event envelope (logs, balances, instructions, account list with owners, the bytes each account held, and the authority each token account had at the moment of the event), the Node client (see *The Node client*), webhook fan-out, a dead-letter queue, and archive backfill ship in this tree; Yellowstone as a second transport does not.
 
 ## The idea
 
@@ -1573,6 +1573,35 @@ measurement skipped). Mutation ladder
 `tools/mutation-ladder-secret-domain.sh` catches 9/9, tree byte-identical
 afterwards.
 
+### The tag's own client asked for the PREVIOUS release
+
+Measured 2026-11-11 on the **published v0.7.16 tag tree**
+(`research/client-pin-lag-published-v0716-2026-11-11.json`, verdict
+`defect-present-on-baseline`): the v0.7.16 release commit moved Cargo.toml,
+Cargo.lock and the install pins above — and forgot `package.json`, which
+still read `"version": "0.7.15"`. `bootstrap()` derives the release tag it
+requests from the package manifest (that coupling is
+`test/bootstrap.test.mjs` B8), so a stranger who followed this README
+(`npm install github:auroraxo/reeflog#v0.7.16`) installed a client that
+asked the release API for **v0.7.15** and downloaded the **v0.7.15**
+archive — the binary that still carries the shared-secret defect
+v0.7.16 fixed. The tag the README pinned and the binary a stranger got
+were two different releases; nothing on CI could see it, because the
+manifest was the lying side.
+
+The measurement runs each tree's own `index.js` against a stand-in release
+API and records the request it actually makes (not what it should make):
+the published v0.7.16 tree requests `v0.7.15`
+(`servesThePinnedRelease: false`), this tree requests the release it names
+(`servesThePinnedRelease: true`); the tool fails if the baseline shows no
+defect or the fixed tree still does. Gate: `test/bootstrap.test.mjs` B10
+ties `package.json` to `Cargo.toml` (semver shape + equality) — green here,
+red on the published tag tree. Mutation ladder
+`tools/mutation-ladder-client-pin-lag.sh` catches 5/5 (lag, lead, bad
+shape, crate-bumped-manifest-forgotten, pre-release), tree byte-identical.
+The artifact is pinned by 5 tests, falsified by a tampered number and by a
+host path.
+
 ## Repeated use
 
 ```bash
@@ -1630,7 +1659,7 @@ the `reeflog` binary, so there is exactly one implementation of the reader
 contract, and a library's idea of the schema cannot drift from the daemon's.
 
 ```bash
-npm install github:auroraxo/reeflog#v0.7.16   # the client ships from this repo
+npm install github:auroraxo/reeflog#v0.7.17   # the client ships from this repo
 ```
 
 The client needs the `reeflog` binary. `bootstrap()` gets it **without a

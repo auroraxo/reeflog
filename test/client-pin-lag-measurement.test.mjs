@@ -45,11 +45,23 @@ test('P2: the baseline shows the lag — manifest 0.7.15, crate 0.7.16, requeste
 });
 
 test('P3: this tree serves its own pinned release — manifest == crate == requested tag', () => {
-  assert.equal(report.fixed.manifest, '0.7.16');
-  assert.equal(report.fixed.crate, '0.7.16');
-  assert.equal(report.fixed.requestedTag, 'v0.7.16');
+  // Deliberately NOT a version literal: the fixed side must keep holding as
+  // the tree moves on, so the pin does not rot at the next release. The
+  // baseline side IS pinned to literals — that is the claim under test.
+  assert.equal(report.fixed.manifest, report.fixed.crate,
+    'the fixed tree must name one release in both manifests');
+  assert.equal(report.fixed.requestedTag, `v${report.fixed.crate}`,
+    'the fixed tree must request the release it names');
   assert.equal(report.fixed.servesThePinnedRelease, true);
   assert.equal(report.fixedServesPinnedRelease, true);
+
+  // ... and it must be the release THIS tree is (read from the tree, not
+  // from the artifact): an artifact from an older run would still be green.
+  const cargo = fs.readFileSync(
+    path.resolve(import.meta.dirname, '..', 'Cargo.toml'), 'utf8');
+  const crate = /^version\s*=\s*"([^"]+)"/m.exec(cargo)?.[1];
+  assert.equal(report.fixed.crate, crate,
+    'the artifact must describe the release this tree actually is');
 });
 
 test('P4: the verdict reads defect-present-on-baseline', () => {
