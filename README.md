@@ -5,7 +5,7 @@ they did to account balances for selected programs into a cursor-addressed
 append-only log, so a consumer resumes without gaps after a crash,
 disconnect, or reorg.
 
-**Status: v0.7.15 shipped (2026-11-11), v0 working.** Live against mainnet-beta: see *Measured results* below. Install the binary without a Rust toolchain: `npm install github:auroraxo/reeflog#v0.7.15` then `import { bootstrap } from 'reeflog-client'; await bootstrap()` (downloads the prebuilt release archive and verifies its sha256). Or from source: `cargo install --git https://github.com/auroraxo/reeflog --tag v0.7.15`. The full event envelope (logs, balances, instructions, account list with owners, the bytes each account held, and the authority each token account had at the moment of the event), the Node client (see *The Node client*), webhook fan-out, a dead-letter queue, and archive backfill ship in this tree; Yellowstone as a second transport does not.
+**Status: v0.7.16 shipped (2026-11-11), v0 working.** Live against mainnet-beta: see *Measured results* below. Install the binary without a Rust toolchain: `npm install github:auroraxo/reeflog#v0.7.16` then `import { bootstrap } from 'reeflog-client'; await bootstrap()` (downloads the prebuilt release archive and verifies its sha256). Or from source: `cargo install --git https://github.com/auroraxo/reeflog --tag v0.7.16`. The full event envelope (logs, balances, instructions, account list with owners, the bytes each account held, and the authority each token account had at the moment of the event), the Node client (see *The Node client*), webhook fan-out, a dead-letter queue, and archive backfill ship in this tree; Yellowstone as a second transport does not.
 
 ## The idea
 
@@ -812,7 +812,7 @@ behaviour the file does not describe.
 |---|---|---|
 | `url` | absolute URL of scheme `http` or `https` (case-insensitive) with a host, a port `1..=65535` when written, and bytes `http::Uri` can carry | `http://` or `https://` with no host (the consumer dies with "http: empty string" on first delivery), empty authority (`http:///x`), missing scheme, non-http scheme (`ftp://…`), a non-numeric or out-of-range port (`:abc`, `:99999`, a bare `:` — the consumer silently dials 80/443 instead), port `0` (nothing ever listens there), a space/control byte/`<` `>` backtick in the path (the parser refuses it as `http: invalid uri character`), one of `" < > \ ^ \` { \| }` in the host, raw non-ASCII in the path or query (the receiver answers 400 — percent-encode it instead) |
 | `id` | non-empty, no leading ASCII whitespace, no control byte except HTAB | empty, a leading space or tab (the receiver strips it, so the consumer's dedup key stops matching the journal), any C0 control byte or DEL (the consumer's header parser refuses the field: every delivery dies with `http: failed to parse header value`) |
-| `secret` | non-empty | empty — an empty secret signs with the empty key, which authenticates nothing. Every other byte is inside the domain: the secret is an HMAC key and never goes on the wire |
+| `secret` | non-empty; and one secret per ENDPOINT — two targets that share a secret must point at the same url | empty — an empty secret signs with the empty key, which authenticates nothing. Two targets that share a secret while pointing at DIFFERENT urls are refused — the signed body carries no target id and no endpoint (the headers that do are not signed), so what one receiver verifies the other verifies too: measured, A's accepted bytes replayed at B under a forged event-id header and passed B's own HMAC check (`tools/measure-secret-domain.mjs`, 4/4 faces on the published v0.7.15 asset). One secret is one identity space; give each endpoint its own secret. The same secret on the SAME url stays legal — one consumer listed twice |
 | `timeout_ms` | whole milliseconds in `1..=3600000` (1 hour) | `0` (the poster would silently re-read it as 1 ms), anything above the 1-hour ceiling (a timeout no process will live to see — an attempt that cannot finish within an hour is stuck, not slow), a fraction, a negative number, a string, an integer beyond `u64` |
 | `dead_letter_after` | non-negative integer in `i64` | a fraction, a negative number, an integer outside `i64` (the count is compared against an `i64` refusal counter) |
 
@@ -1525,6 +1525,54 @@ asset starves a repointed consumer (A: 3, B: 0, exit 0); this tree refuses
 the same pass with exit 1 naming both endpoints and leaves B at 0 — the
 refusal sends nothing, and nothing inherited was owed to B.
 
+### One secret is one consumer, not two
+
+Measured 2026-11-11 against the **published v0.7.15 release asset**
+(sha256 `8f941253…`, the Release-API digest) with
+`tools/measure-secret-domain.mjs` — two VERIFYING live receivers, each
+answering 200 only when its own documented rule `HMAC(secret, body)`
+passed, else 401. Two targets (`ta`, `tb`) with DIFFERENT urls sharing ONE
+non-empty secret — a config the table above used to accept, because the
+secret is a key and never reaches the wire. Four faces, all violated
+(`research/secret-domain-published-v0.7.15-2026-11-11.json`, verdict
+`SIGNATURE-TARGET-AGNOSTIC`):
+
+* the pair receiver A accepted verifies 3/3 — and it is exactly the pair
+  receiver B computes, because B holds the same key: the signature attests
+  "someone with this secret signed this body", never "signed it FOR me";
+* A's accepted bytes replayed at B under a **forged** `tb:` event-id header
+  answered **200** from B's own rule, and B recorded the forged id as its
+  own — the delivery-id header that names the consumer is transport
+  metadata outside the signature;
+* the same replay in the other direction (B's body at A) also answered 200:
+  one secret = *** identity space, both ways;
+* a body with a forged `seq: 999` header under a valid signature answered
+  200 — the seq header lies independently of the signature. (The body
+  carries its own `seq`; a receiver that reads `body.seq` instead of the
+  header is immune to this face — that limit stays with the receiver.)
+
+The **guard** (`tools/measure-secret-domain-guard.mjs`, same published
+asset, distinct secrets) is 4/4 green: foreign pairs are refused 401 by
+the receivers' own rules, and the legitimate delivery still gets 200 — so
+the defect is the shared secret across endpoints, not the wire format.
+
+The rule now: a config whose targets share a secret while pointing at
+**different** urls is refused before a byte moves — exit 1, one line,
+naming both target ids, both endpoints and the repair (`fix: give each
+endpoint its own secret, or use the same url on both rows`). The refusal
+never echoes the secret: a key that appears in a refusal lands in logs,
+terminals and CI output. The same secret on the same url stays legal —
+one consumer listed twice is nothing a signature can betray.
+
+Measured after the fix (`research/secret-domain-fixed-2026-11-11.json`,
+pinned by `tests/secret_domain_measurement.rs`, defect faces also pinned
+as CLI tests in `tests/secret_domain.rs`): the published v0.7.15 asset
+violates 4/4 faces, this tree refuses the same config up front
+(`REFUSED-UP-FRONT`, 0 faces measurable — the door is closed, not the
+measurement skipped). Mutation ladder
+`tools/mutation-ladder-secret-domain.sh` catches 9/9, tree byte-identical
+afterwards.
+
 ## Repeated use
 
 ```bash
@@ -1582,7 +1630,7 @@ the `reeflog` binary, so there is exactly one implementation of the reader
 contract, and a library's idea of the schema cannot drift from the daemon's.
 
 ```bash
-npm install github:auroraxo/reeflog#v0.7.15   # the client ships from this repo
+npm install github:auroraxo/reeflog#v0.7.16   # the client ships from this repo
 ```
 
 The client needs the `reeflog` binary. `bootstrap()` gets it **without a
