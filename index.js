@@ -480,7 +480,38 @@ export async function bootstrap({
   }
 
   const releaseUrl = `${apiBase}/repos/auroraxo/reeflog/releases/tags/${version}`;
-  const release = JSON.parse((await httpGet(releaseUrl, { timeoutMs })).toString('utf8'));
+  const rawRelease = (await httpGet(releaseUrl, { timeoutMs })).toString('utf8');
+  // The API leg can answer 200 with a body that is not a release: a captive
+  // portal's login HTML (measured 2026-11-11 against the published v0.7.18
+  // tree: JSON.parse threw SyntaxError straight out of bootstrap(), a crash
+  // no ReeflogError catch ever saw), or a rate-limit/proxy JSON whose own
+  // `message` was then discarded in favour of "release has no asset", a
+  // verdict that sends a stranger to a release page that is fine
+  // (research/captive-portal-2026-11-11.json). A body that is not a release
+  // object must refuse WITH the body's own words — never with an engine
+  // crash, never with a cause the endpoint did not give.
+  let release;
+  try {
+    release = JSON.parse(rawRelease);
+  } catch (e) {
+    const looksHtml = /^\s*</.test(rawRelease);
+    throw new ReeflogError(
+      `the release API at ${releaseUrl} did not answer JSON — `
+      + (looksHtml
+        ? 'it answered with HTML (a captive portal or an intercepting proxy fits this shape)'
+        : `JSON.parse failed: ${e.message}`)
+      + ' — refusing to install from a body I do not understand. Behind a captive portal, authenticate in the browser first; for a mirror or a different host pass { apiBase }.',
+    );
+  }
+  if (release === null || typeof release !== 'object' || Array.isArray(release) || !Array.isArray(release.assets)) {
+    const words = release && typeof release.message === 'string'
+      ? `its own message: ${release.message}`
+      : `body: ${JSON.stringify(release)?.slice(0, 300) ?? String(release)}`;
+    throw new ReeflogError(
+      `the release API at ${releaseUrl} answered without a release object (${words}) — refusing to install; nothing was written. `
+      + 'If this is a rate limit or a proxy, wait or bypass it; for a different host pass { apiBase }.',
+    );
+  }
   const entry = (release.assets || []).find((a) => a.name === asset);
   if (!entry) {
     throw new ReeflogError(`release ${version} has no asset named ${asset} — nothing to install`);

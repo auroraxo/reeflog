@@ -1,0 +1,65 @@
+{
+  "measuredAt": "2026-11-11T19:48:24.972Z",
+  "defect": "bootstrap() trusted the release-API leg to answer a release object: HTML (captive portal/proxy) crashed out of it with a raw SyntaxError, and a rate-limit JSON was refused as \"the release has no asset\" — a verdict that blames a release page that is fine",
+  "baseline": {
+    "tag": "v0.7.18",
+    "faces": [
+      {
+        "mode": "F1 api-portal",
+        "outcome": "raw-crash",
+        "message": "Unexpected token '<', \"<!DOCTYPE \"... is not valid JSON"
+      },
+      {
+        "mode": "F2 api-ratelimit",
+        "outcome": "refused",
+        "message": "release v0.7.18 has no asset named reeflog-linux-amd64.tar.gz — nothing to install"
+      },
+      {
+        "mode": "F3 asset-portal",
+        "outcome": "refused",
+        "message": "sha256 mismatch for reeflog-linux-amd64.tar.gz: release says 16b56681879d75eced5c2341d8291f361b679b4873a3140ed74345efa0302c43, download is 0cf247c8da328d777655d7b87d7fd372b5f6073a1c98ae480427ce31375fa344 — refusing to install"
+      },
+      {
+        "mode": "F4 cached",
+        "outcome": "resolved",
+        "cached": true,
+        "primed": true
+      }
+    ],
+    "rawCrash": 1,
+    "misverdict": 1,
+    "mis": 1
+  },
+  "fixed": {
+    "tag": "this-tree",
+    "faces": [
+      {
+        "mode": "F1 api-portal",
+        "outcome": "refused",
+        "message": "the release API at http://127.0.0.1:18099/repos/auroraxo/reeflog/releases/tags/v0.7.18 did not answer JSON — it answered with HTML (a captive portal or an intercepting proxy fits this shape) — refusing to install from a body I do not understand. Behind a captive portal, authenticate in the browser f"
+      },
+      {
+        "mode": "F2 api-ratelimit",
+        "outcome": "refused",
+        "message": "the release API at http://127.0.0.1:18099/repos/auroraxo/reeflog/releases/tags/v0.7.18 answered without a release object (its own message: API rate limit exceeded for 127.0.0.1.) — refusing to install; nothing was written. If this is a rate limit or a proxy, wait or bypass it; for a different host p"
+      },
+      {
+        "mode": "F3 asset-portal",
+        "outcome": "refused",
+        "message": "sha256 mismatch for reeflog-linux-amd64.tar.gz: release says 16b56681879d75eced5c2341d8291f361b679b4873a3140ed74345efa0302c43, download is 0cf247c8da328d777655d7b87d7fd372b5f6073a1c98ae480427ce31375fa344 — refusing to install"
+      },
+      {
+        "mode": "F4 cached",
+        "outcome": "resolved",
+        "cached": true,
+        "primed": true
+      }
+    ],
+    "rawCrash": 0,
+    "misverdict": 0,
+    "mis": 0
+  },
+  "baselineShowsDefect": true,
+  "fixedClean": true,
+  "verdict": "contract-holds"
+}
