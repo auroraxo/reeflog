@@ -53,6 +53,8 @@ fn all_three_artifacts_declare_the_tool_and_the_method() {
         "secret-domain-published-v0.7.15-2026-11-11.json",
         "secret-domain-guard-published-v0.7.15-2026-11-11.json",
         "secret-domain-fixed-2026-11-11.json",
+        "secret-domain-published-v0.7.16-2026-11-11.json",
+        "secret-domain-guard-published-v0.7.16-2026-11-11.json",
     ] {
         let text = artifact(name);
         assert_contains(
@@ -169,5 +171,74 @@ fn this_tree_refuses_the_shared_secret_config_up_front() {
         "\"source\": \"tree build",
         "the fixed side is labelled as the tree build it was, not as a release",
     );
+    assert_not_contains(&text, "/home/", "no host path");
+}
+
+#[test]
+fn the_published_v0716_asset_refuses_the_shared_secret_config() {
+    // The fix must reach the PIN: v0.7.16 is measured at the published
+    // release asset, not at the branch build (a fix that only lives on the
+    // branch is the defect class this repository has measured repeatedly).
+    let text = artifact("secret-domain-published-v0.7.16-2026-11-11.json");
+    assert_contains(
+        &text,
+        "\"source\": \"published v0.7.16 release asset",
+        "the measured seat is the PUBLISHED v0.7.16 release asset, not the tree",
+    );
+    assert_contains(
+        &text,
+        "3b688f06c2a60a50ee2a0960ade6f52e4bdb5093e3e1d4ba32de893bf0d538ff",
+        "the published v0.7.16 archive sha256 equals the Release-API digest",
+    );
+    assert_contains(
+        &text,
+        "\"binaryVersion\": \"reeflog 0.7.16\"",
+        "the measured binary's version matches the tag",
+    );
+    assert_contains(
+        &text,
+        "\"verdict\": \"REFUSED-UP-FRONT\"",
+        "the published v0.7.16 asset refuses the shared-secret config the v0.7.15 asset accepted",
+    );
+    assert_contains(
+        &text,
+        "\"violations\": 0",
+        "no face is measurable on the fixed release: the door is closed",
+    );
+    assert_contains(
+        &text,
+        "share one secret",
+        "the refusal line is carried in the artifact itself",
+    );
+    assert_not_contains(&text, "/home/", "no host path");
+}
+
+#[test]
+fn the_published_v0716_asset_keeps_distinct_secrets_working() {
+    // Over-refusal guard AT THE PIN: the same release that refuses the
+    // shared secret must still deliver to two targets with their own
+    // secrets, and their receivers' rules must stay sharp.
+    let text = artifact("secret-domain-guard-published-v0.7.16-2026-11-11.json");
+    assert_contains(
+        &text,
+        "\"source\": \"published v0.7.16 release asset",
+        "the guard runs against the same published release",
+    );
+    assert_contains(
+        &text,
+        "\"pushExit\": 0",
+        "a config with distinct secrets still delivers on v0.7.16",
+    );
+    assert_contains(
+        &text,
+        "\"ok\": true",
+        "the legitimate delivery verifies (no over-refusal at the pin)",
+    );
+    assert_contains(
+        &text,
+        "\"rejected\": true",
+        "foreign pairs are still refused by the receivers' own rules",
+    );
+    assert_contains(&text, "\"status\": 401", "the refusal is 401, the receiver's own verdict");
     assert_not_contains(&text, "/home/", "no host path");
 }
