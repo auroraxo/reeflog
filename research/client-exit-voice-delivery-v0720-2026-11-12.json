@@ -1,0 +1,88 @@
+{
+  "measuredAt": "2026-11-12T01:14:35.766Z",
+  "tag": "v0.7.20",
+  "manifest": "0.7.20",
+  "source": "the PUBLISHED v0.7.20 tree (git archive — the bytes a stranger installs)",
+  "results": [
+    {
+      "mode": "F1 tail exit 2 after rows",
+      "outcome": "refused",
+      "exitCode": 2,
+      "message": "reeflog exited with code 2 — refusing to call it a verdict: reeflog: journal write failed: disk i/o error",
+      "holds": true
+    },
+    {
+      "mode": "F1b status exit 2",
+      "outcome": "refused",
+      "exitCode": 2,
+      "message": "reeflog exited with code 2 — refusing to call it a verdict: reeflog: journal write failed: disk i/o error",
+      "holds": true
+    },
+    {
+      "mode": "F2 tail usage skew 64",
+      "outcome": "refused",
+      "exitCode": 64,
+      "message": "reeflog exited with code 64 (64 = usage error — this binary does not know the invocation; check for client/binary version skew) — refusing to call it a verdict: reeflog v0 - durable local mailbox",
+      "holds": true
+    },
+    {
+      "mode": "F2b status usage skew 64",
+      "outcome": "refused",
+      "exitCode": 64,
+      "message": "reeflog exited with code 64 (64 = usage error — this binary does not know the invocation; check for client/binary version skew) — refusing to call it a verdict: reeflog v0 - durable local mailbox",
+      "holds": true
+    },
+    {
+      "mode": "F3 verify panic 101",
+      "outcome": "refused",
+      "exitCode": 101,
+      "message": "reeflog exited with code 101 — refusing to call it a verdict: thread 'main' panicked",
+      "holds": true
+    },
+    {
+      "mode": "F4 killed names signal",
+      "outcome": "refused",
+      "exitCode": null,
+      "message": "reeflog was killed by SIGTERM — no verdict was produced",
+      "holds": true
+    },
+    {
+      "mode": "G1 healthy 0",
+      "outcome": "resolved",
+      "exitCode": null,
+      "message": "",
+      "holds": true
+    },
+    {
+      "mode": "G2 refusal keeps words",
+      "outcome": "refused",
+      "exitCode": 1,
+      "message": "reeflog: error: no journal at <tmpdir>/j.db",
+      "holds": true
+    },
+    {
+      "mode": "G3a tail hold shape",
+      "outcome": "resolved",
+      "exitCode": 3,
+      "message": "",
+      "holds": true
+    },
+    {
+      "mode": "G3b verify incomplete throws",
+      "outcome": "refused",
+      "exitCode": 3,
+      "message": "reeflog pass INCOMPLETE: reeflog: scan INCOMPLETE",
+      "holds": true
+    },
+    {
+      "mode": "G4 raw stays unclassified",
+      "outcome": "resolved",
+      "exitCode": 64,
+      "message": "",
+      "holds": true
+    }
+  ],
+  "defectsRefused": true,
+  "guardsHold": true,
+  "verdict": "DELIVERED-TO-THE-PIN"
+}
