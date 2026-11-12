@@ -1,8 +1,8 @@
 {
-  "measuredAt": "2026-11-11T20:17:22.090Z",
+  "measuredAt": "2026-11-12T01:08:45.355Z",
   "readme": "README.md",
   "binary": "target/release/reeflog",
-  "binaryVersion": "reeflog 0.7.19",
+  "binaryVersion": "reeflog 0.7.20",
   "documentedLines": 27,
   "invocationsRun": 45,
   "accepted": 45,
@@ -43,7 +43,7 @@
       "timedOut": false,
       "accepted": true,
       "flagDefect": false,
-      "stderr": "reeflog: 425 events after cursor 0 → cursor now 425"
+      "stderr": "reeflog: 467 events after cursor 0 → cursor now 467"
     },
     {
       "line": 29,
@@ -327,8 +327,8 @@
     {
       "line": 1613,
       "command": "reeflog verify --db reeflog.db --pages 400",
-      "exitCode": null,
-      "timedOut": true,
+      "exitCode": 0,
+      "timedOut": false,
       "accepted": true,
       "flagDefect": false,
       "stderr": ""
@@ -336,11 +336,11 @@
     {
       "line": 1614,
       "command": "reeflog repair --db reeflog.db --pages 400 --anchor-slot 1",
-      "exitCode": 3,
-      "timedOut": false,
+      "exitCode": null,
+      "timedOut": true,
       "accepted": true,
       "flagDefect": false,
-      "stderr": "reeflog: repair pass INCOMPLETE — the journal may still hold holes"
+      "stderr": ""
     },
     {
       "line": 1614,
@@ -394,7 +394,7 @@
       "timedOut": false,
       "accepted": true,
       "flagDefect": false,
-      "stderr": "reeflog: 1000 events after cursor 425 → cursor now 1425"
+      "stderr": "reeflog: 1000 events after cursor 467 → cursor now 1467"
     },
     {
       "line": 1619,
