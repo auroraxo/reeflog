@@ -5,7 +5,7 @@ they did to account balances for selected programs into a cursor-addressed
 append-only log, so a consumer resumes without gaps after a crash,
 disconnect, or reorg.
 
-**Status: v0.7.19 shipped (2026-11-11), v0 working.** Live against mainnet-beta: see *Measured results* below. Install the binary without a Rust toolchain: `npm install github:auroraxo/reeflog#v0.7.19` then `import { bootstrap } from 'reeflog-client'; await bootstrap()` (downloads the prebuilt release archive and verifies its sha256). Or from source: `cargo install --git https://github.com/auroraxo/reeflog --tag v0.7.19`. The full event envelope (logs, balances, instructions, account list with owners, the bytes each account held, and the authority each token account had at the moment of the event), the Node client (see *The Node client*), webhook fan-out, a dead-letter queue, and archive backfill ship in this tree; Yellowstone as a second transport does not.
+**Status: v0.7.20 shipped (2026-11-12), v0 working.** Live against mainnet-beta: see *Measured results* below. Install the binary without a Rust toolchain: `npm install github:auroraxo/reeflog#v0.7.20` then `import { bootstrap } from 'reeflog-client'; await bootstrap()` (downloads the prebuilt release archive and verifies its sha256). Or from source: `cargo install --git https://github.com/auroraxo/reeflog --tag v0.7.20`. The full event envelope (logs, balances, instructions, account list with owners, the bytes each account held, and the authority each token account had at the moment of the event), the Node client (see *The Node client*), webhook fan-out, a dead-letter queue, and archive backfill ship in this tree; Yellowstone as a second transport does not.
 
 ## The idea
 
@@ -1659,7 +1659,7 @@ the `reeflog` binary, so there is exactly one implementation of the reader
 contract, and a library's idea of the schema cannot drift from the daemon's.
 
 ```bash
-npm install github:auroraxo/reeflog#v0.7.19   # the client ships from this repo
+npm install github:auroraxo/reeflog#v0.7.20   # the client ships from this repo
 ```
 
 The client needs the `reeflog` binary. `bootstrap()` gets it **without a
@@ -1764,6 +1764,22 @@ The rules the client enforces instead of leaving to the caller:
   CLI's own refusal (`no journal at … — run \`reeflog init …\``), plus
   `exitCode`, `stderr` and the `args`, so a caller can act on it rather than
   on a rephrased guess.
+- **Only the documented codes are verdicts.** The typed API accepts 0
+  (delivered), 1 (refused) and 3 (held/incomplete). Every OTHER close is a
+  refusal carrying the REAL code and the binary's last words: the
+  journal-write failure's `2`, an old binary's usage `64` (client/binary
+  version skew), a panic's `101`, and a kill by signal (the process died, so
+  there is no exit code at all — the refusal names the signal instead of
+  inventing one). Before v0.7.20 the client treated "not 1 and not 3" as
+  success, so a run that died AFTER printing its rows resolved as a
+  delivered batch (`held: null` = "fully delivered"), an old binary's usage
+  error resolved as a clean empty batch — and on the JSON commands it
+  crashed out of `JSON.parse` with a raw `SyntaxError` no `ReeflogError`
+  catch ever saw — and a SIGKILL'd run was dressed up as a forged `exit 1`
+  refusal naming no signal. Measured on the published v0.7.19 client:
+  `research/client-exit-voice-2026-11-12.json` (6/6 defect faces on the
+  baseline, 6/6 refused afterwards). `raw()` stays the escape hatch: there,
+  any code comes back as `{ exitCode }`.
 - **Cursors are the binary's.** The client only chooses a default path per
   db + channel + consumer label, so two consumers of one journal never share
   a cursor by accident; pass `cursor` to name it yourself.

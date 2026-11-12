@@ -57,8 +57,23 @@ export class ReeflogError extends Error {
 /** The single call everything else is built on: run the binary, collect
  *  stdout/stderr, and hand back { code, stdout, stderr, lines } with the
  *  refusal already classified. Nothing is thrown on exit 3 — the caller
- *  decides what "held" or "incomplete" means for its own channel. */
-function run(bin, args, { allowExit3 = false } = {}) {
+ *  decides what "held" or "incomplete" means for its own channel.
+ *
+ *  CLASSIFIED runs (the typed API above) accept only the codes the product's
+ *  contract defines: 0 delivered, 1 refused, 3 held/incomplete. Every other
+ *  close — the journal-write failure's exit 2, an old binary's usage exit 64
+ *  (version skew), a panic's 101, a kill by signal (close code null) — is a
+ *  REFUSAL carrying that code and the binary's last words. Before this rule
+ *  `run()` treated "not 1 and not 3" as success, so a run that died AFTER
+ *  printing rows resolved as a delivered batch (held:null = "fully
+ *  delivered"), and a SIGKILL'd child was dressed up as a forged "exit 1"
+ *  refusal that named no signal. Both faces measured on the published
+ *  v0.7.19 tree — research/client-exit-voice-2026-11-12.json.
+ *
+ *  `unclassified` (raw() only) keeps the documented escape hatch: the code
+ *  comes back as { exitCode } so a caller can implement semantics this file
+ *  does not know yet. */
+function run(bin, args, { allowExit3 = false, unclassified = false } = {}) {
   return new Promise((resolve, reject) => {
     const child = spawn(bin, args, { stdio: ['ignore', 'pipe', 'pipe'] });
     let stdout = '';
@@ -75,8 +90,18 @@ function run(bin, args, { allowExit3 = false } = {}) {
       }
       reject(new ReeflogError(`reeflog failed to start: ${e.message}`, { args }));
     });
-    child.on('close', (code) => {
-      const exitCode = code ?? 1;
+    child.on('close', (code, signal) => {
+      const exitCode = unclassified ? (code ?? 1) : code;
+      // A kill (SIGKILL, OOM, Ctrl-C) leaves code=null. The binary never
+      // refused anything — say who ended the run, with the stderr it did
+      // manage to write, instead of minting "exit 1".
+      if (!unclassified && code == null) {
+        reject(new ReeflogError(
+          `reeflog was killed by ${signal ?? 'an unknown signal'} — no verdict was produced${stderr.trim() ? `: ${stderr.trim()}` : ''}`,
+          { exitCode: null, stderr, args },
+        ));
+        return;
+      }
       if (exitCode === 1) {
         // The binary's own refusal, verbatim: "no journal at … — run
         // `reeflog init …`" and friends are the actionable part.
@@ -87,6 +112,22 @@ function run(bin, args, { allowExit3 = false } = {}) {
       if (exitCode === 3 && !allowExit3) {
         reject(new ReeflogError(
           `reeflog pass INCOMPLETE: ${stderr.trim()}`,
+          { exitCode, stderr, args },
+        ));
+        return;
+      }
+      if (!unclassified && exitCode !== 0 && exitCode !== 3) {
+        // The contract knows 0/1/3. Anything else is a crashed or mismatched
+        // run: name the REAL code and the binary's last words, so a version
+        // skew (usage text) or a journal-write failure reaches the caller
+        // instead of JSON.parse eating it or a zero-row batch passing as
+        // "delivered".
+        const first = stderr.split('\n').find((l) => l.trim()) || stderr.trim();
+        const hint = exitCode === 64
+          ? ' (64 = usage error — this binary does not know the invocation; check for client/binary version skew)'
+          : '';
+        reject(new ReeflogError(
+          `reeflog exited with code ${exitCode}${hint} — refusing to call it a verdict${first ? `: ${first}` : ''}`,
           { exitCode, stderr, args },
         ));
         return;
@@ -265,10 +306,12 @@ export class Reeflog {
   /**
    * Escape hatch: any documented command, raw. The exit code comes back
    * instead of being classified, so a caller can implement semantics this
-   * file does not know yet — without re-implementing the spawn.
+   * file does not know yet — without re-implementing the spawn. Codes the
+   * typed API refuses (2/64/101/signal) are still handed back here; that
+   * is the hatch's whole point.
    */
   async raw(args) {
-    return run(this.bin, args, { allowExit3: true });
+    return run(this.bin, args, { allowExit3: true, unclassified: true });
   }
 }
 

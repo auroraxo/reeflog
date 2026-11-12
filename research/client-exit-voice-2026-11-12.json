@@ -1,0 +1,165 @@
+{
+  "measuredAt": "2026-11-12T00:54:52.509Z",
+  "defect": "the client's run() classified only the documented codes (0/1/3) and treated every other close as SUCCESS: a run that died with the binary's journal-write code 2 AFTER printing rows resolved as a delivered batch; an old binary's usage exit 64 resolved as a clean empty tail (status crashed raw out of JSON.parse); a panic (101) after a printed report resolved as a clean scan; a kill by signal (close code null) was dressed up as a forged \"exit 1\" refusal naming no signal.",
+  "baseline": {
+    "tag": "v0.7.19",
+    "faces": [
+      {
+        "mode": "F1 tail crash-after-rows (exit 2)",
+        "outcome": "resolved",
+        "exitCode": 2,
+        "message": "{\"events\":[{\"seq\":1,\"signature\":\"sigA\",\"slot\":1,\"err\":null,\"logs\":[\"a\"]}],\"held\":null,\"cursor\":\"<tmpdir>/j.db.tail.default.cursor\",\"cursorValue\":0,\"exitCode\":2}",
+        "defect": true,
+        "fixed": false
+      },
+      {
+        "mode": "F1b status crash-after-rows (exit 2)",
+        "outcome": "resolved",
+        "exitCode": null,
+        "message": "{\"seq\":1,\"signature\":\"sigA\",\"slot\":1,\"err\":null,\"logs\":[\"a\"]}",
+        "defect": true,
+        "fixed": false
+      },
+      {
+        "mode": "F2 tail usage-skew (exit 64)",
+        "outcome": "resolved",
+        "exitCode": 64,
+        "message": "{\"events\":[],\"held\":null,\"cursor\":\"<tmpdir>/j.db.tail.default.cursor\",\"cursorValue\":0,\"exitCode\":64}",
+        "defect": true,
+        "fixed": false
+      },
+      {
+        "mode": "F2b status usage-skew (exit 64)",
+        "outcome": "raw-crash",
+        "exitCode": null,
+        "message": "Unexpected end of JSON input",
+        "defect": true,
+        "fixed": false
+      },
+      {
+        "mode": "F3 verify panic-after-report (exit 101)",
+        "outcome": "resolved",
+        "exitCode": null,
+        "message": "{\"verified\":true,\"missing\":[]}",
+        "defect": true,
+        "fixed": false
+      },
+      {
+        "mode": "F4 status killed-by-signal",
+        "outcome": "refused",
+        "exitCode": 1,
+        "message": "exit 1",
+        "defect": true,
+        "fixed": false
+      }
+    ],
+    "guards": [
+      {
+        "mode": "G1 healthy exit 0",
+        "outcome": "resolved",
+        "holds": true
+      },
+      {
+        "mode": "G2 exit 1 refusal",
+        "outcome": "refused",
+        "holds": true
+      },
+      {
+        "mode": "G3a tail exit 3 hold",
+        "outcome": "resolved",
+        "holds": true
+      },
+      {
+        "mode": "G3b verify exit 3 incomplete",
+        "outcome": "refused",
+        "holds": true
+      }
+    ],
+    "defectVisible": true,
+    "baselineDefectCount": 6,
+    "fixedCleanCount": 0,
+    "guardsHold": true
+  },
+  "fixed": {
+    "tag": "this-tree",
+    "faces": [
+      {
+        "mode": "F1 tail crash-after-rows (exit 2)",
+        "outcome": "refused",
+        "exitCode": 2,
+        "message": "reeflog exited with code 2 — refusing to call it a verdict: reeflog: journal write failed: disk i/o error",
+        "defect": false,
+        "fixed": true
+      },
+      {
+        "mode": "F1b status crash-after-rows (exit 2)",
+        "outcome": "refused",
+        "exitCode": 2,
+        "message": "reeflog exited with code 2 — refusing to call it a verdict: reeflog: journal write failed: disk i/o error",
+        "defect": false,
+        "fixed": true
+      },
+      {
+        "mode": "F2 tail usage-skew (exit 64)",
+        "outcome": "refused",
+        "exitCode": 64,
+        "message": "reeflog exited with code 64 (64 = usage error — this binary does not know the invocation; check for client/binary version skew) — refusing to call it a verdict: reeflog v0 - durable local mailbox",
+        "defect": false,
+        "fixed": true
+      },
+      {
+        "mode": "F2b status usage-skew (exit 64)",
+        "outcome": "refused",
+        "exitCode": 64,
+        "message": "reeflog exited with code 64 (64 = usage error — this binary does not know the invocation; check for client/binary version skew) — refusing to call it a verdict: reeflog v0 - durable local mailbox",
+        "defect": false,
+        "fixed": true
+      },
+      {
+        "mode": "F3 verify panic-after-report (exit 101)",
+        "outcome": "refused",
+        "exitCode": 101,
+        "message": "reeflog exited with code 101 — refusing to call it a verdict: thread 'main' panicked at src/journal.rs:42",
+        "defect": false,
+        "fixed": true
+      },
+      {
+        "mode": "F4 status killed-by-signal",
+        "outcome": "refused",
+        "exitCode": null,
+        "message": "reeflog was killed by SIGTERM — no verdict was produced",
+        "defect": true,
+        "fixed": true
+      }
+    ],
+    "guards": [
+      {
+        "mode": "G1 healthy exit 0",
+        "outcome": "resolved",
+        "holds": true
+      },
+      {
+        "mode": "G2 exit 1 refusal",
+        "outcome": "refused",
+        "holds": true
+      },
+      {
+        "mode": "G3a tail exit 3 hold",
+        "outcome": "resolved",
+        "holds": true
+      },
+      {
+        "mode": "G3b verify exit 3 incomplete",
+        "outcome": "refused",
+        "holds": true
+      }
+    ],
+    "defectVisible": true,
+    "baselineDefectCount": 1,
+    "fixedCleanCount": 6,
+    "guardsHold": true
+  },
+  "baselineShowsDefect": true,
+  "fixedClean": true,
+  "verdict": "contract-holds"
+}
