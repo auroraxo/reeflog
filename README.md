@@ -19,7 +19,7 @@ The same client from the tagged release:
 **Honest state:** it works, and it is measured — but so far every real
 consumer belongs to the project itself. There is no unaffiliated third-party
 user yet, and this README calls that what it is. The full measurement history
-lives in [docs/measured-history.md](docs/measured-history.md).
+lives in [docs/measured-history.md](https://github.com/auroraxo/reeflog/blob/main/docs/measured-history.md).
 
 ## Who this is for
 
@@ -144,7 +144,7 @@ reeflog start --db reeflog.db --webhook-config webhooks.json --webhook-every 5
 
 What a stranger's empty directory did with the published binary (full
 detail and every raw number in
-[docs/measured-history.md](docs/measured-history.md)):
+[docs/measured-history.md](https://github.com/auroraxo/reeflog/blob/main/docs/measured-history.md)):
 
 | Claim | Evidence |
 |---|---|
@@ -183,7 +183,7 @@ detail and every raw number in
 
 ## Deep dives
 
-- [docs/measured-history.md](docs/measured-history.md) — the complete
+- [docs/measured-history.md](https://github.com/auroraxo/reeflog/blob/main/docs/measured-history.md) — the complete
   README measurement and contract history through v0.7.24, unbroken.
 - [`research/`](research/) — every committed measurement artifact behind the
   numbers above (raw JSON reports, pinned by tests).
