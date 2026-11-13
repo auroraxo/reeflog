@@ -1,0 +1,42 @@
+{
+  "source": "published reeflog-client@0.7.22 tarball from registry.npmjs.org",
+  "measuredAt": "2026-11-13",
+  "manifestVersion": "0.7.22",
+  "distTags": {
+    "latest": "0.7.22"
+  },
+  "faces": [
+    {
+      "name": "G0 registry serves manifest version",
+      "ok": true,
+      "detail": "reeflog-client@0.7.22 tarball present"
+    },
+    {
+      "name": "D1 published README carries registry install command",
+      "ok": true,
+      "detail": "found"
+    },
+    {
+      "name": "D2 first install paragraph names the registry channel",
+      "ok": true,
+      "detail": "named"
+    },
+    {
+      "name": "G3 git-tag install path still documented",
+      "ok": true,
+      "detail": "present"
+    },
+    {
+      "name": "G4 published README does not deny npm publication",
+      "ok": true,
+      "detail": "no denial"
+    },
+    {
+      "name": "O1 registry name is ours",
+      "ok": true,
+      "detail": "maintainer \"sprintberlin <gregor.sprint@gmail.com>\" vs npm whoami \"sprintberlin\""
+    }
+  ],
+  "defects": 0,
+  "verdict": "registry-consistent"
+}

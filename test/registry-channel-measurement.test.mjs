@@ -11,7 +11,9 @@
 //      G0/G3/G4/O1 all green — the defect measured, not the channel broken;
 //   V2 the v0.7.21 artifact: verdict registry-consistent, 0 defects, all
 //      six faces green — the fix REACHED the published tarball;
-//   V3 the live user-zero artifact: 12/12 on the published 0.7.21, a real
+//   V2b the v0.7.22 artifact: the channel still names itself after the
+//      release that fixed the payload hold (0 defects, latest = 0.7.22);
+//   V3 the live user-zero artifact: 12/12 on the published 0.7.22, a real
 //      mainnet journal behind every read;
 //   V4 no host path in any artifact;
 //   F  falsification by construction: every face is compared with ===
@@ -26,7 +28,8 @@ const load = (name) => JSON.parse(fs.readFileSync(path.join(dir, name), 'utf8'))
 
 const before = load('registry-channel-v0720-2026-11-13.json');
 const after = load('registry-channel-v0721-2026-11-13.json');
-const live = load('registry-install-live-v0721-2026-11-13.json');
+const current = load('registry-channel-v0722-2026-11-13.json');
+const live = load('registry-install-live-v0722-2026-11-13.json');
 
 const face = (report, prefix) => report.faces.find((f) => f.name.startsWith(prefix));
 
@@ -53,9 +56,19 @@ test('V2: the v0.7.21 tarball measured registry-consistent — 0 defects, six fa
   assert.equal(after.distTags.latest, '0.7.21');
 });
 
-test('V3: the published 0.7.21 passed the live registry-install user-zero 12/12', () => {
-  assert.equal(live.package, 'reeflog-client@0.7.21');
-  assert.equal(live.installedVersion, '0.7.21');
+test('V2b: the v0.7.22 tarball measures registry-consistent — the channel names itself', () => {
+  assert.equal(current.source, 'published reeflog-client@0.7.22 tarball from registry.npmjs.org');
+  assert.equal(current.measuredAt, '2026-11-13');
+  assert.equal(current.verdict, 'registry-consistent');
+  assert.equal(current.defects, 0);
+  for (const f of current.faces) assert.equal(f.ok, true, `${f.name} must hold`);
+  assert.equal(current.faces.length, 6);
+  assert.equal(current.distTags.latest, '0.7.22');
+});
+
+test('V3: the published 0.7.22 passed the live registry-install user-zero 12/12', () => {
+  assert.equal(live.package, 'reeflog-client@0.7.22');
+  assert.equal(live.installedVersion, '0.7.22');
   assert.equal(live.verdict, 'all_pass');
   assert.equal(live.checks.length, 12);
   assert.ok(live.journalEvents > 0, 'every read was answered by a real mainnet journal');
@@ -71,7 +84,8 @@ test('V3: the published 0.7.21 passed the live registry-install user-zero 12/12'
 test('V4: no host path leaks into the artifacts', () => {
   for (const f of ['registry-channel-v0720-2026-11-13.json',
     'registry-channel-v0721-2026-11-13.json',
-    'registry-install-live-v0721-2026-11-13.json']) {
+    'registry-channel-v0722-2026-11-13.json',
+    'registry-install-live-v0722-2026-11-13.json']) {
     const text = fs.readFileSync(path.join(dir, f), 'utf8');
     assert.doesNotMatch(text, /\/home\/|\/Users\/|C:\\/, `${f} must not pin the claim to one machine`);
   }
