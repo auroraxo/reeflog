@@ -1360,7 +1360,12 @@ impl Journal {
             )
             .map_err(|e| e.to_string())?;
         let rows = stmt
-            .query_map(params![target, limit.max(1)], |r| {
+        // A zero limit means "list nothing" — measured on the published
+        // v0.7.25 binary, `limit.max(1)` made `dlq replay --limit 0`
+        // quarantine-move ONE letter: bytes left the machine on a pass
+        // explicitly asked to move nothing. `--limit 0` is a legal value
+        // (flags.rs NUMERIC); the journal must not rewrite it.
+            .query_map(params![target, limit.max(0)], |r| {
                 Ok(DeadLetterRow {
                     id: r.get(0)?,
                     target: r.get(1)?,

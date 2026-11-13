@@ -2045,6 +2045,26 @@ fn run_webhook_push(args: &[String]) {
         reports.push(rep);
     }
 
+    // The report describes the QUEUE, not the PAGE the `--limit` shaped
+    // (v0.7.12 rule, imported from `dlq replay`). Measured on the published
+    // v0.7.25 binary: 5 pending rows, `--limit 2`, `delivered: 2`, exit 0 —
+    // and NOTHING named the three rows still behind the cursor, so a cron
+    // reading the JSON believed the mailbox drained. Both numbers are
+    // journal facts read after the pass, never computed from the page.
+    let queue_truth: Vec<(i64, i64)> = reports
+        .iter()
+        .map(|r| {
+            (
+                j.events_after(r.next_seq, i64::MAX)
+                    .unwrap_or_else(|e| die(e))
+                    .len() as i64,
+                j.reorgs_after(r.next_reorg_id, i64::MAX)
+                    .unwrap_or_else(|e| die(e))
+                    .len() as i64,
+            )
+        })
+        .collect();
+
     let blocked = reports.iter().filter(|r| r.blocked()).count();
 
     // A quarantined event is not a blocked queue — but it is also not a
@@ -2081,12 +2101,20 @@ fn run_webhook_push(args: &[String]) {
     println!(
         "{}",
         serde_json::to_string_pretty(&json!({
-            "targets": reports.iter().map(|r| json!({
+            "targets": reports.iter().enumerate().map(|(i, r)| json!({
                 "target": r.target,
                 "delivered": r.delivered,
                 "reorg_delivered": r.reorg_delivered,
                 "failed": r.failed,
                 "dead_lettered": r.dead_lettered,
+                "page_limit": limit,
+                "remaining_behind_cursor": queue_truth[i].0,
+                "remaining_reorgs_behind_cursor": queue_truth[i].1,
+                // The PAGE stopped short of the QUEUE: remaining rows and no
+                // failure holding the pass. A blocked target is reported as
+                // blocked — naming that a limit cut it would send the
+                // operator looking at the wrong repair.
+                "truncated": queue_truth[i].0 + queue_truth[i].1 > 0 && !r.blocked(),
                 "dead_letters_pending": pending_per_target
                     .iter()
                     .find(|(id, _)| *id == r.target)
@@ -2100,6 +2128,7 @@ fn run_webhook_push(args: &[String]) {
                 "next_reorg_id": r.next_reorg_id,
             })).collect::<Vec<_>>(),
             "blocked_targets": blocked,
+            "truncated_targets": queue_truth.iter().filter(|(e, r)| e + r > 0).count(),
             "dead_letters_pending": pending_dead_letters,
             "orphaned_dead_letters": orphaned_pending.max(0),
         }))
@@ -2573,6 +2602,8 @@ fn usage_text() -> String {
     "  reeflog reorg check --db <file> [--limit N] [--rpc URL]\n",
     "  reeflog reorg tail  --db <file> --cursor <file> [--limit N]\n",
     "  reeflog webhook push   --db <file> --config <file> [--limit N]\n",
+    "               (--limit 0 attempts nothing; the report names the rows\n",
+    "               still behind the cursor)\n",
     "  reeflog webhook status --db <file> --config <file>\n",
     "  reeflog webhook dlq list   --db <file> --config <file> [--target <id>] [--limit N]\n",
     "  reeflog webhook dlq replay --db <file> --config <file> [--target <id>] [--limit N]\n",

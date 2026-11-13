@@ -537,7 +537,19 @@ pub fn deliver_events(
     rep.next_seq = next_seq;
     rep.next_reorg_id = next_reorg_id;
 
-    let rows = j.events_after(rep.next_seq, limit.max(1))?;
+    // `limit` is the operator's budget for THIS pass and is honoured as
+    // given. Measured on the published v0.7.25 binary: `limit.max(1)`
+    // rewrote `--limit 0` into one delivery per pass — bytes left the
+    // machine and the cursor moved on a pass explicitly asked to deliver
+    // nothing. `tail --limit 0` delivers zero rows (pinned legal by
+    // numeric_flag_domain.rs), and `--payload-limit 0` / `--repair-pages 0`
+    // are documented as "disable this pass": a zero the checker allows must
+    // not become a third thing that is neither the request nor the default.
+    let rows = if limit <= 0 {
+        Vec::new()
+    } else {
+        j.events_after(rep.next_seq, limit)?
+    };
     for r in &rows {
         // The payload debt rule, shared with `tail` (PULS AE): a row whose
         // payload the journal still OWES (`logs` null AND no recorded
@@ -679,7 +691,14 @@ pub fn deliver_reorgs(
     rep.next_seq = next_seq;
     rep.next_reorg_id = next_reorg_id;
 
-    let rows = j.reorgs_after(next_reorg_id, limit.max(1))?;
+    // Same budget rule as `deliver_events`: a zero limit attempts no
+    // retraction either (measured on the published v0.7.25 binary, where
+    // `limit.max(1)` sent one signed retraction per `--limit 0` pass).
+    let rows = if limit <= 0 {
+        Vec::new()
+    } else {
+        j.reorgs_after(next_reorg_id, limit)?
+    };
     for r in &rows {
         if j.webhook_delivered(&target.id, &target.url, "reorg", r.id)? {
             rep.next_reorg_id = r.id;
