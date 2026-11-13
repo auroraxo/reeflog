@@ -941,6 +941,19 @@ reeflog start --db reeflog.db --webhook-config webhooks.json --webhook-every 5
    `X-Reeflog-Event-Id` sees the same event it rejected (or missed), not a
    new one. A replay that is refused again stays in the queue and exits 3;
    nothing is ever dropped.
+8. **A failure that ended stops being reported.** `webhook status` carries
+   `last_error` — the reason the target's MOST RECENT delivery pass stopped.
+   Since v0.7.24 that reason belongs to the pass that produced it: the next
+   pass for that target clears it and re-sets it only if the pass stops
+   again. Measured on the published v0.7.23 asset
+   (`research/webhook-stale-error-published-v0723-2026-11-13.json`, verdict
+   `stale-error-verdict-present`): the endpoint refused once (`http 500`,
+   `push` exited 3), the next pass delivered everything and exited 0 — and
+   `webhook status` still said `http 500`. A monitoring caller that polls
+   the status alarmed forever on a failure that had ended, and an operator
+   repaired the same endpoint twice. A failure that still stands is
+   re-reported on every pass it still happens, so nothing is hidden: the
+   rule moves the verdict forward with the passes, it does not swallow it.
 
 ### Measured, against an independent receiver
 
