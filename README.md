@@ -5,7 +5,7 @@ they did to account balances for selected programs into a cursor-addressed
 append-only log, so a consumer resumes without gaps after a crash,
 disconnect, or reorg.
 
-**Status: v0.7.20 shipped (2026-11-12), v0 working.** Live against mainnet-beta: see *Measured results* below. Install the binary without a Rust toolchain: `npm install github:auroraxo/reeflog#v0.7.20` then `import { bootstrap } from 'reeflog-client'; await bootstrap()` (downloads the prebuilt release archive and verifies its sha256; the archive digests are `057bbb09…` linux / `4e5db1d0…` macos, both equal what the release API publishes). Or from source: `cargo install --git https://github.com/auroraxo/reeflog --tag v0.7.20`. The full event envelope (logs, balances, instructions, account list with owners, the bytes each account held, and the authority each token account had at the moment of the event), the Node client (see *The Node client*), webhook fan-out, a dead-letter queue, and archive backfill ship in this tree; Yellowstone as a second transport does not.
+**Status: v0.7.21 shipped (2026-11-13), v0 working.** Live against mainnet-beta: see *Measured results* below. Install the binary without a Rust toolchain: `npm install reeflog-client` then `import { bootstrap } from 'reeflog-client'; await bootstrap()` (downloads the prebuilt release archive and verifies its sha256). The same install from the tagged release: `npm install github:auroraxo/reeflog#v0.7.21`. Or from source: `cargo install --git https://github.com/auroraxo/reeflog --tag v0.7.21`. The full event envelope (logs, balances, instructions, account list with owners, the bytes each account held, and the authority each token account had at the moment of the event), the Node client (see *The Node client*), webhook fan-out, a dead-letter queue, and archive backfill ship in this tree; Yellowstone as a second transport does not.
 
 ## The idea
 
@@ -1659,7 +1659,8 @@ the `reeflog` binary, so there is exactly one implementation of the reader
 contract, and a library's idea of the schema cannot drift from the daemon's.
 
 ```bash
-npm install github:auroraxo/reeflog#v0.7.20   # the client ships from this repo
+npm install reeflog-client                     # the registry; this version, no Rust toolchain
+npm install github:auroraxo/reeflog#v0.7.21   # the same client from the tagged release
 ```
 
 The client needs the `reeflog` binary. `bootstrap()` gets it **without a
