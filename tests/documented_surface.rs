@@ -11,8 +11,8 @@
 //!
 //! So the claim is checked against the DOCUMENT, not against a list:
 //!
-//!   * every `reeflog ...` line in a fenced bash/sh block of README.md is
-//!     extracted;
+//!   * every `reeflog ...` (and the npm quickstart's `$BIN ...`) line in a
+//!     fenced bash/sh block of README.md is extracted;
 //!   * a line continuation (`... \`) joins with the next line;
 //!   * an optional bracket group `[--flag value]` is checked in BOTH forms —
 //!     with and without the group — because both are documented;
@@ -64,10 +64,29 @@ fn documented_commands(readme: &str) -> Vec<(usize, String)> {
         {
             continue;
         }
-        let Some(idx) = line.find("reeflog ") else {
+        // Both spellings of the same binary: `reeflog …` and the npm
+        // quickstart's `$BIN …` (BIN is the path bootstrap() prints). The
+        // landing page a stranger sees is the npm one — a line the flag
+        // parser refuses there is exactly the defect this test exists to
+        // catch, so `$BIN …` is normalized to `reeflog …` and checked too.
+        let indexed = if let Some(idx) = line.find("reeflog ") {
+            Some(idx)
+        } else if let Some(idx) = line.find("$BIN ") {
+            Some(idx)
+        } else {
+            None
+        };
+        let Some(idx) = indexed else {
             continue;
         };
-        let mut joined = line[idx..].trim().to_string();
+        let mut joined = if line[idx..].trim_start().starts_with("$BIN ") {
+            format!(
+                "reeflog {}",
+                line[idx + "$BIN ".len()..].trim()
+            )
+        } else {
+            line[idx..].trim().to_string()
+        };
         let mut j = i;
         loop {
             let trailing_backslash = joined.trim_end().ends_with('\\');
