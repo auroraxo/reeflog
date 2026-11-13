@@ -1,0 +1,93 @@
+{
+  "tool": "measure-payload-hold",
+  "measuredAt": "2026-11-13T03:47:58.247Z",
+  "tree": "fix-tree-v0.7.22",
+  "binary": "reeflog",
+  "binarySha256": "f2b1779638684996627ce65285b34ddb64c8803fc6e302b05820db9e478961b0",
+  "binaryVersion": "reeflog 0.7.22",
+  "verdict": "payload-hold-fixed",
+  "faces": [
+    {
+      "id": "F1",
+      "kind": "the owed row and the cursor past it",
+      "delivered": [
+        "SigOne1111111111111111111111111111111111111"
+      ],
+      "exitCode": 3,
+      "cursorAfter": 1,
+      "owedRowDelivered": false,
+      "owedRowPayload": "not delivered",
+      "cursorPastTheOwedRow": false,
+      "stderr": "reeflog: 1 events after cursor 0 → cursor now 1 (HELD at seq 2 SigTwo1111111111111111111111111111111111111: the payload is still owed — run `hydrate`; nothing at or after this row is consumed)"
+    },
+    {
+      "id": "F3",
+      "kind": "the hold is named, the cursor stays behind the owed row",
+      "exitCode": 3,
+      "namedTheHold": true,
+      "namesHydrate": true,
+      "cursorAfter": 1,
+      "cursorBehindTheOwedRow": true,
+      "stderr": "reeflog: 1 events after cursor 0 → cursor now 1 (HELD at seq 2 SigTwo1111111111111111111111111111111111111: the payload is still owed — run `hydrate`; nothing at or after this row is consumed)"
+    },
+    {
+      "id": "F2",
+      "kind": "the fill that arrives later reaches the SAME cursor",
+      "delivered": [
+        "SigTwo1111111111111111111111111111111111111",
+        "SigThree111111111111111111111111111111111111"
+      ],
+      "exitCode": 0,
+      "cursorAfter": 3,
+      "theFilledRowArrived": true,
+      "theFilledPayload": [
+        "log B paid"
+      ],
+      "stderr": "reeflog: 2 events after cursor 1 → cursor now 3"
+    },
+    {
+      "id": "F2b",
+      "kind": "a fresh cursor reads the very same row (the payload exists)",
+      "delivered": [
+        "SigOne1111111111111111111111111111111111111",
+        "SigTwo1111111111111111111111111111111111111",
+        "SigThree111111111111111111111111111111111111"
+      ],
+      "theFilledPayload": [
+        "log B paid"
+      ]
+    },
+    {
+      "id": "F4",
+      "kind": "a recorded outcome is delivered with its marker (guard)",
+      "exitCode": 0,
+      "delivered": [
+        "SigOne1111111111111111111111111111111111111",
+        "SigFour1111111111111111111111111111111111111",
+        "SigThree111111111111111111111111111111111111"
+      ],
+      "marker": {
+        "logs": null,
+        "payload_state": "unavailable"
+      },
+      "cursorAfter": 3
+    },
+    {
+      "id": "F5",
+      "kind": "--no-logs is never held (guard)",
+      "exitCode": 0,
+      "delivered": [
+        "SigOne1111111111111111111111111111111111111",
+        "SigTwo1111111111111111111111111111111111111"
+      ],
+      "cursorAfter": 2,
+      "compact": true
+    }
+  ],
+  "summary": {
+    "defectVisible": false,
+    "defectGone": true,
+    "fixedHolds": true,
+    "guardsGreen": true
+  }
+}

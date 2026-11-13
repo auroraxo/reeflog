@@ -6,7 +6,9 @@
 // couples the request to package.json, and package.json was the lying side.
 // This file pins the MEASUREMENT so the claim stays a measurement:
 //
-//   P1 the artifact exists and names the published v0.7.16 tree as baseline;
+//   P1 the artifact exists and names the published v0.7.16 tree as baseline
+//      (measuredAt moves with re-measurement, so it is pinned to a DATE
+//      SHAPE, not a literal — the baseline side is the claim under test);
 //   P2 the baseline faces: manifest 0.7.15 vs crate 0.7.16, requested tag
 //      v0.7.15, servesThePinnedRelease false — the defect, as measured;
 //   P3 the fixed faces: manifest == crate, requested tag v0.7.16,
@@ -33,7 +35,10 @@ const report = JSON.parse(fs.readFileSync(ART, 'utf8'));
 test('P1: the artifact names the published v0.7.16 tree as its baseline', () => {
   assert.match(report.source, /^published v0\.7\.16 release tree \(git archive v0\.7\.16\) vs this tree$/,
     'the measured seat is the PUBLISHED v0.7.16 tag tree, not a local checkout');
-  assert.equal(report.measuredAt, '2026-11-11');
+  // The fixed side is re-measured at every release bump (P3 reads the
+  // tree's own version), so the date moves with it — pin the shape, not
+  // the literal.
+  assert.match(report.measuredAt, /^2026-\d\d-\d\d$/);
 });
 
 test('P2: the baseline shows the lag — manifest 0.7.15, crate 0.7.16, requested v0.7.15', () => {
