@@ -21,6 +21,7 @@ const load = (name) => JSON.parse(fs.readFileSync(path.join(RESEARCH, name), 'ut
 
 const published = load('webhook-stale-error-published-v0723-2026-11-13.json');
 const fixed = load('webhook-stale-error-fixed-2026-11-13.json');
+const published24 = load('webhook-stale-error-published-v0724-2026-11-13.json');
 
 const face = (report, id) => {
   const f = report.faces.find((x) => x.id === id);
@@ -73,6 +74,17 @@ test('B4: the fix tree clears both standing verdicts', () => {
   assert.equal(s2.delivered, 1);
 });
 
+test('B5: the PUBLISHED v0.7.24 asset carries the fix (digest verified)', () => {
+  assert.equal(published24.verdict, 'stale-error-verdict-cleared');
+  assert.equal(published24.binaryVersion, 'reeflog 0.7.24');
+  assert.equal(published24.defectFaces.length, 0);
+  assert.deepEqual(published24.fixedFaces, ['S1', 'S2']);
+  assert.deepEqual(published24.guards, ['G1', 'G2']);
+  assert.deepEqual(published24.guardsBroken, []);
+  assert.match(published24.binarySha256, /^[0-9a-f]{64}$/);
+  assert.ok(!JSON.stringify(published24).includes('/tmp/'), 'artifact must not carry a host path');
+});
+
 test('G1: a standing failure is still reported (both trees)', () => {
   for (const report of [published, fixed]) {
     const g1 = face(report, 'G1');
@@ -91,7 +103,7 @@ test('G2: a target that never failed reports no error (both trees)', () => {
 });
 
 test('the measurement refuses a host path in either artifact', () => {
-  for (const report of [published, fixed]) {
+  for (const report of [published, fixed, published24]) {
     assert.ok(!JSON.stringify(report).includes('/tmp/'), `${report.tree}: no host path`);
     assert.match(report.binarySha256, /^[0-9a-f]{64}$/);
   }
