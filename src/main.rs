@@ -784,9 +784,14 @@ async fn run_start(args: &[String]) {
                             }
                             if r.blocked() {
                                 webhook_blocked += 1;
+                                // Name WHY: a queue held at an owed payload and
+                                // a queue stopped by a refused endpoint are
+                                // different problems with different repairs.
                                 eprintln!(
-                                    "reeflog: webhook {} blocked at seq {:?} — the event stays owed",
-                                    t.id, r.blocked_seq
+                                    "reeflog: webhook {} blocked at seq {:?} — the event stays owed: {}",
+                                    t.id,
+                                    r.blocked_seq,
+                                    r.blocked_error.as_deref().unwrap_or("unknown reason")
                                 );
                             }
                         }
@@ -2101,9 +2106,29 @@ fn run_webhook_push(args: &[String]) {
         .unwrap()
     );
     if blocked > 0 {
+        // Name WHY the queue stopped: a target held at an owed payload and a
+        // target refused by its endpoint are different problems with
+        // different repairs, and a single line for both leaves the operator
+        // guessing. The reason travels in the report above; here it travels
+        // in the line the operator actually reads.
+        let reasons: Vec<String> = reports
+            .iter()
+            .filter(|r| r.blocked())
+            .map(|r| {
+                format!(
+                    "{} at seq {:?}: {}",
+                    r.target,
+                    r.blocked_seq,
+                    r.blocked_error.as_deref().unwrap_or("unknown reason")
+                )
+            })
+            .collect();
         eprintln!(
             "reeflog: {blocked} target(s) blocked — delivery is at-least-once and in order, so the queue stops at the first failure; the failure is recorded, not swallowed"
         );
+        for reason in &reasons {
+            eprintln!("reeflog: blocked — {reason}");
+        }
         std::process::exit(3);
     }
     if pending_dead_letters > 0 {

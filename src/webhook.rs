@@ -532,6 +532,26 @@ pub fn deliver_events(
 
     let rows = j.events_after(rep.next_seq, limit.max(1))?;
     for r in &rows {
+        // The payload debt rule, shared with `tail` (PULS AE): a row whose
+        // payload the journal still OWES (`logs` null AND no recorded
+        // outcome) is a signature, not an event. Delivering it would hand
+        // the consumer a signed body with `logs: null`, advance this
+        // target's cursor past the seq, and leave a receipt — when
+        // `hydrate` later paid the debt, the finished event could never
+        // reach this consumer again (measured pre-fix: the receiver got the
+        // owed body, `next_seq` moved 0 -> 1, and the second pass delivered
+        // nothing). Same class as the account filter: HOLD. The queue stops
+        // at the row, the cursor stays behind it, the body is never sent,
+        // and the pass exits 3 like any other blocked target. A recorded
+        // outcome (`unavailable`/`invalid`) can never be filled, so it is
+        // delivered with its marker — an answer, not a debt.
+        if r.logs.is_none() && r.payload_state.is_none() {
+            let reason = "the payload is still owed — run `hydrate`".to_string();
+            j.webhook_set_error(&target.id, &target.url, Some(&reason))?;
+            rep.blocked_seq = Some(r.seq);
+            rep.blocked_error = Some(reason);
+            break;
+        }
         // A crash between "POST succeeded" and "cursor advanced" leaves a
         // receipt behind: skip the re-send instead of delivering twice.
         // The cursor holds the last seq that WAS handed over (it is the

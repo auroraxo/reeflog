@@ -5,7 +5,7 @@ they did to account balances for selected programs into a cursor-addressed
 append-only log, so a consumer resumes without gaps after a crash,
 disconnect, or reorg.
 
-**Status: v0.7.22 shipped (2026-11-13), v0 working.** Live against mainnet-beta: see *Measured results* below. Install the binary without a Rust toolchain: `npm install reeflog-client` then `import { bootstrap } from 'reeflog-client'; await bootstrap()` (downloads the prebuilt release archive and verifies its sha256; the archive digests are `747e2db8…` linux / `fc2bcecc…` macos, both equal what the release API publishes). The same install from the tagged release: `npm install github:auroraxo/reeflog#v0.7.22`. Or from source: `cargo install --git https://github.com/auroraxo/reeflog --tag v0.7.22`. The full event envelope (logs, balances, instructions, account list with owners, the bytes each account held, and the authority each token account had at the moment of the event), the Node client (see *The Node client*), webhook fan-out, a dead-letter queue, and archive backfill ship in this tree; Yellowstone as a second transport does not.
+**Status: v0.7.23 shipped (2026-11-13), v0 working.** Live against mainnet-beta: see *Measured results* below. Install the binary without a Rust toolchain: `npm install reeflog-client` then `import { bootstrap } from 'reeflog-client'; await bootstrap()` (downloads the prebuilt release archive and verifies its sha256; the archive digests are `747e2db8…` linux / `fc2bcecc…` macos, both equal what the release API publishes). The same install from the tagged release: `npm install github:auroraxo/reeflog#v0.7.23`. Or from source: `cargo install --git https://github.com/auroraxo/reeflog --tag v0.7.23`. The full event envelope (logs, balances, instructions, account list with owners, the bytes each account held, and the authority each token account had at the moment of the event), the Node client (see *The Node client*), webhook fan-out, a dead-letter queue, and archive backfill ship in this tree; Yellowstone as a second transport does not.
 
 ## The idea
 
@@ -883,7 +883,24 @@ reeflog start --db reeflog.db --webhook-config webhooks.json --webhook-every 5
    in chain order and never with a hole in front of it. It may see one
    twice; the stable id (`X-Reeflog-Event-Id: <target>:<kind>:<seq>`) is
    what a consumer dedups on for exactly-once.
-3. **The payload is authenticated.** Every request carries
+3. **A payload the journal still owes is not delivered.** A row whose
+   content the journal owes (`logs IS NULL AND payload_state IS NULL`) is a
+   signature, not an event — since v0.7.23 the event queue HOLDS at it:
+   rows before it are delivered, the target's cursor stays behind the owed
+   row, no receipt is written, `push` exits 3 naming `hydrate`, and once the
+   debt is paid the SAME target receives the row complete. Measured on the
+   published v0.7.22 asset (`research/webhook-payload-hold-baseline-v0722-
+   2026-11-13.json`, verdict `webhook-payload-hold-defect-present`): the
+   receiver got the owed row as a signed body with `logs: null`, `next_seq`
+   moved 0 → 1, a receipt was written, and the second pass after `hydrate`
+   delivered nothing — the finished event was permanently unreachable for
+   that consumer while a fresh target read it. This is the same rule
+   `tail` holds since v0.7.22, one channel over: the webhook body is
+   SIGNED, so a receiver cannot tell a signature without content from a
+   real event. A recorded outcome (`unavailable` / `invalid` / `no_metadata`)
+   is never held — it is an answer, not a debt — and retractions are never
+   held by this rule either.
+4. **The payload is authenticated.** Every request carries
    `X-Reeflog-Signature: sha256=<hex>` = HMAC-SHA256(secret, body) over the
    exact bytes sent (canonical JSON — `serde_json`'s sorted keys, so the same
    event always produces the same signature). The receiver checks it with
@@ -893,14 +910,14 @@ reeflog start --db reeflog.db --webhook-config webhooks.json --webhook-every 5
    import hmac, hashlib
    want = "sha256=" + hmac.new(secret, body, hashlib.sha256).hexdigest()
    ```
-4. **A retraction is delivered too**, on its own cursor, and it is delivered
+5. **A retraction is delivered too**, on its own cursor, and it is delivered
    *even when the event queue is blocked behind a refusal* — a retraction is
    the one message whose lateness costs money.
-5. **Receipts make the crash window safe.** The state (per-target cursor)
+6. **Receipts make the crash window safe.** The state (per-target cursor)
    and the receipts (which exact body was accepted, by sha256) live in the
    journal. A daemon that dies between "POST succeeded" and "cursor advanced"
    does not deliver the event twice on the next pass.
-6. **A refusal stops being a verdict only when it stops repeating.** One
+7. **A refusal stops being a verdict only when it stops repeating.** One
    4xx can be an accident (mid-deploy, a config reload), so the refusal is
    counted. After `dead_letter_after` refused attempts on the same event
    (default 5, `0` disables it) the event moves to the **dead-letter queue**:
@@ -1671,7 +1688,7 @@ contract, and a library's idea of the schema cannot drift from the daemon's.
 
 ```bash
 npm install reeflog-client                     # the registry; this version, no Rust toolchain
-npm install github:auroraxo/reeflog#v0.7.22   # the same client from the tagged release
+npm install github:auroraxo/reeflog#v0.7.23   # the same client from the tagged release
 ```
 
 The client needs the `reeflog` binary. `bootstrap()` gets it **without a
