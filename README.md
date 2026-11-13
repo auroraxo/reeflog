@@ -37,7 +37,7 @@ no data source on public RPC serves that), or a managed hosted feed
 ## Quickstart (verified run, ~1 minute)
 
 Everything below was executed against `api.mainnet-beta.solana.com` on
-2026-11-13 with the published v0.7.24 binary; your numbers will differ with
+2026-11-13 with the published v0.7.25 binary; your numbers will differ with
 chain traffic.
 
 ```bash

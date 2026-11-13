@@ -110,14 +110,39 @@ test('V3b: the published 0.7.24 passed the live registry-install user-zero 12/12
   for (const c of live24.checks) assert.equal(c.ok, true, `${c.name} must pass`);
 });
 
+test('V2e: the v0.7.25 tarball measures registry-consistent — 0 defects', () => {
+  const r = JSON.parse(fs.readFileSync(path.join(dir, 'registry-channel-v0725-2026-11-13.json'), 'utf8'));
+  assert.equal(r.source, 'published reeflog-client@0.7.25 tarball from registry.npmjs.org');
+  assert.equal(r.verdict, 'registry-consistent');
+  assert.equal(r.defects, 0);
+  for (const f of r.faces) assert.equal(f.ok, true, `${f.name} must hold`);
+  assert.equal(r.distTags.latest, '0.7.25');
+});
+
+test('V3c: the published 0.7.25 passed the live registry-install user-zero 12/12', () => {
+  const live25 = load('registry-install-live-v0725-2026-11-13.json');
+  assert.equal(live25.package, 'reeflog-client@0.7.25');
+  assert.equal(live25.installedVersion, '0.7.25');
+  assert.equal(live25.verdict, 'all_pass');
+  assert.equal(live25.checks.length, 12);
+  assert.ok(live25.journalEvents > 0, 'every read was answered by a real mainnet journal');
+  for (const c of live25.checks) assert.equal(c.ok, true, `${c.name} must pass`);
+  // The zero-dependency release still bootstraps the binary it names.
+  const bv = live25.checks.find((c) => c.name === 'binary_version_matches_manifest');
+  assert.equal(bv.ok, true);
+  assert.match(String(bv.detail), /0\.7\.25/);
+});
+
 test('V4: no host path leaks into the artifacts', () => {
   for (const f of ['registry-channel-v0720-2026-11-13.json',
     'registry-channel-v0721-2026-11-13.json',
     'registry-channel-v0722-2026-11-13.json',
     'registry-channel-v0723-2026-11-13.json',
     'registry-channel-v0724-2026-11-13.json',
+    'registry-channel-v0725-2026-11-13.json',
     'registry-install-live-v0723-2026-11-13.json',
-    'registry-install-live-v0724-2026-11-13.json']) {
+    'registry-install-live-v0724-2026-11-13.json',
+    'registry-install-live-v0725-2026-11-13.json']) {
     const text = fs.readFileSync(path.join(dir, f), 'utf8');
     assert.doesNotMatch(text, /\/home\/|\/Users\/|C:\\/, `${f} must not pin the claim to one machine`);
   }

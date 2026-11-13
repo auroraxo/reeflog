@@ -37,6 +37,7 @@ const load = (name) => JSON.parse(fs.readFileSync(path.join(dir, name), 'utf8'))
 
 const published = load('npm-self-dependency-published-v0724-2026-11-13.json');
 const fixed = load('npm-self-dependency-fixed-2026-11-13.json');
+const published25 = load('npm-self-dependency-published-v0725-2026-11-13.json');
 const face = (report, name) => report.faces[name];
 
 test('W1: the PUBLISHED 0.7.24 tarball measured self-dependency-present — 3 defect faces, guards green', () => {
@@ -98,8 +99,39 @@ test('W4: the fixed tree ships no dependencies at all', () => {
     'and the tree it was packed from declares none either');
 });
 
-test('W5: the artifacts name the bytes they saw, not a host path', () => {
-  for (const [name, report] of [['published', published], ['fixed', fixed]]) {
+test('W5: the PUBLISHED 0.7.25 tarball carries the fix — self-dependency-absent, 0 violations', () => {
+  assert.equal(published25.source,
+    'published reeflog-client@0.7.25 from registry.npmjs.org, installed into an empty app');
+  assert.equal(published25.verdict, 'self-dependency-absent');
+  assert.equal(published25.violationCount, 0);
+  assert.equal(published25.faces.D1_nested_self_copy_installed.violated, false,
+    'the published registry bytes install ONE copy');
+  assert.equal(published25.faces.D3_install_fails_without_git.violated, false,
+    'and the documented command works on a host with no git');
+  assert.deepEqual(published25.installedManifestDependencies, {},
+    'the published manifest declares no dependencies');
+  assert.equal(published25.publishedTarball.sha256,
+    '3b8416d6ce1cca2e2a85ca73dc875f3513b0005ba875795830eb2a6486e71423',
+    'the exact bytes measured are the exact bytes the registry serves');
+});
+
+test('W7: the live harness alone could NOT see this defect (the honest limit)', () => {
+  // Both releases pass the same live user-zero 12/12 — the harness only
+  // inspects the TOP-LEVEL copy, which worked on both. This is the reason
+  // the defect survived four releases while every user-zero stayed green:
+  // the failing host profile (no git) and the nested copy are outside it.
+  // A pin asserting "0.7.24 also passed" is what makes that claim
+  // falsifiable instead of narrative.
+  for (const f of ['registry-install-live-v0724-2026-11-13.json',
+    'registry-install-live-v0725-2026-11-13.json']) {
+    const r = load(f);
+    assert.equal(r.verdict, 'all_pass', `${f}: the harness passed on both releases`);
+    assert.equal(r.checks.length, 12);
+  }
+});
+
+test('W6: the artifacts name the bytes they saw, not a host path', () => {
+  for (const [name, report] of [['published', published], ['fixed', fixed], ['published25', published25]]) {
     assert.match(report.publishedTarball.sha256, /^[0-9a-f]{64}$/, `${name}: a real digest`);
     assert.ok(!JSON.stringify(report).includes('/tmp/'), `${name}: no host path`);
     assert.ok(!JSON.stringify(report).includes('/home/'), `${name}: no host path`);

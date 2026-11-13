@@ -2,12 +2,12 @@
   "package": "reeflog-client@0.7.24",
   "installedVersion": "0.7.24",
   "measuredAt": "2026-11-13",
-  "liveSeconds": 90,
+  "liveSeconds": 60,
   "program": "whirLbMiicVdio4qvUfM5KAg6Ct8VwpYzGff3uctyCc",
   "archiveDigestPrefix": "29e5c84a",
   "binarySha256Prefix": "ec5e3a54",
-  "journalEvents": 3409,
-  "journalMaxSeq": 3409,
+  "journalEvents": 3713,
+  "journalMaxSeq": 3713,
   "checks": [
     {
       "name": "registry_install_from_empty_app",
@@ -27,12 +27,12 @@
     {
       "name": "daemon_live_run",
       "ok": true,
-      "detail": "exit=0 after 91s against mainnet-beta"
+      "detail": "exit=0 after 80s against mainnet-beta"
     },
     {
       "name": "status_equals_cli",
       "ok": true,
-      "detail": "events=3409 max_seq=3409 equal=true"
+      "detail": "events=3713 max_seq=3713 equal=true"
     },
     {
       "name": "tail_strictly_increasing_seq",

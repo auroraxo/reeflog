@@ -1,0 +1,36 @@
+{
+  "measuredAt": "2026-11-13",
+  "source": "published reeflog-client@0.7.25 from registry.npmjs.org, installed into an empty app",
+  "defect": "the package declares a dependency on its own name resolved through github:, so every registry install also clones a second, older copy of itself over git+ssh, and fails outright on a host without git",
+  "faces": {
+    "D1_nested_self_copy_installed": {
+      "violated": false,
+      "detail": "no nested copy"
+    },
+    "D2_nested_copy_is_stale": {
+      "violated": false,
+      "detail": "n/a without a nested copy"
+    },
+    "D3_install_fails_without_git": {
+      "violated": false,
+      "detail": "exit 0, installed=true, stderr=n/a"
+    },
+    "G1_top_level_serves_requested_version": {
+      "holds": true,
+      "detail": "asked 0.7.25, got 0.7.25"
+    },
+    "G2_no_non_builtin_imports": {
+      "holds": true,
+      "detail": "only node: builtins"
+    }
+  },
+  "manifestDependencies": {},
+  "installedManifestDependencies": {},
+  "verdict": "self-dependency-absent",
+  "violationCount": 0,
+  "publishedTarball": {
+    "version": "0.7.25",
+    "sha256": "3b8416d6ce1cca2e2a85ca73dc875f3513b0005ba875795830eb2a6486e71423",
+    "origin": "registry.npmjs.org"
+  }
+}
