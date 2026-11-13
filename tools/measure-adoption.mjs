@@ -18,7 +18,9 @@
 //     the upstream list (MERGED means the channel delivered; it is NOT
 //     adoption by itself and the verdict says so).
 //  7. Classification, derived only from 1-6:
-//       user-one evidence : any non-owner star/fork/issue/PR
+//       user-one evidence : any non-owner star/fork, or a non-owner
+//           issue/PR that is USAGE evidence — unsolicited outreach and
+//           invitation issues are classified separately and never count
 //       distributed, not yet consumed: placement merged, but zero
 //           non-owner signals
 //       not distributed, not consumed: placement still open/none
@@ -28,6 +30,7 @@
 import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
+import { classifyExternalIssue, splitIssuesByUsage } from './adoption-classify.mjs';
 
 const REPO = process.env.ADOPTION_REPO || 'auroraxo/reeflog';
 const OWNER = process.env.ADOPTION_OWNER || REPO.split('/')[0];
@@ -82,20 +85,30 @@ checks.starForkCensus = {
   ok: true,
 };
 
-// ---- 3. issues and PRs, owner excluded ------------------------------------
-// GitHub's issues list includes PRs; both are outsider evidence.
+// ---- 3. issues and PRs, owner excluded, outreach separated ----------------
+// GitHub's issues list includes PRs; both are outsider evidence — but NOT
+// every outsider issue is a consumer. PULS AH caught this tool flipping to
+// user-one-evidence on issue #2 (webbeep, 2026-11-03): an unsolicited
+// outreach/invitation issue from a foreign agent promoting its own service.
+// The author never used reeflog; the [bot]-suffix filter did not catch it
+// because such senders omit the suffix. An invitation is marketing traffic,
+// not consumption, so it is classified apart and NEVER counts as a signal.
+//
+// classifyExternalIssue (imported from ./adoption-classify.mjs, unit-pinned
+// in test/adoption-outreach-classification.test.mjs) is deliberately
+// conservative: it only excludes an issue when the text itself identifies
+// it as an outreach/invitation. Genuine bug reports, feature requests and
+// PRs keep counting.
 const issues = gh([`repos/${REPO}/issues?state=all&per_page=100`]) || [];
-const externalIssues = issues.filter(
+const outsiderIssues = issues.filter(
   (i) => i.user && i.user.login !== OWNER && !i.user.login.endsWith('[bot]')
 );
+const { usage: usageIssues, outreach: outreachIssues } = splitIssuesByUsage(outsiderIssues);
+const externalIssues = usageIssues; // only usage issues are consumer evidence
 checks.issueCensus = {
   total: issues.length,
-  external: externalIssues.map((i) => ({
-    n: i.number,
-    author: i.user.login,
-    isPR: Boolean(i.pull_request),
-    title: i.title,
-  })),
+  external: usageIssues,
+  outreachExcluded: outreachIssues,
   ok: true,
 };
 
@@ -149,7 +162,7 @@ if (PLACEMENT_PR > 0) {
 const userOneSignals = [
   ...starLogins.map((l) => `star by ${l}`),
   ...forkLogins.map((l) => `fork by ${l}`),
-  ...externalIssues.map((i) => `${i.pull_request ? 'PR' : 'issue'} #${i.number} by ${i.user.login}`),
+  ...usageIssues.map((i) => `${i.isPR ? 'PR' : 'issue'} #${i.n} by ${i.author}`),
 ];
 let verdict;
 if (userOneSignals.length > 0) {
@@ -194,7 +207,13 @@ lines.push(`  repo: public=${checks.repoMetadata.public} license=${checks.repoMe
 lines.push(
   `  stars=${checks.starForkCensus.starsTotal} (non-owner: ${checks.starForkCensus.nonOwnerStars.length}) forks=${checks.starForkCensus.forksTotal} (non-owner: ${checks.starForkCensus.nonOwnerForks.length})`
 );
-lines.push(`  external issues/PRs: ${checks.issueCensus.external.length}`);
+lines.push(
+  `  external issues/PRs: ${checks.issueCensus.external.length}` +
+    (checks.issueCensus.outreachExcluded.length
+      ? ` (+${checks.issueCensus.outreachExcluded.length} outreach excluded: ` +
+        checks.issueCensus.outreachExcluded.map((i) => `#${i.n} ${i.author}`).join(', ') + ')'
+      : '')
+);
 lines.push(
   `  traffic 14d: views=${checks.traffic.views ? checks.traffic.views.count : '?'} uniques=${checks.traffic.views ? checks.traffic.views.uniques : '?'} clones=${checks.traffic.clones ? checks.traffic.clones.count : '?'} (CI-inflated)`
 );
