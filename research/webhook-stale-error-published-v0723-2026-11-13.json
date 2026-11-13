@@ -1,0 +1,60 @@
+{
+  "tool": "measure-webhook-stale-error",
+  "measuredAt": "2026-11-13T07:53:08.431Z",
+  "tree": "published-v0.7.23",
+  "binary": "reeflog",
+  "binarySha256": "e7aaf1f1d9bb18c976fc14b17b1175cfb71cf14045b62094b436e0f4ec40e4b1",
+  "binaryVersion": "reeflog 0.7.23",
+  "verdict": "stale-error-verdict-present",
+  "faces": [
+    {
+      "id": "G1",
+      "kind": "a standing failure IS reported (guard)",
+      "exitCode": 3,
+      "lastError": "http 500",
+      "reported": true
+    },
+    {
+      "id": "S1",
+      "kind": "a pass that delivers everything leaves no standing error behind",
+      "exitCode": 0,
+      "delivered": 2,
+      "lastError": "http 500",
+      "cursor": 2,
+      "standingError": true
+    },
+    {
+      "id": "S2",
+      "kind": "the paid hold does not stand as a failure any more",
+      "holdExitCode": 3,
+      "holdReason": "the payload is still owed — run `hydrate`",
+      "paidExitCode": 0,
+      "delivered": 1,
+      "lastError": "the payload is still owed — run `hydrate`",
+      "standingError": true
+    },
+    {
+      "id": "G2",
+      "kind": "a target that never failed reports no error (guard)",
+      "exitCode": 0,
+      "lastError": null,
+      "delivered": 1
+    }
+  ],
+  "defectFaces": [
+    "S1",
+    "S2"
+  ],
+  "fixedFaces": [],
+  "guards": [
+    "G1",
+    "G2"
+  ],
+  "guardsBroken": [],
+  "summary": {
+    "defectVisible": true,
+    "defectGone": false,
+    "standingFailureReported": true,
+    "cleanTargetSilent": true
+  }
+}
