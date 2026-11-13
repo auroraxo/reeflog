@@ -122,6 +122,77 @@ test('tail --with-accounts HOLDS at an owed row: before it delivered, at/after i
   fs.rmSync(dir, { recursive: true, force: true });
 });
 
+test('tail HOLDS at an owed PAYLOAD row: paid debt arrives on the same cursor', { skip: binaryMissing }, async () => {
+  const { dir, db } = tmpJournal('payload-held');
+  const conn = new DatabaseSync(db);
+  const now = Date.now();
+  // seq 1: payload held (deliverable)
+  conn.prepare(
+    `INSERT INTO events(signature, slot, err, logs, source, first_seen, payload_state)
+     VALUES (?, ?, NULL, ?, 'ws', ?, 'held')`,
+  ).run('done', 400000001, JSON.stringify(['a']), now);
+  // seq 2: payload NOT fetched yet -> the hold row (logs null, state null)
+  conn.prepare(
+    `INSERT INTO events(signature, slot, err, logs, source, first_seen)
+     VALUES (?, ?, NULL, NULL, 'ws', ?)`,
+  ).run('pending', 400000002, now);
+  // seq 3: deliverable, but it sits BEHIND the hold — must not be consumed
+  conn.prepare(
+    `INSERT INTO events(signature, slot, err, logs, source, first_seen, payload_state)
+     VALUES (?, ?, NULL, ?, 'ws', ?, 'held')`,
+  ).run('behind', 400000003, JSON.stringify(['c']), now);
+  conn.close();
+
+  const box = reeflog({ db, bin: BIN });
+  const r = await box.tail({ limit: 10 });
+  assert.equal(r.exitCode, EXIT.INCOMPLETE, 'an owed payload is exit 3, never success');
+  assert.deepEqual(r.events.map((e) => e.signature), ['done'], 'only the rows before the hold are delivered');
+  assert.ok(r.held, 'the hold must be reported to the caller');
+  assert.equal(r.held.seq, 2);
+  assert.equal(r.held.signature, 'pending');
+  assert.equal(r.cursorValue, 1, 'the cursor must not pass the owed row');
+
+  // pay the debt, then the SAME cursor must deliver the held row (and behind)
+  const conn2 = new DatabaseSync(db);
+  conn2.prepare(
+    "UPDATE events SET logs = ?, payload_state = 'held' WHERE signature = ?",
+  ).run(JSON.stringify(['b paid']), 'pending');
+  conn2.close();
+
+  const after = await box.tail({ limit: 10, cursor: r.cursor });
+  assert.equal(after.exitCode, EXIT.OK);
+  assert.deepEqual(after.events.map((e) => e.signature), ['pending', 'behind'], 'the owed row arrives once paid, nothing lost');
+  assert.equal(after.held, null);
+  assert.deepEqual(after.events[0].logs, ['b paid'], 'the DELIVERED row carries its payload');
+
+  const again = await box.tail({ limit: 10, cursor: after.cursor });
+  assert.equal(again.exitCode, EXIT.OK);
+  assert.equal(again.events.length, 0, 'no replay after delivery');
+
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test('a decided payload row is delivered WITH its marker, never held', { skip: binaryMissing }, async () => {
+  // Guard (green on both trees): recorded outcomes are answers, not debts.
+  const { dir, db } = tmpJournal('decided');
+  const conn = new DatabaseSync(db);
+  const now = Date.now();
+  conn.prepare(
+    `INSERT INTO events(signature, slot, err, logs, source, first_seen, payload_state)
+     VALUES (?, ?, NULL, NULL, 'ws', ?, 'unavailable')`,
+  ).run('forked', 400000004, now);
+  conn.close();
+
+  const box = reeflog({ db, bin: BIN });
+  const r = await box.tail({ limit: 10 });
+  assert.equal(r.exitCode, EXIT.OK, 'a decided row must not wedge the consumer');
+  assert.deepEqual(r.events.map((e) => e.signature), ['forked']);
+  assert.equal(r.events[0].logs, null);
+  assert.equal(r.events[0].payload_state, 'unavailable', 'the marker travels');
+  assert.equal(r.cursorValue, 1);
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
 test('the two channels keep separate cursors by default', { skip: binaryMissing }, async () => {
   const { dir, db } = tmpJournal('channels');
   const box = reeflog({ db, bin: BIN });

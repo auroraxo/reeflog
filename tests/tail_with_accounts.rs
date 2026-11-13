@@ -17,7 +17,9 @@
 //!   * recorded outcome (never fillable)      -> skip, report, consume
 //!
 //! Guards (must be green on BOTH trees): a row with a recorded outcome is
-//! still consumed, and plain `tail` (no filter) is completely unchanged.
+//! still consumed. Plain `tail` is NOT unchanged: v0.7.22 extended the same
+//! hold rule to its payload debt (`tests/tail_payload_hold.rs`); what stays
+//! unchanged is that the ACCOUNTS filter never leaks into it.
 
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
@@ -286,9 +288,12 @@ fn recorded_outcomes_are_consumed_not_held() {
 }
 
 #[test]
-fn plain_tail_is_unchanged() {
-    // GUARD: without the filter every row is delivered whatever its state —
-    // green on both trees, the filter change must not leak into the default.
+fn plain_tail_does_not_absorb_the_accounts_filter() {
+    // GUARD, updated with the payload-hold rule (v0.7.22): the ACCOUNTS
+    // filter must not leak into the default — a row that merely lacks an
+    // account envelope (`owed`) still travels on plain `tail`. The payload
+    // rule is shared: a row whose PAYLOAD is still owed holds here too
+    // (tests/tail_payload_hold.rs measures that loss on the old tree).
     let dir = setup(
         "plain-tail",
         &[
@@ -298,13 +303,25 @@ fn plain_tail_is_unchanged() {
         ],
     );
     let p = run(&dir, &["tail", "--db", "reeflog.db", "--cursor", "cursor.txt"]);
-    assert_eq!(p.status.code(), Some(0), "plain tail never blocks");
     assert_eq!(
-        delivered_signatures(&p).len(),
-        3,
-        "plain tail delivers every row and states each row's debt in-line"
+        p.status.code(),
+        Some(3),
+        "the owed PAYLOAD holds on the default path too: {}",
+        String::from_utf8_lossy(&p.stderr)
     );
-    assert_eq!(cursor_of(&dir), "3", "plain tail consumes everything it printed");
+    assert_eq!(
+        delivered_signatures(&p),
+        vec![
+            "SigOne1111111111111111111111111111111111111".to_string(),
+            "SigTwo1111111111111111111111111111111111111".to_string(),
+        ],
+        "an accounts-only debt is NOT held by plain tail — no filter leak"
+    );
+    assert_eq!(
+        cursor_of(&dir),
+        "2",
+        "plain tail consumes everything it printed, and stops before the pending payload"
+    );
 }
 
 #[test]

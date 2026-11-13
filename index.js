@@ -8,8 +8,9 @@
 // product:
 //
 //   exit 0 — the batch is fully delivered, the cursor advanced;
-//   exit 3 — the delivery HELD at a row whose account envelope is still owed
-//            (tail), or the scan proves nothing (verify/repair/hydrate).
+//   exit 3 — the delivery HELD at a row whose payload or account envelope is
+//            still owed (tail), or the scan proves nothing (verify/repair/
+//            hydrate).
 //            Rows before the hold WERE delivered; nothing at or after it was
 //            consumed. Treating exit 3 as "failure, retry the batch" replays
 //            rows; treating it as success silently drops the owed row;
@@ -199,8 +200,9 @@ export class Reeflog {
    * CONSUMED (delivered, or skipped because a recorded outcome made it
    * permanently undeliverable). On exit 3 the hold row and everything after
    * it are NOT consumed — the next call returns them once the debt is paid
-   * (`reeflog hydrate --accounts`), so nothing is ever lost to a consumer
-   * that acted on a partial batch.
+   * (`reeflog hydrate`, or `reeflog hydrate --accounts` for the account
+   * envelope), so nothing is ever lost to a consumer that acted on a partial
+   * batch.
    *
    * @param {object} [opts]
    * @param {number} [opts.limit=1000]

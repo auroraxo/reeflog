@@ -5,7 +5,7 @@ they did to account balances for selected programs into a cursor-addressed
 append-only log, so a consumer resumes without gaps after a crash,
 disconnect, or reorg.
 
-**Status: v0.7.21 shipped (2026-11-13), v0 working.** Live against mainnet-beta: see *Measured results* below. Install the binary without a Rust toolchain: `npm install reeflog-client` then `import { bootstrap } from 'reeflog-client'; await bootstrap()` (downloads the prebuilt release archive and verifies its sha256; the archive digests are `6bfec083…` linux / `303d0836…` macos, both equal what the release API publishes). The same install from the tagged release: `npm install github:auroraxo/reeflog#v0.7.21`. Or from source: `cargo install --git https://github.com/auroraxo/reeflog --tag v0.7.21`. The full event envelope (logs, balances, instructions, account list with owners, the bytes each account held, and the authority each token account had at the moment of the event), the Node client (see *The Node client*), webhook fan-out, a dead-letter queue, and archive backfill ship in this tree; Yellowstone as a second transport does not.
+**Status: v0.7.22 shipped (2026-11-13), v0 working.** Live against mainnet-beta: see *Measured results* below. Install the binary without a Rust toolchain: `npm install reeflog-client` then `import { bootstrap } from 'reeflog-client'; await bootstrap()` (downloads the prebuilt release archive and verifies its sha256; the archive digests are `6bfec083…` linux / `303d0836…` macos, both equal what the release API publishes). The same install from the tagged release: `npm install github:auroraxo/reeflog#v0.7.22`. Or from source: `cargo install --git https://github.com/auroraxo/reeflog --tag v0.7.22`. The full event envelope (logs, balances, instructions, account list with owners, the bytes each account held, and the authority each token account had at the moment of the event), the Node client (see *The Node client*), webhook fan-out, a dead-letter queue, and archive backfill ship in this tree; Yellowstone as a second transport does not.
 
 ## The idea
 
@@ -271,13 +271,24 @@ distinguishes four states:
   incomplete passes exit 3 (same honesty rule as `verify` and `repair`).
 
 `reeflog tail` delivers the log array by default; `--no-logs` keeps the
-compact identity-only shape. A background worker hydrates recovered rows
-continuously, beside the ingest loop — not once at startup, because the
-periodic repair pass keeps recovering rows while the daemon runs, and a
-killed run never reaches a shutdown pass. A final pass runs at shutdown.
-Verified live: `tools/e2e-payload.mjs` checks all 13 conditions against
-mainnet, including independent byte-for-byte comparison of stored payloads
-against freshly fetched transactions.
+compact identity-only shape. Since v0.7.22 the default (payload-bearing)
+tail shares the delivery rule the accounts filter already had: a row the
+payload queue still owes (`logs IS NULL AND payload_state IS NULL`) HOLDS
+the delivery — rows before it are handed over, the cursor stays behind the
+owed row, tail exits 3 naming `hydrate`, and the same cursor reads the row
+complete once the debt is paid. Measured on the pre-fix tree (v0.7.21):
+tail consumed a pending row, hydrate filled it, and the next pass reported
+`0 events after cursor 2` — the payload existed in the journal and never
+reached the consumer that had already been walked past it. Recorded
+outcomes (`unavailable` / `invalid`) are still delivered in-line with their
+marker — they are answers, not debts — and `--no-logs` callers are never
+held (they asked for identities only). A background worker hydrates
+recovered rows continuously, beside the ingest loop — not once at startup,
+because the periodic repair pass keeps recovering rows while the daemon
+runs, and a killed run never reaches a shutdown pass. A final pass runs at
+shutdown. Verified live: `tools/e2e-payload.mjs` checks all 13 conditions
+against mainnet, including independent byte-for-byte comparison of stored
+payloads against freshly fetched transactions.
 
 ## What the event did to accounts
 
@@ -1647,11 +1658,11 @@ is the harness's own).
 
 The CLI is a contract before it is a convenience: exit 0 delivers and
 advances the cursor, exit 3 (on `tail`) means the delivery **held** at a row
-whose account envelope is still owed — rows before it are delivered, nothing
-at or after it is consumed — and exit 1 is a refusal. A consumer that maps
-those three outcomes wrongly either replays rows forever or drops the owed
-row without ever seeing it. Until now every Node consumer had to derive that
-by hand.
+whose payload or account envelope is still owed — rows before it are
+delivered, nothing at or after it is consumed — and exit 1 is a refusal. A
+consumer that maps those three outcomes wrongly either replays rows forever
+or drops the owed row without ever seeing it. Until now every Node consumer
+had to derive that by hand.
 
 `index.js` (npm package `reeflog-client`, MIT, zero dependencies, Node ≥ 18)
 ships that mapping as one file. It never opens the journal — every call runs
@@ -1660,7 +1671,7 @@ contract, and a library's idea of the schema cannot drift from the daemon's.
 
 ```bash
 npm install reeflog-client                     # the registry; this version, no Rust toolchain
-npm install github:auroraxo/reeflog#v0.7.21   # the same client from the tagged release
+npm install github:auroraxo/reeflog#v0.7.22   # the same client from the tagged release
 ```
 
 The client needs the `reeflog` binary. `bootstrap()` gets it **without a
@@ -1809,10 +1820,11 @@ Checked on 2026-10-23: Solana client errors already name the failure modes, incl
 reeflog does not recover account bytes from before an event, and the account
 envelope is balance MOVEMENTS an event caused — not the state of the accounts
 involved. `tail --with-accounts` does not skip past a row whose envelope has
-not been fetched yet: it holds the cursor there and exits 3 until
-`hydrate --accounts` pays the debt, so an owed row can never be lost to the
-consumer. Rows the chain itself made unfillable are the only ones skipped,
-and each skip is reported. That is a different problem.
+not been fetched yet, and since v0.7.22 the default tail holds the same way
+for a row whose payload is still owed: the cursor stays, tail exits 3 until
+`hydrate` (or `hydrate --accounts`) pays the debt, so an owed row can never
+be lost to the consumer. Rows the chain itself made unfillable are the only
+ones skipped, and each skip is reported. That is a different problem.
 Public WebSocket endpoints are also rate-limited, so provider independence
 has to be real rather than assumed.
 

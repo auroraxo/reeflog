@@ -1265,7 +1265,7 @@ fn run_tail(args: &[String]) {
     let rows: Vec<EventRow> = j.events_after(after, limit).unwrap_or_else(|e| die(e));
     let mut delivered = 0usize;
     let mut skipped_final = 0usize;
-    let mut held: Option<&EventRow> = None;
+    let mut held: Option<(&EventRow, &'static str)> = None;
     // Consumed = delivered OR skipped as a recorded outcome. Held rows are
     // never consumed, so they never raise this.
     let mut last_consumed_seq = after;
@@ -1274,7 +1274,7 @@ fn run_tail(args: &[String]) {
             match classify_for_accounts_filter(r) {
                 AccountsFilter::Deliverable => {}
                 AccountsFilter::Held => {
-                    held = Some(r);
+                    held = Some((r, "the account envelope is still owed — run `hydrate --accounts`"));
                     break;
                 }
                 AccountsFilter::RecordedOutcome => {
@@ -1283,6 +1283,18 @@ fn run_tail(args: &[String]) {
                     continue;
                 }
             }
+        } else if with_logs && r.logs.is_none() && r.payload_state.is_none() {
+            // The payload-bearing default path owes this row its event
+            // content: `events_missing_payload` counts it, `hydrate` will
+            // fill it. Printing it now would hand the consumer a signature
+            // with `logs=null` AND advance the cursor past the seq — the
+            // filled payload could never reach this consumer again. Same
+            // rule as the accounts filter: hold, never consume.
+            held = Some((
+                r,
+                "the payload is still owed — run `hydrate`",
+            ));
+            break;
         }
         delivered += 1;
         last_consumed_seq = last_consumed_seq.max(r.seq);
@@ -1334,7 +1346,7 @@ fn run_tail(args: &[String]) {
     }
     eprintln!(
         "reeflog: {} events after cursor {after} → cursor now {}{}{}",
-        if only_with_accounts { delivered } else { rows.len() },
+        delivered,
         cursor_position(&cursor_path),
         if skipped_final > 0 {
             format!(" ({skipped_final} row(s) skipped: no account envelope and a recorded outcome — not fillable, consumed)")
@@ -1342,9 +1354,9 @@ fn run_tail(args: &[String]) {
             String::new()
         },
         match held {
-            Some(h) => format!(
-                " (HELD at seq {} {}: the account envelope is still owed — run `hydrate --accounts`; nothing at or after this row is consumed)",
-                h.seq, h.signature
+            Some((h, why)) => format!(
+                " (HELD at seq {} {}: {}; nothing at or after this row is consumed)",
+                h.seq, h.signature, why
             ),
             None => String::new(),
         }
