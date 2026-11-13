@@ -10,11 +10,11 @@ durable cursor, no catch-up. Every project rebuilds reconnect, dedup,
 gap-fill, and reorg handling, or silently loses events. reeflog makes that
 one daemon, one file, one cursor.
 
-**Status: v0.7.25 (2026-11-13), live against mainnet-beta — no Rust toolchain needed: `npm install reeflog-client`, then `import { bootstrap } from 'reeflog-client'; await bootstrap()` (downloads the prebuilt release archive and verifies its sha256 against what the GitHub release API publishes). The client itself is zero-dependency: one package, no `node_modules` of its own, and it installs without `git` on the machine.**
+**Status: v0.7.26 (2026-11-14), live against mainnet-beta — no Rust toolchain needed: `npm install reeflog-client`, then `import { bootstrap } from 'reeflog-client'; await bootstrap()` (downloads the prebuilt release archive and verifies its sha256 against what the GitHub release API publishes). The client itself is zero-dependency: one package, no `node_modules` of its own, and it installs without `git` on the machine.**
 
 The same client from the tagged release:
-`npm install github:auroraxo/reeflog#v0.7.25`. Or from source:
-`cargo install --git https://github.com/auroraxo/reeflog --tag v0.7.25`.
+`npm install github:auroraxo/reeflog#v0.7.26`. Or from source:
+`cargo install --git https://github.com/auroraxo/reeflog --tag v0.7.26`.
 
 **Honest state:** it works, and it is measured — but so far every real
 consumer belongs to the project itself. There is no unaffiliated third-party
@@ -180,6 +180,11 @@ detail and every raw number in
 - **A consumer must read the exit code.** `tail` exits 3 when a row's
   payload is still owed and holds the cursor there; treating every
   non-zero as "retry everything" replays forever. `exit 1` is a refusal.
+- **A `--limit` is a budget, not a hint, and the push report is the queue.**
+  `webhook push --limit 0` sends zero bytes and moves no cursor; a bounded
+  pass reports `remaining_behind_cursor` and `truncated` so a page can never
+  read as a drained mailbox (measured on the published v0.7.25 asset, fixed
+  in v0.7.26 — see the deep dive).
 - **The client is zero-dependency since v0.7.25.** Until then the npm
   manifest named *itself* as a dependency on github:, so every
   `npm install reeflog-client` also cloned a second, older copy of the
@@ -192,7 +197,7 @@ detail and every raw number in
 ## Deep dives
 
 - [docs/measured-history.md](https://github.com/auroraxo/reeflog/blob/main/docs/measured-history.md) — the complete
-  README measurement and contract history through v0.7.25, unbroken.
+  README measurement and contract history through v0.7.26, unbroken.
 - [`research/`](research/) — every committed measurement artifact behind the
   numbers above (raw JSON reports, pinned by tests).
 - [`tests/`](tests/) and [`test/`](test/) — the contract tests: the CLI

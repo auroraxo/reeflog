@@ -1384,6 +1384,73 @@ again, and the refusal voice stops naming the unreached count.
 The measurement is pinned by `tests/dlq_replay_page_measurement.rs` (5 tests,
 falsified two ways: count tampered → red, host path injected → red).
 
+### A `--limit 0` that delivers something, and a push report that describes the page
+
+Measured 2026-11-14 on the **published v0.7.25 asset** (archive sha256
+`b826cbcb14f436fb0168d94b4fa758159fab7674d364ea3d5f17f87ac986193e`, equal to
+the digest GitHub publishes for the release), against a receiver that answers
+200 to everything, on a journal holding 5 planted rows and 1 recorded
+retraction:
+
+```
+reeflog webhook push --db reeflog.db --config wh.json --limit 0
+```
+
+exited **0** and **POSTed one signed event per pass**: two passes with
+`--limit 0` consumed 2 of the 5 planted rows, moved the target cursor to
+`next_seq: 2`, and delivered no retraction only because none was attempted —
+the retraction channel bound the same budget. The cause is a rewrite of the
+operator's explicit number: `deliver_events` and `deliver_reorgs` bound
+`limit.max(1)`. The value is legal — `flags.rs` keeps `0` in the NUMERIC
+domain, `tail --limit 0` delivers **zero** rows (pinned by
+`tests/numeric_flag_domain.rs`), and `--payload-limit 0` / `--repair-pages 0`
+are documented as "disable this pass". A zero the checker allows must not
+become a third thing that is neither the request nor the default. Same
+class the repo closed for `timeout_ms: 0` in v0.7.20 ("silently rewritten to
+1 ms by the poster").
+
+The same rewrite stood in the dead-letter queue: `webhook dlq replay --limit 0`
+attempted **one** quarantined letter (measured: `replayed: 1`, one body left
+the machine, the letter left the queue) — bytes delivered on a pass that was
+explicitly asked to move nothing.
+
+And the page-vs-queue lie v0.7.12 removed from `dlq replay` was never
+imported into `push`: `webhook push --limit 2` against 5 pending rows exited
+**0** with `delivered: 2`, and **nothing in the report named the three rows
+behind the cursor** — no `remaining_behind_cursor`, no `truncated`. A cron
+reading that JSON believed the mailbox drained.
+
+The rule now:
+
+* `--limit 0` on `webhook push` attempts **nothing**: no body is sent, no
+  cursor moves, and the pass exits 0 (it did exactly what was asked). The
+  report states the budget it was given (`page_limit`) and the rows still
+  behind the cursor;
+* `--limit 0` on `webhook dlq replay` attempts no letter; the letters still
+  pending keep the pass at exit 3 naming them, as every never-reached page
+  already does;
+* every `webhook push` report carries `page_limit`,
+  `remaining_behind_cursor`, `remaining_reorgs_behind_cursor` and `truncated`
+  per target — journal facts read after the pass, so the page can never again
+  stand in for the queue. The exit code of a bounded pass that got through
+  stays 0 (unlike the dlq, the next `push` delivers the rest): the report
+  must stop pretending the page was the queue, not invent a new failure.
+
+Measured on both trees by `tools/measure-webhook-limit-zero.mjs`
+(`research/webhook-limit-zero-published-v0725-2026-11-14.json`,
+`research/webhook-limit-zero-fix-tree-2026-11-14.json`): the published
+v0.7.25 asset violates **3 of 3** defect faces (verdict `defect-present`),
+this tree violates **0 of 3** with both guards held (verdict
+`fixed-and-guards-held`) — a positive `--limit` still delivers exactly that
+many, and the default pass still drains the queue and says so.
+
+The gate is `tests/webhook_limit_zero.rs` (6 tests) and the ladder
+`tools/mutation-ladder-webhook-limit-zero.sh` (**5/5 mutations caught**):
+the event channel rewrites the zero into one delivery, the retraction
+channel rewrites the zero into one retraction, the DLQ listing rewrites the
+zero into one letter, the push report stops naming the rows behind the page,
+and the push report calls a short page untruncated.
+
 ### Limits
 
 No TLS client authentication and no per-target payload filtering yet; the
