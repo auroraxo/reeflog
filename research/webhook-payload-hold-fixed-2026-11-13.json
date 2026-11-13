@@ -1,0 +1,76 @@
+{
+  "tool": "measure-webhook-payload-hold",
+  "measuredAt": "2026-11-13T06:11:59.653Z",
+  "tree": "this-tree",
+  "binary": "reeflog",
+  "binarySha256": "b0c556575dedb7a0041b4c3862bdc9005b6a4a24869d0b2353a29daef0523779",
+  "binaryVersion": "reeflog 0.7.23",
+  "verdict": "webhook-payload-hold-fixed",
+  "faces": [
+    {
+      "id": "W1",
+      "kind": "the owed row is posted and consumed",
+      "posted": [
+        "SigOne1111111111111111111111111111111111111"
+      ],
+      "exitCode": 3,
+      "nextSeq": 1,
+      "receipts": 1,
+      "owedRowPosted": false,
+      "cursorPastTheOwedRow": false,
+      "owedPayloadInBody": "not posted"
+    },
+    {
+      "id": "W3",
+      "kind": "the hold is named and the cursor stays behind the owed row",
+      "exitCode": 3,
+      "namedTheHold": true,
+      "namesHydrate": true,
+      "stderr": "reeflog: 1 target(s) blocked — delivery is at-least-once and in order, so the queue stops at the first failure; the failure is recorded, not swallowed\nreeflog: blocked — t1 at seq Some(2): the payload is still owed — run",
+      "cursorAfter": 1,
+      "cursorBehindTheOwedRow": true
+    },
+    {
+      "id": "W2",
+      "kind": "the fill that arrives later reaches the SAME target",
+      "posted": [
+        "SigTwo1111111111111111111111111111111111111"
+      ],
+      "exitCode": 0,
+      "theFilledRowArrived": true,
+      "theFilledPayload": [
+        "log B paid"
+      ],
+      "nextSeq": 2,
+      "receipts": 2
+    },
+    {
+      "id": "G1",
+      "kind": "a full row still delivers and receipts (guard)",
+      "posted": [
+        "SigOne1111111111111111111111111111111111111"
+      ],
+      "exitCode": 0,
+      "nextSeq": 1,
+      "receipts": 1
+    },
+    {
+      "id": "G2",
+      "kind": "a recorded outcome is delivered with its marker (guard)",
+      "posted": [
+        "SigOne1111111111111111111111111111111111111",
+        "SigTwo1111111111111111111111111111111111111"
+      ],
+      "exitCode": 0,
+      "marker": {
+        "logs": null,
+        "payload_state": "unavailable"
+      }
+    }
+  ],
+  "summary": {
+    "defectVisible": false,
+    "fixedHolds": true,
+    "guardsGreen": true
+  }
+}

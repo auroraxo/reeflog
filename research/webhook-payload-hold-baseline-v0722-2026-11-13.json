@@ -1,0 +1,73 @@
+{
+  "tool": "measure-webhook-payload-hold",
+  "measuredAt": "2026-11-13T06:12:00.680Z",
+  "tree": "published-v0.7.22",
+  "binary": "reeflog",
+  "binarySha256": "1c43c8f7fe8b2a7c29d782ea6cb2db1dc7b1c22dfae7263626fdf8911980b6e8",
+  "binaryVersion": "reeflog 0.7.22",
+  "verdict": "webhook-payload-hold-defect-present",
+  "faces": [
+    {
+      "id": "W1",
+      "kind": "the owed row is posted and consumed",
+      "posted": [
+        "SigOne1111111111111111111111111111111111111",
+        "SigTwo1111111111111111111111111111111111111"
+      ],
+      "exitCode": 0,
+      "nextSeq": 2,
+      "receipts": 2,
+      "owedRowPosted": true,
+      "cursorPastTheOwedRow": true,
+      "owedPayloadInBody": null
+    },
+    {
+      "id": "W3",
+      "kind": "the hold is named and the cursor stays behind the owed row",
+      "exitCode": 0,
+      "namedTheHold": false,
+      "namesHydrate": false,
+      "stderr": "",
+      "cursorAfter": 2,
+      "cursorBehindTheOwedRow": false
+    },
+    {
+      "id": "W2",
+      "kind": "the fill that arrives later reaches the SAME target",
+      "posted": [],
+      "exitCode": 0,
+      "theFilledRowArrived": false,
+      "theFilledPayload": "never delivered",
+      "nextSeq": 2,
+      "receipts": 2
+    },
+    {
+      "id": "G1",
+      "kind": "a full row still delivers and receipts (guard)",
+      "posted": [
+        "SigOne1111111111111111111111111111111111111"
+      ],
+      "exitCode": 0,
+      "nextSeq": 1,
+      "receipts": 1
+    },
+    {
+      "id": "G2",
+      "kind": "a recorded outcome is delivered with its marker (guard)",
+      "posted": [
+        "SigOne1111111111111111111111111111111111111",
+        "SigTwo1111111111111111111111111111111111111"
+      ],
+      "exitCode": 0,
+      "marker": {
+        "logs": null,
+        "payload_state": "unavailable"
+      }
+    }
+  ],
+  "summary": {
+    "defectVisible": true,
+    "fixedHolds": false,
+    "guardsGreen": true
+  }
+}
