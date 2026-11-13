@@ -1,6 +1,6 @@
 [package]
 name = "reeflog"
-version = "0.7.24"
+version = "0.7.25"
 edition = "2021"
 description = "Durable local mailbox for Solana events: journal, seal, cursor resume, gap reporting."
 license = "MIT"

@@ -1,0 +1,36 @@
+{
+  "measuredAt": "2026-11-13",
+  "source": "fixed tree: npm pack of this tree (0.7.25), installed into an empty app",
+  "defect": "the package declares a dependency on its own name resolved through github:, so every registry install also clones a second, older copy of itself over git+ssh, and fails outright on a host without git",
+  "faces": {
+    "D1_nested_self_copy_installed": {
+      "violated": false,
+      "detail": "no nested copy"
+    },
+    "D2_nested_copy_is_stale": {
+      "violated": false,
+      "detail": "n/a without a nested copy"
+    },
+    "D3_install_fails_without_git": {
+      "violated": false,
+      "detail": "exit 0, installed=true, stderr=n/a"
+    },
+    "G1_top_level_serves_requested_version": {
+      "holds": true,
+      "detail": "asked 0.7.25, got 0.7.25"
+    },
+    "G2_no_non_builtin_imports": {
+      "holds": true,
+      "detail": "only node: builtins"
+    }
+  },
+  "manifestDependencies": {},
+  "installedManifestDependencies": {},
+  "verdict": "self-dependency-absent",
+  "violationCount": 0,
+  "publishedTarball": {
+    "version": "0.7.25",
+    "sha256": "34704d7099920b6463772aa2b72a3fb509f71088773aa7dd89ffad0b5ebd59c6",
+    "origin": "local npm pack of this tree"
+  }
+}

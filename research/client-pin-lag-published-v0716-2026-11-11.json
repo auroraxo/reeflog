@@ -10,9 +10,9 @@
     "servesThePinnedRelease": false
   },
   "fixed": {
-    "manifest": "0.7.24",
-    "crate": "0.7.24",
-    "requestedTag": "v0.7.24",
+    "manifest": "0.7.25",
+    "crate": "0.7.25",
+    "requestedTag": "v0.7.25",
     "error": null,
     "servesThePinnedRelease": true
   },

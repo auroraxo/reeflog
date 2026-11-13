@@ -1,5 +1,5 @@
 > **Archived measurement history.** This file preserves the full, unabridged
-> measurement and contract history of the reeflog README up to v0.7.24
+> measurement and contract history of the reeflog README up to v0.7.25
 > (2026-11-13), moved here verbatim when the front page became a short
 > landing page. Every number, artifact reference and measured claim below is
 > kept as it was written. Paths like `research/…`, `tests/…`, `tools/…` are
@@ -1850,6 +1850,64 @@ plus the dead-letter queue (`reeflog webhook dlq list` / `replay`) for a
 target that refuses one event instead of holding its queue forever. Archive
 backfill (`verify --anchor-slot` / `repair --anchor-slot`) ships as well,
 anchored at finalized blocks for holes deeper than the tip-walk window.
+
+## The package that depended on itself (v0.7.25)
+
+The channel that carries the client claimed a second copy of the client.
+Since `cda750c` (v0.7.21) `package.json` carried
+
+```json
+"dependencies": { "reeflog-client": "github:auroraxo/reeflog#v0.7.20" }
+```
+
+— the package declaring a dependency on **its own name**, resolved through
+git. Nothing needed it: every import in `index.js` is a `node:` builtin. It
+was added to make the release's own client reachable by name and then
+bumped, release after release, alongside the version, so each tag pointed
+at the tag before it and nobody looked at what the install actually does.
+
+Measured against the **published** 0.7.24 bytes with
+`tools/measure-npm-self-dependency.mjs` — a real `npm install
+reeflog-client` into an empty app, the command the README leads with
+(`research/npm-self-dependency-published-v0724-2026-11-13.json`, tarball
+sha256 `81c21326…`, verdict `self-dependency-present`, 3/3 defect faces):
+
+* **D1** the install writes a SECOND copy of reeflog-client under the first
+  (`node_modules/reeflog-client/node_modules/reeflog-client`); npm answers
+  "added 2 packages" for a zero-dependency client;
+* **D2** that nested copy is a DIFFERENT, older release — 0.7.22 beneath
+  0.7.24 — fetched over `git+ssh://git@github.com/auroraxo/reeflog.git`, so
+  the install that starts on the npm registry leaves it mid-flight, and the
+  stale copy carries a README one release behind (no contract point 3);
+* **D3** on a host with no `git` on PATH — a minimal container, `node:alpine`,
+  a locked-down CI image — the same documented command **fails outright**:
+  `npm error code ENOENT / syscall spawn git`, exit 254, nothing installed.
+  The promise the package is built on, "no Rust toolchain needed", had
+  quietly become "and you need git".
+
+The rule now: the client ships with no dependencies at all. `npm install
+reeflog-client` resolves one package from one registry, needs no git, no
+SSH key against my repository, and no second copy of itself.
+
+Fixed test-first: `test/npm-self-dependency.test.mjs` (5 — T1/T2/T3 red
+before, green after; T4/T5 hold on both sides, pinning that B10's
+crate/manifest coupling survives and that nothing at runtime needed the
+dependency). `test/npm-self-dependency-measurement.test.mjs` (5) pins both
+artifacts. `tools/mutation-ladder-npm-self-dependency.sh` 4/4 CAUGHT (the
+github: pin returns, the pin points at the current release, the self-dep
+returns as a registry range, a foreign dependency appears), control green,
+tree byte-identical. Re-measured on the packed 0.7.25 tarball
+(`research/npm-self-dependency-fixed-2026-11-13.json`): verdict
+`self-dependency-absent`, 0 violations, install succeeds without git
+(exit 0), guards green.
+
+The class is worth naming, because it is this project's own recurring one:
+the surface a stranger touches was never the surface the release process
+touched. `npm test` ran against the checkout, where the extra dependency is
+invisible; only `npm install reeflog-client` — the thing a stranger types —
+can see it. Every earlier release's user-zero harness installed by name and
+still passed 12/12, because the *top-level* copy worked; the defect lived
+one directory deeper and in the one host profile the harness did not model.
 
 ## Evidence and limits
 
