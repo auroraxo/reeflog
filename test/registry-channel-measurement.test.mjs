@@ -29,7 +29,8 @@ const load = (name) => JSON.parse(fs.readFileSync(path.join(dir, name), 'utf8'))
 const before = load('registry-channel-v0720-2026-11-13.json');
 const after = load('registry-channel-v0721-2026-11-13.json');
 const current = load('registry-channel-v0722-2026-11-13.json');
-const live = load('registry-install-live-v0722-2026-11-13.json');
+const latest = load('registry-channel-v0723-2026-11-13.json');
+const live = load('registry-install-live-v0723-2026-11-13.json');
 
 const face = (report, prefix) => report.faces.find((f) => f.name.startsWith(prefix));
 
@@ -66,9 +67,17 @@ test('V2b: the v0.7.22 tarball measures registry-consistent — the channel name
   assert.equal(current.distTags.latest, '0.7.22');
 });
 
-test('V3: the published 0.7.22 passed the live registry-install user-zero 12/12', () => {
-  assert.equal(live.package, 'reeflog-client@0.7.22');
-  assert.equal(live.installedVersion, '0.7.22');
+test('V2c: the v0.7.23 tarball measures registry-consistent — 0 defects', () => {
+  assert.equal(latest.source, 'published reeflog-client@0.7.23 tarball from registry.npmjs.org');
+  assert.equal(latest.verdict, 'registry-consistent');
+  assert.equal(latest.defects, 0);
+  for (const f of latest.faces) assert.equal(f.ok, true, `${f.name} must hold`);
+  assert.equal(latest.distTags.latest, '0.7.23');
+});
+
+test('V3: the published 0.7.23 passed the live registry-install user-zero 12/12', () => {
+  assert.equal(live.package, 'reeflog-client@0.7.23');
+  assert.equal(live.installedVersion, '0.7.23');
   assert.equal(live.verdict, 'all_pass');
   assert.equal(live.checks.length, 12);
   assert.ok(live.journalEvents > 0, 'every read was answered by a real mainnet journal');
@@ -85,7 +94,8 @@ test('V4: no host path leaks into the artifacts', () => {
   for (const f of ['registry-channel-v0720-2026-11-13.json',
     'registry-channel-v0721-2026-11-13.json',
     'registry-channel-v0722-2026-11-13.json',
-    'registry-install-live-v0722-2026-11-13.json']) {
+    'registry-channel-v0723-2026-11-13.json',
+    'registry-install-live-v0723-2026-11-13.json']) {
     const text = fs.readFileSync(path.join(dir, f), 'utf8');
     assert.doesNotMatch(text, /\/home\/|\/Users\/|C:\\/, `${f} must not pin the claim to one machine`);
   }

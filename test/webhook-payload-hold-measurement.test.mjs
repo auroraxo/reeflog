@@ -35,6 +35,7 @@ const load = (name) => JSON.parse(fs.readFileSync(path.join(dir, name), 'utf8'))
 
 const base = load('webhook-payload-hold-baseline-v0722-2026-11-13.json');
 const fix = load('webhook-payload-hold-fixed-2026-11-13.json');
+const published = load('webhook-payload-hold-published-v0723-2026-11-13.json');
 
 const face = (report, id) => report.faces.find((f) => f.id === id);
 
@@ -108,8 +109,28 @@ test('F2: the guards stayed green on the fix tree', () => {
   assert.deepEqual(g2.marker, { logs: null, payload_state: 'unavailable' });
 });
 
+test('F3: the PUBLISHED v0.7.23 asset measures webhook-payload-hold-fixed', () => {
+  // The fix must be in the bytes a stranger downloads, not only in the tree.
+  assert.equal(published.verdict, 'webhook-payload-hold-fixed');
+  assert.equal(published.binaryVersion, 'reeflog 0.7.23');
+  assert.equal(
+    published.binarySha256,
+    'e7aaf1f1d9bb18c976fc14b17b1175cfb71cf14045b62094b436e0f4ec40e4b1',
+    'the measured binary is the extracted published asset'
+  );
+  assert.equal(published.summary.fixedHolds, true);
+  assert.equal(published.summary.guardsGreen, true);
+  const w1 = face(published, 'W1');
+  assert.equal(w1.owedRowPosted, false);
+  assert.equal(w1.cursorPastTheOwedRow, false);
+  assert.equal(w1.exitCode, 3);
+  const w2 = face(published, 'W2');
+  assert.equal(w2.theFilledRowArrived, true);
+  assert.deepEqual(w2.theFilledPayload, ['log B paid']);
+});
+
 test('H: no artifact carries a host path', () => {
-  for (const [name, report] of [['baseline', base], ['fix', fix]]) {
+  for (const [name, report] of [['baseline', base], ['fix', fix], ['published', published]]) {
     const text = JSON.stringify(report);
     assert.equal(
       /\/home\/|\/Users\/|\/tmp\//.test(text),
