@@ -1161,6 +1161,25 @@ impl Journal {
         Ok(())
     }
 
+    /// Forget a target's standing error at the START of its next delivery
+    /// pass. `last_error` is the reason the PREVIOUS pass stopped — carrying
+    /// it forward after a pass that no longer fails reports a target as
+    /// stuck when it is not (measured on the published v0.7.23 binary:
+    /// pass 1 refused (`http 500`), pass 2 delivered everything and exited 0,
+    /// and `webhook status` still said `http 500` — a monitoring caller
+    /// alarms forever on a failure that ended). The field is re-set by any
+    /// block in THIS pass, so a failure that stands is reported on every
+    /// pass it still happens; only a pass that gets through leaves it null.
+    pub fn webhook_clear_error(&self, target: &str) -> Result<(), String> {
+        self.db
+            .execute(
+                "UPDATE webhook_state SET last_error = NULL WHERE target = ?1",
+                params![target],
+            )
+            .map_err(|e| e.to_string())?;
+        Ok(())
+    }
+
     /// Has this event (or retraction) already been handed over to this
     /// target AT THIS ENDPOINT? A `true` here means: do not send it again.
     /// A receipt written for one url can never silence a delivery to

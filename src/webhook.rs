@@ -526,6 +526,13 @@ pub fn deliver_events(
     // config carries. A repointed id is refused before a single byte moves;
     // see `bind_endpoint`.
     bind_endpoint(j, target)?;
+    // This pass decides the target's standing verdict anew: the previous
+    // pass's stop reason is cleared first and re-set by any block below, so
+    // a standing failure is reported on every pass it still happens while a
+    // pass that gets through leaves `webhook status` with no error behind
+    // (PULS AG). Cleared AFTER the binding: a target that refuses to run
+    // keeps the verdict it already has.
+    j.webhook_clear_error(&target.id)?;
     let (next_seq, next_reorg_id) = j.webhook_state(&target.id)?.unwrap_or((0, 0));
     rep.next_seq = next_seq;
     rep.next_reorg_id = next_reorg_id;
