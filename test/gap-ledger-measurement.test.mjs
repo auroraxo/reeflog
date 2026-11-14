@@ -21,6 +21,7 @@ const load = (name) => JSON.parse(fs.readFileSync(path.join(RESEARCH, name), 'ut
 
 const published = load('gap-ledger-published-v0726-2026-11-14.json');
 const fixed = load('gap-ledger-fix-tree-2026-11-14.json');
+const published27 = load('gap-ledger-published-v0727-2026-11-14.json');
 
 const face = (report, id) => {
   const f = report.faces.find((x) => x.id === id);
@@ -112,6 +113,28 @@ test('L9: both artifacts name the same tree lineage and carry no host path', () 
   assert.equal(fixed.kind, published.kind, 'same measurement, two trees');
   assert.match(fixed.binarySha256, /^[0-9a-f]{64}$/);
   const all = JSON.stringify([published, fixed]);
+  assert.ok(!all.includes('/tmp/'), 'artifact must not carry a host path');
+  assert.ok(!all.includes('/home/'), 'artifact must not carry a host path');
+});
+
+test('L10: the PUBLISHED v0.7.27 asset carries the fix a stranger installs', () => {
+  // Fixed: the measurement ran against the asset downloaded from the
+  // v0.7.27 release (archive sha256 b0e95493… == the digest the release
+  // API publishes, binary e9827faf… reports 'reeflog 0.7.27').
+  assert.equal(published27.kind, 'gap-ledger-episode-accounting');
+  assert.equal(published27.verdict, 'fixed-and-guards-held');
+  assert.equal(published27.binaryVersion, 'reeflog 0.7.27');
+  assert.equal(published27.binary, 'reeflog');
+  assert.equal(
+    published27.binarySha256,
+    'e9827faf8371dbee23303f1f38dbd82a0595dacdf429493fe64cc5e7b86cba89',
+    'published v0.7.27 binary sha256 changed — re-verify the release asset',
+  );
+  const f1 = face(published27, 'F1');
+  assert.equal(f1.oneRow, true, 'one hole, one row — in the published bytes');
+  assert.equal(face(published27, 'F2').quiet, true, 'a healed hole does not alarm');
+  assert.equal(face(published27, 'F3').quiet, true, 'and the alarm never returns');
+  const all = JSON.stringify(published27);
   assert.ok(!all.includes('/tmp/'), 'artifact must not carry a host path');
   assert.ok(!all.includes('/home/'), 'artifact must not carry a host path');
 });
