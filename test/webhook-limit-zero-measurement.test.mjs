@@ -23,6 +23,7 @@ const load = (name) => JSON.parse(fs.readFileSync(path.join(RESEARCH, name), 'ut
 
 const published = load('webhook-limit-zero-published-v0725-2026-11-14.json');
 const fixed = load('webhook-limit-zero-fix-tree-2026-11-14.json');
+const published26 = load('webhook-limit-zero-published-v0726-2026-11-14.json');
 
 const face = (report, id) => {
   const f = report.faces.find((x) => x.id === id);
@@ -126,4 +127,25 @@ test('B6: the artifact carries no host path', () => {
     assert.ok(!text.includes('/home/'), `${report.label} must not carry /home/`);
     assert.ok(!text.includes('/Users/'), `${report.label} must not carry /Users/`);
   }
+});
+
+test('P1: the PUBLISHED v0.7.26 asset measures fixed-and-guards-held', () => {
+  // The rule is what a stranger actually installs, not just this tree.
+  assert.equal(published26.binaryVersion, 'reeflog 0.7.26');
+  assert.equal(published26.verdict, 'fixed-and-guards-held');
+  assert.equal(
+    published26.binarySha256,
+    'a49d8706ac930b03bda052d817486b226bf38602d6ad65342639bd4cbc63c8bf',
+    'published v0.7.26 binary sha256 changed — re-verify the release asset',
+  );
+  const z1 = face(published26, 'Z1');
+  assert.equal(z1.zeroDelivered, true);
+  assert.equal(z1.noBytesLeft, true);
+  assert.equal(z1.cursorUnmoved, true);
+  assert.equal(z1.pageLimit, 0);
+  const z2 = face(published26, 'Z2');
+  assert.equal(z2.namesTheRest, true, 'the published report names the rows behind the page');
+  const z3 = face(published26, 'Z3');
+  assert.equal(z3.zeroReplayed, true);
+  assert.equal(z3.exitCode, 3, 'and the pending letters keep the replay at exit 3');
 });

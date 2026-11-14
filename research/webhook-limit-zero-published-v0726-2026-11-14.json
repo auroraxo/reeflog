@@ -1,0 +1,72 @@
+{
+  "kind": "webhook-limit-zero-page-domain",
+  "label": "v0.7.26-published",
+  "binary": "reeflog",
+  "binarySha256": "a49d8706ac930b03bda052d817486b226bf38602d6ad65342639bd4cbc63c8bf",
+  "binaryVersion": "reeflog 0.7.26",
+  "measuredAt": "2026-11-14T00:01:46.399Z",
+  "faces": [
+    {
+      "id": "Z1",
+      "kind": "`push --limit 0` attempts nothing and moves no cursor",
+      "bodies": 0,
+      "delivered": [
+        0,
+        0
+      ],
+      "reorgDelivered": 0,
+      "pageLimit": 0,
+      "exitCodes": [
+        0,
+        0
+      ],
+      "cursor": 0,
+      "reorgCursor": 0,
+      "zeroDelivered": true,
+      "noRetractionLeft": true,
+      "noBytesLeft": true,
+      "cursorUnmoved": true
+    },
+    {
+      "id": "Z2",
+      "kind": "a truncated push names the rows behind the page",
+      "delivered": 2,
+      "remainingBehindCursor": 3,
+      "truncated": true,
+      "exitCode": 0,
+      "cursor": 2,
+      "namesTheRest": true,
+      "pageDeliveredTwo": true
+    },
+    {
+      "id": "Z3",
+      "kind": "`dlq replay --limit 0` moves no letter and holds the exit code",
+      "replayed": 0,
+      "pendingBefore": 2,
+      "remainingPending": 2,
+      "exitCode": 3,
+      "lettersLeft": 2,
+      "bodies": 0,
+      "namesThePending": true,
+      "zeroReplayed": true,
+      "nothingLeftTheMachine": true
+    },
+    {
+      "id": "G1",
+      "kind": "a positive limit still delivers exactly that many (guard)",
+      "delivered": 3,
+      "remainingBehindCursor": 2,
+      "bodies": 3,
+      "exact": true
+    },
+    {
+      "id": "G2",
+      "kind": "the default pass drains the queue and says so (guard)",
+      "delivered": 4,
+      "remainingBehindCursor": 0,
+      "truncated": false,
+      "drained": true
+    }
+  ],
+  "verdict": "fixed-and-guards-held"
+}
