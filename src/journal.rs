@@ -486,6 +486,42 @@ impl Journal {
         Ok(())
     }
 
+    /// Close EVERY open gap of this kind.
+    ///
+    /// One episode must end as one closed episode: a heal that closes only
+    /// the oldest row leaves the duplicates (a `verify` run per scan opened
+    /// them before 0.7.27) reporting `gaps_open > 0` on a journal the chain
+    /// calls whole — a permanent false alarm, measured 2026-11-14 on the
+    /// published v0.7.26 binary.
+    ///
+    /// `backfill_count` lands on the OLDEST row — the episode it belongs to —
+    /// and zero on the duplicates, so `SUM(backfill_count)` (the `backfilled`
+    /// field of `status`) still counts the rows filled, not the rows closed.
+    /// Returns how many rows were closed.
+    pub fn gap_close_all_open(
+        &self,
+        kind: &str,
+        until_slot: Option<i64>,
+        backfill_count: i64,
+        detail_suffix: &str,
+    ) -> Result<usize, String> {
+        let mut stmt = self
+            .db
+            .prepare("SELECT id FROM gaps WHERE kind=?1 AND resolved_at IS NULL ORDER BY id")
+            .map_err(|e| e.to_string())?;
+        let ids: Vec<i64> = stmt
+            .query_map(params![kind], |r| r.get::<_, i64>(0))
+            .map_err(|e| e.to_string())?
+            .collect::<Result<_, _>>()
+            .map_err(|e| e.to_string())?;
+        drop(stmt);
+        for (i, id) in ids.iter().enumerate() {
+            let count = if i == 0 { backfill_count } else { 0 };
+            self.gap_close(*id, until_slot, count, detail_suffix)?;
+        }
+        Ok(ids.len())
+    }
+
     /// The oldest open gap of this kind, if any. Repeated repair passes that
     /// keep finding the SAME hole must accumulate detail on one row instead
     /// of inserting a new row every pass — a long run would otherwise flood

@@ -200,6 +200,21 @@ fn backfill_gap(j: &Journal, fetcher: &mut HttpFetcher, program: &str) -> Result
     backfill_tail(j, fetcher, program, 40, PAGE_SIZE)
 }
 
+/// Does a scan with this `since_slot` cover the journal's WHOLE claimed
+/// window? `None` (or a floor at/below the oldest slot) does; a raised
+/// `--since-slot` proves only the upper window and must never be treated as
+/// proof about a deeper episode.
+fn scan_covers_whole_window(j: &Journal, since_slot: Option<i64>) -> bool {
+    match since_slot {
+        None => true,
+        Some(s) => j
+            .oldest_slot()
+            .ok()
+            .flatten()
+            .is_none_or(|oldest| s <= oldest),
+    }
+}
+
 /// One bounded repair pass. Records what it did as a gap (opened, then
 /// closed with the number of rows it filled) so `status` keeps reporting the
 /// episode instead of the rewrite happening invisibly. An incomplete pass
@@ -252,12 +267,35 @@ fn repair_pass_anchored(
         };
         if g >= 0 {
             if r.complete() && r.filled == r.missing.len() as i64 {
-                let _ = j.gap_close(
-                    g,
-                    j.max_slot().unwrap_or(None),
-                    r.filled,
-                    &format!("; repaired {} row(s), journal re-check clean", r.filled),
-                );
+                // Close the WHOLE episode, not just its oldest row. A heal
+                // that leaves a duplicate open leaves `gaps_open: 1` on a
+                // journal the chain calls whole (measured 2026-11-14 on the
+                // published v0.7.26 binary) — a permanent false alarm.
+                //
+                // Only a scan over the WHOLE claimed window may sweep the
+                // ledger: a `--since-slot`/lookback pass proves its own
+                // window, and an episode recorded deeper than that window is
+                // still unproven. That pass closes the row it worked on.
+                let covers_all = scan_covers_whole_window(j, since_slot);
+                if covers_all {
+                    let _ = j.gap_close_all_open(
+                        "hole",
+                        j.max_slot().unwrap_or(None),
+                        r.filled,
+                        &format!("; repaired {} row(s), journal re-check clean", r.filled),
+                    );
+                } else {
+                    // The pass proved only ITS window. The episode stays
+                    // open — a partial scan may not claim the whole journal
+                    // whole; the next complete scan does that.
+                    let _ = j.gap_update_detail(
+                        g,
+                        &format!(
+                            "; repaired {} row(s) in the scanned window — GAP STILL OPEN (partial window)"
+                            , r.filled
+                        ),
+                    );
+                }
             } else {
                 let _ = j.gap_update_detail(g, "; REPAIR INCOMPLETE — GAP STILL OPEN");
             }
@@ -1573,16 +1611,50 @@ fn run_verify(args: &[String]) {
     let r = verify_recent_anchored(&j, &mut fetcher, &program, pages, PAGE_SIZE, since_slot, anchor)
         .unwrap_or_else(|e| die(e));
     // A hole is a hole: record it so status keeps reporting it.
+    //
+    // ONE episode, ONE row (measured 2026-11-14 on the PUBLISHED v0.7.26
+    // binary): `verify` used to INSERT a fresh `hole` row on every scan
+    // that found a hole, so two scans of the SAME hole left two open rows
+    // (gaps: 2, gaps_open: 2) and the repair pass — which closed only the
+    // OLDEST one — left `gaps_open: 1` on a journal the chain called whole.
+    // A permanent false alarm on a healed hole trains the reader to ignore
+    // `gaps_open`, which is how the NEXT real hole goes unnoticed.
+    //
+    // So the episode is found first: an open `hole` row IS the episode, and
+    // a scan that sees the hole again accumulates its detail on that row
+    // instead of opening a second one.
     if !r.missing.is_empty() {
-        let _ = j.gap_open(
+        let detail = format!(
+            "verify found {} signature(s) on chain missing from the journal (scanned {} signatures over {} pages, truncated={})",
+            r.missing.len(), r.found, r.pages, r.truncated
+        );
+        match j.gap_find_open("hole") {
+            Ok(Some(id)) => {
+                let _ = j.gap_update_detail(id, &format!("; {detail}"));
+            }
+            _ => {
+                let _ = j.gap_open(
+                    "hole",
+                    j.max_seq().unwrap_or(0),
+                    j.max_slot().unwrap_or(None),
+                    j.newest_signature().unwrap_or(None).as_deref(),
+                    &detail,
+                );
+            }
+        }
+    }
+    // A COMPLETE scan over the claimed window that found NOTHING is proof:
+    // every open `hole` row is then a false alarm — including duplicates a
+    // pre-0.7.27 `verify` wrote and nothing ever closed. The proof only
+    // counts when the scan covered the WHOLE claim: a `--since-slot` above
+    // the journal's floor proves the upper window only, and must leave a
+    // deeper episode alone.
+    else if r.complete() && scan_covers_whole_window(&j, since_slot) {
+        let _ = j.gap_close_all_open(
             "hole",
-            j.max_seq().unwrap_or(0),
             j.max_slot().unwrap_or(None),
-            j.newest_signature().unwrap_or(None).as_deref(),
-            &format!(
-                "verify found {} signature(s) on chain missing from the journal (scanned {} signatures over {} pages, truncated={})",
-                r.missing.len(), r.found, r.pages, r.truncated
-            ),
+            0,
+            "; verify proved the claimed window whole (0 missing on a complete scan)",
         );
     }
     // An incomplete scan proves NOTHING. It used to be reported as
