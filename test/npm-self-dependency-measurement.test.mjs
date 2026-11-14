@@ -39,6 +39,7 @@ const published = load('npm-self-dependency-published-v0724-2026-11-13.json');
 const fixed = load('npm-self-dependency-fixed-2026-11-13.json');
 const published25 = load('npm-self-dependency-published-v0725-2026-11-13.json');
 const published26 = load('npm-self-dependency-published-v0726-2026-11-14.json');
+const published27 = load('npm-self-dependency-published-v0727-2026-11-14.json');
 const face = (report, name) => report.faces[name];
 
 test('W1: the PUBLISHED 0.7.24 tarball measured self-dependency-present — 3 defect faces, guards green', () => {
@@ -132,6 +133,18 @@ test('W5b: the PUBLISHED 0.7.26 tarball keeps the zero-dependency fix', () => {
     'the exact bytes measured are the exact bytes the registry serves');
 });
 
+test('W8: the published 0.7.27 tarball installs one copy, without git, with no dependencies', () => {
+  assert.equal(published27.verdict, 'self-dependency-absent');
+  assert.equal(published27.violationCount, 0);
+  assert.equal(published27.faces.D1_nested_self_copy_installed.violated, false);
+  assert.equal(published27.faces.D3_install_fails_without_git.violated, false);
+  assert.deepEqual(published27.installedManifestDependencies, {});
+  assert.equal(published27.publishedTarball.version, '0.7.27');
+  assert.match(published27.publishedTarball.sha256, /^[0-9a-f]{64}$/,
+    'the exact bytes measured are the exact bytes the registry serves');
+  assert.equal(published27.publishedTarball.origin, 'registry.npmjs.org');
+});
+
 test('W7: the live harness alone could NOT see this defect (the honest limit)', () => {
   // Both releases pass the same live user-zero 12/12 — the harness only
   // inspects the TOP-LEVEL copy, which worked on both. This is the reason
@@ -148,7 +161,7 @@ test('W7: the live harness alone could NOT see this defect (the honest limit)', 
 });
 
 test('W6: the artifacts name the bytes they saw, not a host path', () => {
-  for (const [name, report] of [['published', published], ['fixed', fixed], ['published25', published25], ['published26', published26]]) {
+  for (const [name, report] of [['published', published], ['fixed', fixed], ['published25', published25], ['published26', published26], ['published27', published27]]) {
     assert.match(report.publishedTarball.sha256, /^[0-9a-f]{64}$/, `${name}: a real digest`);
     assert.ok(!JSON.stringify(report).includes('/tmp/'), `${name}: no host path`);
     assert.ok(!JSON.stringify(report).includes('/home/'), `${name}: no host path`);
