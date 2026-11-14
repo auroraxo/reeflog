@@ -38,6 +38,7 @@ const load = (name) => JSON.parse(fs.readFileSync(path.join(dir, name), 'utf8'))
 const published = load('npm-self-dependency-published-v0724-2026-11-13.json');
 const fixed = load('npm-self-dependency-fixed-2026-11-13.json');
 const published25 = load('npm-self-dependency-published-v0725-2026-11-13.json');
+const published26 = load('npm-self-dependency-published-v0726-2026-11-14.json');
 const face = (report, name) => report.faces[name];
 
 test('W1: the PUBLISHED 0.7.24 tarball measured self-dependency-present — 3 defect faces, guards green', () => {
@@ -115,6 +116,22 @@ test('W5: the PUBLISHED 0.7.25 tarball carries the fix — self-dependency-absen
     'the exact bytes measured are the exact bytes the registry serves');
 });
 
+test('W5b: the PUBLISHED 0.7.26 tarball keeps the zero-dependency fix', () => {
+  assert.equal(published26.source,
+    'published reeflog-client@0.7.26 from registry.npmjs.org, installed into an empty app');
+  assert.equal(published26.verdict, 'self-dependency-absent');
+  assert.equal(published26.violationCount, 0);
+  assert.equal(published26.faces.D1_nested_self_copy_installed.violated, false,
+    'the published registry bytes install ONE copy');
+  assert.equal(published26.faces.D3_install_fails_without_git.violated, false,
+    'and the documented command works on a host with no git');
+  assert.deepEqual(published26.installedManifestDependencies, {},
+    'the published manifest declares no dependencies');
+  assert.equal(published26.publishedTarball.sha256,
+    'a477aaa339e4703f9fb60ba12cb6e98e6d1e3617cc56cf2db9d1e0f94fa8b62e',
+    'the exact bytes measured are the exact bytes the registry serves');
+});
+
 test('W7: the live harness alone could NOT see this defect (the honest limit)', () => {
   // Both releases pass the same live user-zero 12/12 — the harness only
   // inspects the TOP-LEVEL copy, which worked on both. This is the reason
@@ -131,7 +148,7 @@ test('W7: the live harness alone could NOT see this defect (the honest limit)', 
 });
 
 test('W6: the artifacts name the bytes they saw, not a host path', () => {
-  for (const [name, report] of [['published', published], ['fixed', fixed], ['published25', published25]]) {
+  for (const [name, report] of [['published', published], ['fixed', fixed], ['published25', published25], ['published26', published26]]) {
     assert.match(report.publishedTarball.sha256, /^[0-9a-f]{64}$/, `${name}: a real digest`);
     assert.ok(!JSON.stringify(report).includes('/tmp/'), `${name}: no host path`);
     assert.ok(!JSON.stringify(report).includes('/home/'), `${name}: no host path`);

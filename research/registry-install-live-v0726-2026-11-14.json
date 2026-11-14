@@ -1,0 +1,74 @@
+{
+  "package": "reeflog-client",
+  "installedVersion": "0.7.26",
+  "measuredAt": "2026-11-14",
+  "liveSeconds": 90,
+  "program": "whirLbMiicVdio4qvUfM5KAg6Ct8VwpYzGff3uctyCc",
+  "archiveDigestPrefix": "8b9216c8",
+  "binarySha256Prefix": "a49d8706",
+  "journalEvents": 3547,
+  "journalMaxSeq": 3547,
+  "checks": [
+    {
+      "name": "registry_install_from_empty_app",
+      "ok": true,
+      "detail": "reeflog-client -> 0.7.26 (no git URL, no toolchain)"
+    },
+    {
+      "name": "bootstrap_installs_binary",
+      "ok": true,
+      "detail": "digest=8b9216c8 binarySha256=a49d8706 (verified before install)"
+    },
+    {
+      "name": "binary_version_matches_manifest",
+      "ok": true,
+      "detail": "reeflog 0.7.26 vs package.json 0.7.26"
+    },
+    {
+      "name": "daemon_live_run",
+      "ok": true,
+      "detail": "exit=0 after 226s against mainnet-beta"
+    },
+    {
+      "name": "status_equals_cli",
+      "ok": true,
+      "detail": "events=3547 max_seq=3547 equal=true"
+    },
+    {
+      "name": "tail_strictly_increasing_seq",
+      "ok": true,
+      "detail": "500 events, first=1 last=500"
+    },
+    {
+      "name": "rows_byte_equal_to_cli",
+      "ok": true,
+      "detail": "cli=100 client=100 expected=100"
+    },
+    {
+      "name": "no_replay_continues_at_next_seq",
+      "ok": true,
+      "detail": "first ended at 500, second started at 501 (500 rows), overlap=0"
+    },
+    {
+      "name": "copied_cursor_resumes_same_seq",
+      "ok": true,
+      "detail": "cursor=1500 next seq=1001 (500 rows)"
+    },
+    {
+      "name": "refusal_keeps_cli_words",
+      "ok": true,
+      "detail": "exit=1 msg=\"reeflog: error: no journal at /nonexistent/nope.db — run `reeflog init --db /nonexistent/nope.db --program <pubkey>` first\""
+    },
+    {
+      "name": "verify_follows_cli_exit_code",
+      "ok": true,
+      "detail": "cli exit=3, client threw exitCode=3"
+    },
+    {
+      "name": "held_row_is_named_not_silent",
+      "ok": true,
+      "detail": "held seq=1 delivered=0 reason=\"reeflog\""
+    }
+  ],
+  "verdict": "all_pass"
+}

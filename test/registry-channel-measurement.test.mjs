@@ -133,6 +133,28 @@ test('V3c: the published 0.7.25 passed the live registry-install user-zero 12/12
   assert.match(String(bv.detail), /0\.7\.25/);
 });
 
+test('V2f: the v0.7.26 tarball measures registry-consistent — 0 defects', () => {
+  const r = JSON.parse(fs.readFileSync(path.join(dir, 'registry-channel-v0726-2026-11-14.json'), 'utf8'));
+  assert.equal(r.source, 'published reeflog-client@0.7.26 tarball from registry.npmjs.org');
+  assert.equal(r.verdict, 'registry-consistent');
+  assert.equal(r.defects, 0);
+  for (const f of r.faces) assert.equal(f.ok, true, `${f.name} must hold`);
+  assert.equal(r.distTags.latest, '0.7.26');
+});
+
+test('V3d: the published 0.7.26 passed the live registry-install user-zero 12/12', () => {
+  const live26 = load('registry-install-live-v0726-2026-11-14.json');
+  assert.equal(live26.package, 'reeflog-client');
+  assert.equal(live26.installedVersion, '0.7.26');
+  assert.equal(live26.verdict, 'all_pass');
+  assert.equal(live26.checks.length, 12);
+  assert.ok(live26.journalEvents > 0, 'every read was answered by a real mainnet journal');
+  for (const c of live26.checks) assert.equal(c.ok, true, `${c.name} must pass`);
+  const bv = live26.checks.find((c) => c.name === 'binary_version_matches_manifest');
+  assert.equal(bv.ok, true);
+  assert.match(String(bv.detail), /0\.7\.26/);
+});
+
 test('V4: no host path leaks into the artifacts', () => {
   for (const f of ['registry-channel-v0720-2026-11-13.json',
     'registry-channel-v0721-2026-11-13.json',
@@ -140,9 +162,11 @@ test('V4: no host path leaks into the artifacts', () => {
     'registry-channel-v0723-2026-11-13.json',
     'registry-channel-v0724-2026-11-13.json',
     'registry-channel-v0725-2026-11-13.json',
+    'registry-channel-v0726-2026-11-14.json',
     'registry-install-live-v0723-2026-11-13.json',
     'registry-install-live-v0724-2026-11-13.json',
-    'registry-install-live-v0725-2026-11-13.json']) {
+    'registry-install-live-v0725-2026-11-13.json',
+    'registry-install-live-v0726-2026-11-14.json']) {
     const text = fs.readFileSync(path.join(dir, f), 'utf8');
     assert.doesNotMatch(text, /\/home\/|\/Users\/|C:\\/, `${f} must not pin the claim to one machine`);
   }

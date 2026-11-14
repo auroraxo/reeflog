@@ -1,0 +1,40 @@
+{
+  "measuredAt": "2026-11-14T00:07:10.598Z",
+  "tag": "v0.7.26",
+  "source": "published v0.7.26 release (real GitHub API + real asset, README stranger path)",
+  "faces": [
+    {
+      "name": "manifest == tag",
+      "ok": true,
+      "detail": "package.json 0.7.26 vs tag v0.7.26"
+    },
+    {
+      "name": "crate == tag",
+      "ok": true,
+      "detail": "Cargo.toml 0.7.26 vs tag v0.7.26"
+    },
+    {
+      "name": "bootstrap() default request == tag",
+      "ok": true,
+      "detail": "client asked for v0.7.26 (normalized: v0.7.26) vs expected v0.7.26"
+    },
+    {
+      "name": "release-API digest == installed sidecar digest",
+      "ok": true,
+      "detail": "API 8b9216c8fea4… vs sidecar 8b9216c8fea4… (asset reeflog-linux-amd64.tar.gz)"
+    },
+    {
+      "name": "installed binary hash == sidecar binarySha256",
+      "ok": true,
+      "detail": "disk a49d8706ac93… vs sidecar a49d8706ac93…"
+    },
+    {
+      "name": "binary --version == tag",
+      "ok": true,
+      "detail": "\"reeflog 0.7.26\" vs \"0.7.26\""
+    }
+  ],
+  "passed": 6,
+  "total": 6,
+  "verdict": "DELIVERED-TO-THE-PIN"
+}
