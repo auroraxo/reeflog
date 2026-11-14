@@ -10,11 +10,11 @@ durable cursor, no catch-up. Every project rebuilds reconnect, dedup,
 gap-fill, and reorg handling, or silently loses events. reeflog makes that
 one daemon, one file, one cursor.
 
-**Status: v0.7.26 (2026-11-14), live against mainnet-beta — no Rust toolchain needed: `npm install reeflog-client`, then `import { bootstrap } from 'reeflog-client'; await bootstrap()` (downloads the prebuilt release archive and verifies its sha256 against what the GitHub release API publishes). The client itself is zero-dependency: one package, no `node_modules` of its own, and it installs without `git` on the machine.**
+**Status: v0.7.27 (2026-11-15), live against mainnet-beta — no Rust toolchain needed: `npm install reeflog-client`, then `import { bootstrap } from 'reeflog-client'; await bootstrap()` (downloads the prebuilt release archive and verifies its sha256 against what the GitHub release API publishes). The client itself is zero-dependency: one package, no `node_modules` of its own, and it installs without `git` on the machine.**
 
 The same client from the tagged release:
-`npm install github:auroraxo/reeflog#v0.7.26`. Or from source:
-`cargo install --git https://github.com/auroraxo/reeflog --tag v0.7.26`.
+`npm install github:auroraxo/reeflog#v0.7.27`. Or from source:
+`cargo install --git https://github.com/auroraxo/reeflog --tag v0.7.27`.
 
 **Honest state:** it works, and it is measured — but so far every real
 consumer belongs to the project itself. There is no unaffiliated third-party
@@ -155,6 +155,7 @@ detail and every raw number in
 | Archive depth | 39 holes at ~24 h depth filled and verified anchored |
 | Retractions | proven against a **real fork of a real chain**, 47/47 checks |
 | Refusals | every documented CLI line runs against the binary in CI (`tests/documented_surface.rs`); unknown flags are refused, never ignored |
+| Gap ledger | one hole = one episode: the published v0.7.26 asset counted scans (one hole → two open rows, `gaps_open: 1` forever on a healed journal); measured on the published asset, fixed in v0.7.27 |
 
 ## Conditions and limits — the honest part
 
@@ -185,6 +186,14 @@ detail and every raw number in
   pass reports `remaining_behind_cursor` and `truncated` so a page can never
   read as a drained mailbox (measured on the published v0.7.25 asset, fixed
   in v0.7.26 — see the deep dive).
+- **One hole is one episode, and a heal closes it.** The gap ledger used to
+  count SCANS: every `verify` over the same hole opened another `hole` row,
+  and `repair` closed only the oldest one — so a journal the chain called
+  whole still reported `gaps_open: 1`, forever. `gaps_open` is the field
+  every operator and monitoring caller reads to decide whether the mailbox
+  is whole; a permanent false alarm there trains the reader to ignore it.
+  Measured on the published v0.7.26 asset, fixed in v0.7.27 (see the deep
+  dive).
 - **The client is zero-dependency since v0.7.25.** Until then the npm
   manifest named *itself* as a dependency on github:, so every
   `npm install reeflog-client` also cloned a second, older copy of the
@@ -197,7 +206,7 @@ detail and every raw number in
 ## Deep dives
 
 - [docs/measured-history.md](https://github.com/auroraxo/reeflog/blob/main/docs/measured-history.md) — the complete
-  README measurement and contract history through v0.7.26, unbroken.
+  README measurement and contract history through v0.7.27, unbroken.
 - [`research/`](research/) — every committed measurement artifact behind the
   numbers above (raw JSON reports, pinned by tests).
 - [`tests/`](tests/) and [`test/`](test/) — the contract tests: the CLI

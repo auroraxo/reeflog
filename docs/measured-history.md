@@ -1500,6 +1500,20 @@ They need different tools, and conflating them is how a "we never lose events" c
 
 A walk that is cut short is reported as truncated, the gap stays **open**, and the command exits non-zero. A partially filled gap is never presented as filled, and a scan that read nothing cannot report `missing_count: 0` as if it had checked.
 
+### One hole is one episode (v0.7.27)
+
+The ledger used to count **scans** rather than **episodes**. `verify` opened a fresh `hole` row every time it found a hole — it never looked for the row the episode already had — and `repair` closed only the OLDEST open hole (`gap_find_open("hole")` → one id). Measured 2026-11-14 on the **published v0.7.26 asset** (`tools/measure-gap-ledger.mjs`, `research/gap-ledger-published-v0726-2026-11-14.json`):
+
+- two `verify` runs over ONE hole leave **two** open rows (`gaps: 2, gaps_open: 2`);
+- `repair` fills the hole and closes one of them — `gaps_open: 1`;
+- the journal is then complete (`missing_count: 0, complete: true`, the chain and the journal agree) — yet `status` still reports `gaps_open: 1`, **forever**, and a later clean `verify` does not clear it either.
+
+`gaps_open` is the field an operator and every monitoring caller reads to decide whether the mailbox is whole. A permanent false alarm on a healed hole trains the reader to ignore the field — which is how the NEXT real hole gets missed. The class is the one this repo keeps closing: a report that names a problem that does not exist.
+
+The fix is that one episode is one row: `verify` reuses the open row and accumulates its detail on it; a fill closes the whole episode (`gap_close_all_open`, whose `backfill_count` lands on the oldest row so `SUM(backfill_count)` still counts fills and not rows); and a **complete** scan over the **whole claimed window** that finds nothing closes every open `hole` row — which also heals the duplicates a pre-0.7.27 `verify` already wrote. The sweeps are gated by `scan_covers_whole_window`: a `--since-slot` pass proves its own window and leaves a deeper episode open with an explicit partial-window marker, because closing on a partial pass would trade the false alarm for a missed hole.
+
+Gate: `tests/gap_ledger.rs` (10 tests — 5 defect pins, red on the published behaviour with 3 passed / 5 failed, plus 5 guards green on both trees) and `tools/mutation-ladder-gap-ledger.sh` (**5/5 mutations caught**, tree byte-identical after restore). The two-tree measurement is pinned by `test/gap-ledger-measurement.test.mjs` (9 falsifiable claims).
+
 ## The cursor file is read strictly
 
 The cursor file is state the consumer owns, and it never passes through the
