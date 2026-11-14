@@ -1444,6 +1444,14 @@ this tree violates **0 of 3** with both guards held (verdict
 `fixed-and-guards-held`) — a positive `--limit` still delivers exactly that
 many, and the default pass still drains the queue and says so.
 
+**And again on the published v0.7.26 asset**, so the rule is what a stranger
+actually installs (`research/webhook-limit-zero-published-v0726-2026-11-14.json`,
+pinned by `test/webhook-limit-zero-measurement.test.mjs` P1): the archive
+sha256 `8b9216c8fea40e429c15fcfe06735c82e24c32eaabe82b036d3ca9db980ac906`
+equals the digest the Release API publishes, the extracted binary
+(`a49d8706…`) reports `reeflog 0.7.26`, and the measurement returns
+`fixed-and-guards-held` — 0 of 3 defect faces, both guards green.
+
 The gate is `tests/webhook_limit_zero.rs` (6 tests) and the ladder
 `tools/mutation-ladder-webhook-limit-zero.sh` (**5/5 mutations caught**):
 the event channel rewrites the zero into one delivery, the retraction
