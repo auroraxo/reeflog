@@ -1,0 +1,67 @@
+{
+  "kind": "gap-ledger-episode-accounting",
+  "label": "v0.7.26-published",
+  "measuredAt": "2026-11-14",
+  "binary": "reeflog",
+  "binarySha256": "a49d8706ac930b03bda052d817486b226bf38602d6ad65342639bd4cbc63c8bf",
+  "binaryVersion": "reeflog 0.7.26",
+  "verdict": "defect-present",
+  "faces": [
+    {
+      "id": "F1",
+      "kind": "two verifies over one hole leave ONE gap row",
+      "firstMissing": 1,
+      "secondMissing": 1,
+      "rowsAfterFirst": 1,
+      "rowsAfterSecond": 2,
+      "openAfterSecond": 2,
+      "detail": "verify found 1 signature(s) on chain missing from the journal (scanned 6 signatures over 1 pages, truncated=false)",
+      "oneRow": false
+    },
+    {
+      "id": "F2",
+      "kind": "a repaired hole leaves no OPEN gap",
+      "filled": 1,
+      "repairComplete": true,
+      "rows": 2,
+      "open": 1,
+      "statusGaps": 2,
+      "statusGapsOpen": 1,
+      "statusBackfilled": 1,
+      "quiet": false
+    },
+    {
+      "id": "F3",
+      "kind": "a clean verify after the heal leaves the ledger quiet",
+      "missing": 0,
+      "complete": true,
+      "open": 1,
+      "statusGapsOpen": 1,
+      "quiet": false
+    },
+    {
+      "id": "G1",
+      "kind": "the healed episode stays in the gap history",
+      "statusGaps": 1,
+      "statusGapsOpen": 0,
+      "statusBackfilled": 1,
+      "historyKept": true
+    },
+    {
+      "id": "G2",
+      "kind": "the open row accumulates the detail of every scan",
+      "rowsAfterSecond": 2,
+      "firstDetailLength": 114,
+      "secondDetailLength": 114,
+      "accumulated": false
+    },
+    {
+      "id": "G3",
+      "kind": "a healthy journal keeps no gaps",
+      "missing": 0,
+      "statusGaps": 0,
+      "statusGapsOpen": 0,
+      "noGaps": true
+    }
+  ]
+}
