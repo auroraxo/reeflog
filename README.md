@@ -10,11 +10,11 @@ durable cursor, no catch-up. Every project rebuilds reconnect, dedup,
 gap-fill, and reorg handling, or silently loses events. reeflog makes that
 one daemon, one file, one cursor.
 
-**Status: v0.7.28 (2026-11-15), live against mainnet-beta — no Rust toolchain needed: `npm install reeflog-client`, then `import { bootstrap } from 'reeflog-client'; await bootstrap()` (downloads the prebuilt release archive and verifies its sha256 against what the GitHub release API publishes). The client itself is zero-dependency: one package, no `node_modules` of its own, and it installs without `git` on the machine.**
+**Status: v0.7.29 (2026-11-15), live against mainnet-beta — no Rust toolchain needed: `npm install reeflog-client`, then `import { bootstrap } from 'reeflog-client'; await bootstrap()` (downloads the prebuilt release archive and verifies its sha256 against what the GitHub release API publishes). The client itself is zero-dependency: one package, no `node_modules` of its own, and it installs without `git` on the machine.**
 
 The same client from the tagged release:
-`npm install github:auroraxo/reeflog#v0.7.28`. Or from source:
-`cargo install --git https://github.com/auroraxo/reeflog --tag v0.7.28`.
+`npm install github:auroraxo/reeflog#v0.7.29`. Or from source:
+`cargo install --git https://github.com/auroraxo/reeflog --tag v0.7.29`.
 
 **Honest state:** it works, and it is measured — but so far every real
 consumer belongs to the project itself. There is no unaffiliated third-party
@@ -157,6 +157,7 @@ detail and every raw number in
 | Refusals | every documented CLI line runs against the binary in CI (`tests/documented_surface.rs`); unknown flags are refused, never ignored |
 | Gap ledger | one hole = one episode: the published v0.7.26 asset counted scans (one hole → two open rows, `gaps_open: 1` forever on a healed journal); measured on the published asset, fixed in v0.7.27 |
 | Retraction status | the status report named only the event queue: a target with a drained event queue and 2 never-received retractions read as caught up; measured on the published v0.7.27 asset, fixed in v0.7.28 |
+| Orphaned dead letters | the status report named only the configured targets: quarantined events of a target that left the config read as "nothing quarantined" while `push` counted them; measured on the published v0.7.28 asset, fixed in v0.7.29 |
 
 ## Conditions and limits — the honest part
 
@@ -205,6 +206,21 @@ detail and every raw number in
   now carries `pending_retractions` next to `pending_events`, counted from
   the journal, so neither queue can stand in for the other. Measured on the
   published v0.7.27 asset, fixed in v0.7.28 (see the deep dive).
+- **The stranded dead letter belongs to a target, and the status report
+  names it.** A pending dead letter belongs to a TARGET, not to a config
+  entry: when a target is removed from the config, its quarantined events
+  stay in the journal — and they can never be replayed from here, because
+  the replay path needs that target's endpoint. `webhook push` reported this
+  as `orphaned_dead_letters` and `webhook dlq list` listed the orphan with
+  `in_config: false`, but `webhook status` walked the CONFIG's targets only,
+  so the stranded letters were printed nowhere: the report said
+  `dead_letters: 0` for the healthy target and exited 0 while the same
+  journal read through `push` said `orphaned_dead_letters: 1`. The status
+  report now carries `orphaned_dead_letters` and
+  `orphaned_dead_letter_targets`, counted from the journal, and exits 3
+  while a stranded letter is pending — this is the one debt that never
+  drains by itself. Measured on the published v0.7.28 asset, fixed in
+  v0.7.29 (see the deep dive).
 - **The client is zero-dependency since v0.7.25.** Until then the npm
   manifest named *itself* as a dependency on github:, so every
   `npm install reeflog-client` also cloned a second, older copy of the
@@ -217,7 +233,7 @@ detail and every raw number in
 ## Deep dives
 
 - [docs/measured-history.md](https://github.com/auroraxo/reeflog/blob/main/docs/measured-history.md) — the complete
-  README measurement and contract history through v0.7.28, unbroken.
+  README measurement and contract history through v0.7.29, unbroken.
 - [`research/`](research/) — every committed measurement artifact behind the
   numbers above (raw JSON reports, pinned by tests).
 - [`tests/`](tests/) and [`test/`](test/) — the contract tests: the CLI

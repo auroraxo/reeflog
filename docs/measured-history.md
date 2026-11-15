@@ -1529,7 +1529,25 @@ So a target whose event queue was drained read as **caught up** while the events
 
 The fix is one counted fact on one line: `webhook status` reports `pending_retractions` next to `pending_events`, counted from the journal (`reorgs_pending_count`, the same queue truth the push report names) — so neither queue can stand in for the other, and a cursor past the tip yields 0 rather than a negative debt.
 
-Gate: `tests/webhook_status_retraction_pending.rs` (5 tests — **0 passed / 5 failed** on the pre-fix tree, 5/5 after the fix) and `tools/mutation-ladder-status-retraction-pending.sh` (**5/5 mutations caught**, tree byte-identical after restore). The two-tree measurement is pinned by `test/status-retraction-pending-measurement.test.mjs` (5 falsifiable claims; the R3 claim was falsified by tampering and restored).
+Gate: `tests/webhook_status_retraction_pending.rs` (5 tests — **0 passed / 5 failed** on the pre-fix tree, 5/5 after the fix) and `tools/mutation-ladder-status-retraction-pending.sh` (**5/5 mutations caught**, tree byte-identical after restore). The two-tree measurement is pinned by `test/status-retraction-pending-measurement.test.mjs` (5 falsifiable claims; the R3 claim was falsified by tampered and restored).
+
+### The stranded dead letter belongs to a target (v0.7.29)
+
+A pending dead letter belongs to a **target**, not to a config entry. When a target is removed from the config, its quarantined events stay in the journal — and they can never be replayed from here, because the replay path needs that target's endpoint. This is a debt that **never drains by itself**.
+
+Two surfaces already said so: `webhook push` reports `orphaned_dead_letters` (the JOURNAL's total minus the config's share, v0.7.6) and `webhook dlq list` lists the orphan with `in_config: false`. `webhook status` — the report a monitoring caller polls — walks the CONFIG's targets and prints a `dead_letters` count for each, so a departed target had nowhere to be printed.
+
+Measured 2026-11-15 on the **published v0.7.28 asset** (linux binary sha256 `0bc4d14f…` == the bytes the release API publishes; `tools/measure-status-orphan-dead-letters.mjs`, `research/status-orphan-dead-letters-published-v0728-2026-11-15.json`, verdict `status-orphan-dead-letter-blind`):
+
+| The journal state | `webhook status` said | `webhook push` said on the same state |
+|---|---|---|
+| 1 configured target clean, **2 pending letters for a target that left the config** | `dead_letters: 0` for the healthy target, no orphan field at all, **exit 0** | `orphaned_dead_letters: 2`, `dead_letters_pending: 2`, exit 3 |
+
+So a monitoring caller polling `webhook status` read "all clear" while two events sat stranded in the dead-letter queue permanently. The orphan count was not merely wrong: the field did not exist, so even the clean-journal guard had nothing to read.
+
+The fix is one counted fact per surface, matching what `push` already reports: `webhook status` carries `orphaned_dead_letters` (journal total minus the config's share, never negative) and `orphaned_dead_letter_targets` (which targets hold the stranded letters), names them in the stderr line the operator reads, and exits 3 while a stranded letter is pending. A pending letter for a target that **is** configured stays on that target's own row — it is not double-counted as an orphan.
+
+Gate: `tests/webhook_status_orphan_dead_letters.rs` (6 tests — **0 passed / 6 failed** on the pre-fix tree, 6/6 after the fix) and `tools/mutation-ladder-status-orphan-dead-letters.sh` (**5/5 mutations caught**, tree byte-identical after restore — the first run reported a VACUOUS mutation because the bare `std::process::exit(3);` pattern matched an earlier command's site; the search is now scoped to the status command's own refusal line, which is recorded in the ladder). The two-tree measurement is pinned by `test/status-orphan-dead-letters-measurement.test.mjs` (6 falsifiable claims, including the push/status parity face).
 
 ## The cursor file is read strictly
 
