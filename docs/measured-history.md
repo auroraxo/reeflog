@@ -1549,6 +1549,64 @@ The fix is one counted fact per surface, matching what `push` already reports: `
 
 Gate: `tests/webhook_status_orphan_dead_letters.rs` (6 tests — **0 passed / 6 failed** on the pre-fix tree, 6/6 after the fix) and `tools/mutation-ladder-status-orphan-dead-letters.sh` (**5/5 mutations caught**, tree byte-identical after restore — the first run reported a VACUOUS mutation because the bare `std::process::exit(3);` pattern matched an earlier command's site; the search is now scoped to the status command's own refusal line, which is recorded in the ladder). The two-tree measurement is pinned by `test/status-orphan-dead-letters-measurement.test.mjs` (6 falsifiable claims, including the push/status parity face).
 
+### The report that polls must hold the debts it prints (v0.7.30)
+
+`reeflog webhook status` is the surface a **monitoring caller** polls: it asks
+"is delivery healthy?" and reads the **exit code**. v0.7.29 taught it to
+exit 3 for an ORPHANED dead letter, on the stated ground that this is "the
+one debt that never drains by itself". The premise does not separate the
+cases — two debts the same report already printed were still read as health.
+
+Measured 2026-11-15 on the **published v0.7.29 asset** (linux binary sha256
+`918984e7…` == the bytes the release API publishes;
+`tools/measure-status-debt-exit.mjs`,
+`research/status-debt-exit-published-v0729-2026-11-16.json`, verdict
+`status-debt-exit-blind`):
+
+| The journal state | `webhook status` said | `webhook push` said on the same state |
+|---|---|---|
+| 1 configured target, **1 pending dead letter** | `dead_letters: 1` on the target's row, **exit 0** | `dead_letters_pending: 1`, exit 3 |
+| 1 configured target, **a standing failure verdict** | `last_error: "http 500"`, **exit 0** | exit 3 for the very block that wrote it |
+| the same journal, both surfaces | **exit 0** | **exit 3** |
+| 1 clean journal | exit 0 | exit 0 |
+| 1 **orphaned** pending letter | exit 3, the target named | exit 3 |
+
+So a caller polling the report read "all clear" over a journal whose
+delivery was stopped, and — worse — the two surfaces of the **same** journal
+disagreed about the same fact. The configured case is not the orphan case
+dressed differently: `webhook_dead_letter` moves the target's cursor **past**
+the quarantined row and `deliver_events` reads `events_after(next_seq)`, so
+`push` never re-attempts it either. Measured: after **three** push passes
+the letter was still pending and the cursor stood at **1**. Only
+`reeflog webhook dlq replay` hands it over, and that is a human action — the
+debt does not drain by itself either.
+
+The fix is the counted truth on the report's own terms: `webhook status`
+carries `dead_letters_pending` (the journal total, the same name `push`
+uses) and `failing_targets` (how many configured targets carry a standing
+verdict), names the quarantine and the failing target in the stderr line
+the operator reads, and exits 3 while a configured target holds pending dead
+letters, an orphan holds a stranded letter, or a target carries a standing
+failure — the same debts `push` turns into exit 3 on the same journal, so
+one fact carries one verdict across the surfaces. A journal with no debt
+still exits 0: a report that always exits 3 is not a report.
+
+Gate: `tests/webhook_status_debt_exit.rs` (5 tests — **1 passed / 4 failed**
+on the pre-fix tree, 5/5 after the fix; re-measured by stashing only
+`src/main.rs` at 3e6915c: D1, D2, D3 and the clean-journal face are red,
+the orphan guard G2 is the one test green on both trees) and
+`tools/mutation-ladder-status-debt-exit.sh` (**5/5 mutations caught**, tree
+byte-identical after restore — the first run caught a VACUOUS mutation
+because the gate test asserted the exit codes but not the new counted
+fields; the test now pins both, and the ladder catches the gap). The
+gate's own doc header said "2 passed / 3 failed" and "guards green on
+BOTH trees"; both claims are stale — G1 also asserts the two new counted
+fields, so it cannot be green before the fix. The published measurement
+is pinned by
+`tests/status_debt_exit_published_v0729.rs` (6 tests: the published asset
+carries the defect, the fixed tree holds every face, no artifact carries a
+host path).
+
 ## The cursor file is read strictly
 
 The cursor file is state the consumer owns, and it never passes through the

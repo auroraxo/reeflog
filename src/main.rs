@@ -2326,6 +2326,30 @@ fn run_webhook_status(args: &[String]) {
         .into_iter()
         .filter(|id| !targets.iter().any(|t| &t.id == id))
         .collect();
+    // The two OTHER debts this report already prints, and which `push` turns
+    // into exit 3 on the same journal.
+    //
+    // A configured target's pending quarantine: v0.7.29 gave the exit code to
+    // the ORPHAN because "this is the one debt that never drains by itself".
+    // The premise does not separate the two cases — `webhook_dead_letter`
+    // moves the cursor PAST the quarantined row and `deliver_events` reads
+    // `events_after(next_seq)`, so `push` never re-attempts it either. Measured
+    // on the published v0.7.29 asset: three push passes later the letter is
+    // still pending at cursor 1. Only `dlq replay` hands it over, and that is a
+    // human action. The same argument, the same exit code.
+    //
+    // A standing failure: `last_error` is written by the very blocked pass that
+    // `push` reports as exit 3. Printing it and exiting 0 tells a polling
+    // monitor the target is healthy while the queue is stopped.
+    let failing_targets: Vec<(&str, String)> = out
+        .iter()
+        .filter_map(|row| {
+            row.get("last_error")
+                .and_then(|e| e.as_str())
+                .filter(|e| !e.is_empty())
+                .map(|e| (row["target"].as_str().unwrap_or("?"), e.to_string()))
+        })
+        .collect();
     println!(
         "{}",
         serde_json::to_string_pretty(&json!({
@@ -2335,6 +2359,10 @@ fn run_webhook_status(args: &[String]) {
                 "target": id,
                 "in_config": false,
             })).collect::<Vec<_>>(),
+            // The same journal truth `webhook push` reports under the same
+            // names, so one fact carries one number across the surfaces.
+            "dead_letters_pending": config_pending + orphaned_pending,
+            "failing_targets": failing_targets.len(),
         }))
         .unwrap()
     );
@@ -2348,6 +2376,25 @@ fn run_webhook_status(args: &[String]) {
             "reeflog: stranded — target(s): {}",
             orphaned_targets.join(", ")
         );
+    }
+    if config_pending > 0 {
+        eprintln!(
+            "reeflog: {config_pending} event(s) sit in the dead-letter queue for a target that is \
+             still configured — the quarantine is not delivery and it does not drain by itself; \
+             hand them over with `reeflog webhook dlq replay`"
+        );
+    }
+    if !failing_targets.is_empty() {
+        for (id, why) in &failing_targets {
+            eprintln!("reeflog: failing — {id}: {why}");
+        }
+        eprintln!(
+            "reeflog: {} target(s) still carry a standing failure — delivery is stopped until the \
+             next clean pass",
+            failing_targets.len()
+        );
+    }
+    if orphaned_pending > 0 || config_pending > 0 || !failing_targets.is_empty() {
         std::process::exit(3);
     }
 }

@@ -179,13 +179,22 @@ fn plant(dir: &Path, rows: &[(&str, Option<&str>, Option<&str>)]) {
     conn.close().expect("close journal");
 }
 
-/// `last_error` as `webhook status` reports it, plus the cursor it sits on.
-fn status_report(dir: &Path, cfg: &Path) -> (serde_json::Value, i64) {
+/// `last_error` as `webhook status` reports it, plus the cursor it sits on
+/// and the exit code of the same report.
+///
+/// The exit code is returned, NOT asserted here: since PULS AM (2026-11-16)
+/// `webhook status` holds exit 3 for the debts it prints — a standing
+/// failure verdict included — so the caller states which verdict it expects
+/// for the journal it built. Asserting "success" here would have hidden
+/// exactly the defect AM measured: a report that prints a standing failure
+/// and then calls the target healthy.
+fn status_report(dir: &Path, cfg: &Path) -> (serde_json::Value, i64, i32, String) {
     let out = run(
         dir,
         &["webhook", "status", "--db", "reeflog.db", "--config", cfg.to_str().unwrap()],
     );
-    assert!(out.status.success(), "status: {}", stderr_of(&out));
+    let code = out.status.code().unwrap_or(-1);
+    let err = stderr_of(&out);
     let t = report_of(&out)["targets"][0].clone();
     let conn = rusqlite::Connection::open(dir.join("reeflog.db")).expect("open journal");
     let next_seq: i64 = conn
@@ -196,7 +205,7 @@ fn status_report(dir: &Path, cfg: &Path) -> (serde_json::Value, i64) {
         )
         .expect("state");
     conn.close().ok();
-    (t, next_seq)
+    (t, next_seq, code, err)
 }
 
 fn init(dir: &Path) {
@@ -234,12 +243,19 @@ fn a_recovered_target_stops_reporting_the_old_failure() {
 
     let first = run(&dir, &push);
     assert_eq!(first.status.code(), Some(3), "a refusal blocks: {}", stderr_of(&first));
-    let (after_fail, _) = status_report(&dir, &cfg);
+    let (after_fail, _, code, err) = status_report(&dir, &cfg);
     assert_eq!(
         after_fail["last_error"],
         serde_json::json!("http 500"),
         "a standing failure IS reported (guard, both trees): {}",
         after_fail
+    );
+    // The report prints a standing failure — the SAME debt `push` turned
+    // into exit 3 two lines above — so it must not call the target healthy.
+    assert_eq!(
+        code, 3,
+        "a report that prints a standing failure must hold the exit code: {}",
+        err
     );
 
     // The endpoint is healthy now: the second pass delivers everything.
@@ -263,7 +279,7 @@ fn a_recovered_target_stops_reporting_the_old_failure() {
         .collect();
     assert!(seqs.contains(&"FULL1".to_string()) && seqs.contains(&"FULL2".to_string()), "both rows reached the receiver: {seqs:?}");
 
-    let (after_ok, next_seq) = status_report(&dir, &cfg);
+    let (after_ok, next_seq, code, err) = status_report(&dir, &cfg);
     assert_eq!(
         after_ok["last_error"],
         serde_json::json!(null),
@@ -271,6 +287,11 @@ fn a_recovered_target_stops_reporting_the_old_failure() {
         after_ok["last_error"]
     );
     assert_eq!(next_seq, 2, "the cursor advanced over both delivered rows");
+    assert_eq!(
+        code, 0,
+        "the recovered target leaves no debt — the report is clean again: {}",
+        err
+    );
 }
 
 /// F2 (defect): the same rule on the payload-hold channel — once `hydrate`
@@ -295,13 +316,20 @@ fn a_paid_payload_clears_the_hold_reason_status_reports() {
 
     let held = run(&dir, &push);
     assert_eq!(held.status.code(), Some(3), "the owed row holds: {}", stderr_of(&held));
-    let (during_hold, _) = status_report(&dir, &cfg);
+    let (during_hold, _, hold_code, hold_err) = status_report(&dir, &cfg);
     assert!(
         during_hold["last_error"]
             .as_str()
             .is_some_and(|s| s.contains("hydrate")),
         "the standing hold IS reported with its repair (guard, both trees): {}",
         during_hold["last_error"]
+    );
+    // The hold is the standing verdict of a blocked pass — the report prints
+    // it, so the report must not call the target healthy.
+    assert_eq!(
+        hold_code, 3,
+        "a report that prints a standing hold must hold the exit code: {}",
+        hold_err
     );
 
     // `hydrate` pays the debt.
@@ -324,7 +352,7 @@ fn a_paid_payload_clears_the_hold_reason_status_reports() {
     let _ = handle.join();
     assert_eq!(got.len(), 1, "the paid row arrived exactly once: {got:?}");
 
-    let (after_paid, next_seq) = status_report(&dir, &cfg);
+    let (after_paid, next_seq, code, err) = status_report(&dir, &cfg);
     assert_eq!(
         after_paid["last_error"],
         serde_json::json!(null),
@@ -332,6 +360,11 @@ fn a_paid_payload_clears_the_hold_reason_status_reports() {
         after_paid["last_error"]
     );
     assert_eq!(next_seq, 1, "the cursor advanced over the paid row");
+    assert_eq!(
+        code, 0,
+        "the paid hold leaves no debt — the report is clean again: {}",
+        err
+    );
 }
 
 /// Guard: a target that NEVER failed reports no error (green on both trees).
@@ -351,12 +384,13 @@ fn a_clean_target_reports_no_error() {
     stop.store(true, Ordering::Relaxed);
     let _ = handle.join();
 
-    let (t, _) = status_report(&dir, &cfg);
+    let (t, _, code, _err) = status_report(&dir, &cfg);
     assert_eq!(
         t["last_error"],
         serde_json::json!(null),
         "a target that never failed must report no error: {}",
         t
     );
+    assert_eq!(code, 0, "a target that never failed leaves no debt: {t}");
     assert_eq!(t["delivered"], serde_json::json!(1), "and it did deliver: {t}");
 }
