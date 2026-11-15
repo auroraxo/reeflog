@@ -10,11 +10,11 @@ durable cursor, no catch-up. Every project rebuilds reconnect, dedup,
 gap-fill, and reorg handling, or silently loses events. reeflog makes that
 one daemon, one file, one cursor.
 
-**Status: v0.7.27 (2026-11-15), live against mainnet-beta — no Rust toolchain needed: `npm install reeflog-client`, then `import { bootstrap } from 'reeflog-client'; await bootstrap()` (downloads the prebuilt release archive and verifies its sha256 against what the GitHub release API publishes). The client itself is zero-dependency: one package, no `node_modules` of its own, and it installs without `git` on the machine.**
+**Status: v0.7.28 (2026-11-15), live against mainnet-beta — no Rust toolchain needed: `npm install reeflog-client`, then `import { bootstrap } from 'reeflog-client'; await bootstrap()` (downloads the prebuilt release archive and verifies its sha256 against what the GitHub release API publishes). The client itself is zero-dependency: one package, no `node_modules` of its own, and it installs without `git` on the machine.**
 
 The same client from the tagged release:
-`npm install github:auroraxo/reeflog#v0.7.27`. Or from source:
-`cargo install --git https://github.com/auroraxo/reeflog --tag v0.7.27`.
+`npm install github:auroraxo/reeflog#v0.7.28`. Or from source:
+`cargo install --git https://github.com/auroraxo/reeflog --tag v0.7.28`.
 
 **Honest state:** it works, and it is measured — but so far every real
 consumer belongs to the project itself. There is no unaffiliated third-party
@@ -156,6 +156,7 @@ detail and every raw number in
 | Retractions | proven against a **real fork of a real chain**, 47/47 checks |
 | Refusals | every documented CLI line runs against the binary in CI (`tests/documented_surface.rs`); unknown flags are refused, never ignored |
 | Gap ledger | one hole = one episode: the published v0.7.26 asset counted scans (one hole → two open rows, `gaps_open: 1` forever on a healed journal); measured on the published asset, fixed in v0.7.27 |
+| Retraction status | the status report named only the event queue: a target with a drained event queue and 2 never-received retractions read as caught up; measured on the published v0.7.27 asset, fixed in v0.7.28 |
 
 ## Conditions and limits — the honest part
 
@@ -194,6 +195,16 @@ detail and every raw number in
   is whole; a permanent false alarm there trains the reader to ignore it.
   Measured on the published v0.7.26 asset, fixed in v0.7.27 (see the deep
   dive).
+- **The retraction queue is a debt of its own, and the status report names
+  it.** The reorg channel has its own cursor (`next_reorg_id`) on purpose:
+  a retraction must still reach a consumer whose event queue is blocked.
+  `webhook status` reported only the EVENT queue (`pending_events`), so a
+  target whose event queue was drained read as "caught up" while the events
+  the chain UNMADE had never reached it — on the same journal state
+  `webhook push` named `remaining_reorgs_behind_cursor`. The status report
+  now carries `pending_retractions` next to `pending_events`, counted from
+  the journal, so neither queue can stand in for the other. Measured on the
+  published v0.7.27 asset, fixed in v0.7.28 (see the deep dive).
 - **The client is zero-dependency since v0.7.25.** Until then the npm
   manifest named *itself* as a dependency on github:, so every
   `npm install reeflog-client` also cloned a second, older copy of the
@@ -206,7 +217,7 @@ detail and every raw number in
 ## Deep dives
 
 - [docs/measured-history.md](https://github.com/auroraxo/reeflog/blob/main/docs/measured-history.md) — the complete
-  README measurement and contract history through v0.7.27, unbroken.
+  README measurement and contract history through v0.7.28, unbroken.
 - [`research/`](research/) — every committed measurement artifact behind the
   numbers above (raw JSON reports, pinned by tests).
 - [`tests/`](tests/) and [`test/`](test/) — the contract tests: the CLI

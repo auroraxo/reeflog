@@ -1514,6 +1514,23 @@ The fix is that one episode is one row: `verify` reuses the open row and accumul
 
 Gate: `tests/gap_ledger.rs` (10 tests — 5 defect pins, red on the published behaviour with 3 passed / 5 failed, plus 5 guards green on both trees) and `tools/mutation-ladder-gap-ledger.sh` (**5/5 mutations caught**, tree byte-identical after restore). The two-tree measurement is pinned by `test/gap-ledger-measurement.test.mjs` (9 falsifiable claims).
 
+### The retraction queue is a debt of its own (v0.7.28)
+
+The reorg channel is a **separate cursor** (`next_reorg_id`) on purpose — a retraction must still reach a consumer whose event queue is blocked, and a retraction is the one message whose lateness can cost money. `webhook push` already reported both debts on every pass (`remaining_behind_cursor` and `remaining_reorgs_behind_cursor`, the v0.7.26 page-vs-queue rule). `webhook status` — the surface a monitoring caller polls — reported only the **event** queue (`pending_events`) and said nothing at all about the retraction queue.
+
+Measured 2026-11-14 on the **published v0.7.27 asset** (linux binary sha256 `e9827faf…` == the bytes the release API publishes; `tools/measure-status-retraction-pending.mjs`, `research/status-retraction-pending-published-v0727-2026-11-14.json`, verdict `status-retraction-queue-blind`):
+
+| The journal state | `webhook status` said | `webhook push` said on the same state |
+|---|---|---|
+| event queue drained, **2 retractions never received** | `pending_events: 0` — and no retraction field at all | `remaining_reorgs_behind_cursor: 2` |
+| both queues behind (2 events, 2 retractions) | `pending_events: 2` — nothing for the retractions | `remaining_behind_cursor: 2`, `remaining_reorgs_behind_cursor: 2` |
+
+So a target whose event queue was drained read as **caught up** while the events the chain UNMADE had never reached it. The retraction field was not merely missing a number: it did not exist, so even the drained guard had nothing to read.
+
+The fix is one counted fact on one line: `webhook status` reports `pending_retractions` next to `pending_events`, counted from the journal (`reorgs_pending_count`, the same queue truth the push report names) — so neither queue can stand in for the other, and a cursor past the tip yields 0 rather than a negative debt.
+
+Gate: `tests/webhook_status_retraction_pending.rs` (5 tests — **0 passed / 5 failed** on the pre-fix tree, 5/5 after the fix) and `tools/mutation-ladder-status-retraction-pending.sh` (**5/5 mutations caught**, tree byte-identical after restore). The two-tree measurement is pinned by `test/status-retraction-pending-measurement.test.mjs` (5 falsifiable claims; the R3 claim was falsified by tampering and restored).
+
 ## The cursor file is read strictly
 
 The cursor file is state the consumer owns, and it never passes through the

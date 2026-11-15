@@ -1092,6 +1092,40 @@ impl Journal {
         Ok(out)
     }
 
+    /// How many recorded retractions a consumer has NOT received yet.
+    ///
+    /// The retraction channel is a SEPARATE cursor (`next_reorg_id`) from the
+    /// event channel, on purpose: a retraction must still reach a consumer
+    /// whose event queue is blocked (src/webhook.rs). That separation is
+    /// exactly why the two debts must be counted separately — one number for
+    /// the event queue says nothing about the retraction queue, and a report
+    /// that prints only the first one calls a target "caught up" while the
+    /// events the chain UNMADE have never reached it.
+    ///
+    /// Measured 2026-11-15 on the PUBLISHED v0.7.27 tree
+    /// (`tools/measure-status-retraction-pending.mjs`, verdict
+    /// `status-retraction-queue-blind`): `webhook status` printed
+    /// `pending_events: 0` next to a target with two unrecorded-to-it
+    /// retractions and said nothing about them, while `webhook push` on the
+    /// SAME journal state said `remaining_reorgs_behind_cursor: 2`.
+    ///
+    /// The count is the same truth `webhook push` reports as
+    /// `remaining_reorgs_behind_cursor` — one fact, counted once, read from
+    /// the journal. A cursor ahead of the journal (a deliberate
+    /// rewind/resume, which the cursor contract allows) yields 0, never a
+    /// negative debt.
+    pub fn reorgs_pending_count(&self, after_id: i64) -> Result<i64, String> {
+        let n: i64 = self
+            .db
+            .query_row(
+                "SELECT COUNT(*) FROM reorgs WHERE id > ?1",
+                params![after_id],
+                |r| r.get(0),
+            )
+            .map_err(|e| e.to_string())?;
+        Ok(n)
+    }
+
     pub fn reorg_count(&self) -> Result<i64, String> {
         self.db
             .query_row("SELECT COUNT(*) FROM reorgs", [], |r| r.get(0))

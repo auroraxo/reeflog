@@ -1,0 +1,63 @@
+{
+  "tool": "measure-status-retraction-pending",
+  "label": "v0.7.27-published",
+  "binary": "reeflog",
+  "binarySha256": "e9827faf8371dbee23303f1f38dbd82a0595dacdf429493fe64cc5e7b86cba89",
+  "binaryVersion": "reeflog 0.7.27",
+  "program": "whirLbMiicVdio4qvUfM5KAg6Ct8VwpYzGff3uctyCc",
+  "faces": [
+    {
+      "name": "R3_retraction_queue_behind_is_visible",
+      "pass": false,
+      "detail": "event queue drained (pending_events=0, journal events=2); retraction queue behind by 2 (reorgs=2, next_reorg_id=0); status fields=dead_letters,delivered,endpoint_recorded,failed_attempts,last_error,next_reorg_id,next_seq,pending_events,target,transport_failures,url"
+    },
+    {
+      "name": "R1_both_queues_reported",
+      "pass": false,
+      "detail": "pending_events=2 pending_retractions=undefined (journal events=2, reorgs=2)"
+    },
+    {
+      "name": "R2_drained_reports_zero",
+      "pass": false,
+      "detail": "pending_events=0 pending_retractions=undefined after both queues drained"
+    }
+  ],
+  "context": {
+    "events_total": 2,
+    "reorgs_total": 2,
+    "push_exit_code": 3,
+    "push_target_report": {
+      "blocked": true,
+      "blocked_reorg_id": 1,
+      "blocked_seq": 1,
+      "dead_lettered": 0,
+      "dead_letters_pending": 0,
+      "delivered": 0,
+      "error": "io: Connection refused (os error 111)",
+      "failed": 2,
+      "next_reorg_id": 0,
+      "next_seq": 0,
+      "page_limit": 500,
+      "remaining_behind_cursor": 2,
+      "remaining_reorgs_behind_cursor": 2,
+      "reorg_delivered": 0,
+      "target": "t1",
+      "truncated": false
+    },
+    "push_truncated_targets": 1,
+    "status_fields": [
+      "dead_letters",
+      "delivered",
+      "endpoint_recorded",
+      "failed_attempts",
+      "last_error",
+      "next_reorg_id",
+      "next_seq",
+      "pending_events",
+      "target",
+      "transport_failures",
+      "url"
+    ]
+  },
+  "verdict": "status-retraction-queue-blind"
+}

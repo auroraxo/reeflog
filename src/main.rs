@@ -2270,6 +2270,15 @@ fn run_webhook_status(args: &[String]) {
             .events_after(s.next_seq, i64::MAX)
             .map(|v| v.len() as i64)
             .unwrap_or(0);
+        // The retraction queue is its OWN debt, counted on its own line. The
+        // two cursors are separate (a retraction must still reach a consumer
+        // whose event queue is blocked), so one number cannot stand in for
+        // the other: a target with a drained event queue and an undelivered
+        // retraction looks "caught up" to a report that prints only
+        // `pending_events`. Measured 2026-11-15 on the published v0.7.27
+        // tree (verdict `status-retraction-queue-blind`); the same fact the
+        // push report names `remaining_reorgs_behind_cursor`.
+        let pending_retractions: i64 = j.reorgs_pending_count(s.next_reorg_id).unwrap_or(0);
         let dead_letters = j.webhook_dead_letter_count(&t.id).unwrap_or_else(|e| die(e));
         out.push(json!({
             "target": s.target,
@@ -2281,6 +2290,7 @@ fn run_webhook_status(args: &[String]) {
             "failed_attempts": s.failed,
             "transport_failures": s.transport_failures,
             "pending_events": pending,
+            "pending_retractions": pending_retractions,
             "dead_letters": dead_letters,
             "last_error": s.last_error,
         }));
