@@ -1,0 +1,63 @@
+{
+  "measuredAt": "2026-11-15T04:07:44.448Z",
+  "label": "v0.7.29-published",
+  "binary": {
+    "sha256": "918984e7cc2b9433f6f3262df7161028fa54c2fc7bf888485a44c11dba06c57d",
+    "version": "reeflog 0.7.29"
+  },
+  "program": "whirLbMiicVdio4qvUfM5KAg6Ct8VwpYzGff3uctyCc",
+  "fixture": {
+    "description": "one configured target (t1) plus two pending dead letters for a target (gone) that left the config",
+    "configTargets": [
+      "t1"
+    ],
+    "orphanTargets": [
+      "gone"
+    ],
+    "pendingDeadLetters": 2
+  },
+  "faces": [
+    {
+      "face": "R1",
+      "claim": "the status report names the orphaned dead-letter count",
+      "expected": 2,
+      "observed": 2,
+      "ok": true,
+      "note": "two pending letters for a target that left the config"
+    },
+    {
+      "face": "R2",
+      "claim": "the status report names WHICH target holds the stranded letters, in JSON and in stderr",
+      "expected": [
+        "gone"
+      ],
+      "observed": [
+        "gone"
+      ],
+      "stderrMentionsTarget": true,
+      "stderrMentionsKind": true,
+      "ok": true
+    },
+    {
+      "face": "R3",
+      "claim": "the status report is not silent about an orphan-only debt (a non-zero count and a non-zero exit)",
+      "expected": {
+        "count": 2,
+        "exitCode": 3
+      },
+      "observed": {
+        "count": 2,
+        "exitCode": 3
+      },
+      "ok": true
+    }
+  ],
+  "parity": {
+    "statusOrphans": 2,
+    "pushOrphans": 2,
+    "agree": true
+  },
+  "statusExitCode": 3,
+  "statusStderr": "reeflog: 2 dead letter(s) belong to target(s) no longer in this config — they cannot be replayed until the target is re-added; inspect with `reeflog webhook dlq list`\nreeflog: stranded — target(s): gone\n",
+  "verdict": "status-orphan-dead-letter-reported"
+}
