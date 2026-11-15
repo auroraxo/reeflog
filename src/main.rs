@@ -2295,7 +2295,61 @@ fn run_webhook_status(args: &[String]) {
             "last_error": s.last_error,
         }));
     }
-    println!("{}", serde_json::to_string_pretty(&json!({"targets": out})).unwrap());
+    // A pending letter belongs to a TARGET, not to a config entry. When a
+    // target is removed from the config, its quarantined events stay in the
+    // journal — and they can never be replayed from here, because the replay
+    // path needs the target's endpoint. The report above walks the CONFIG's
+    // targets, so it cannot see them: measured 2026-11-15 on the PUBLISHED
+    // v0.7.28 binary, a journal holding one pending letter for a departed
+    // target printed `dead_letters: 0` for the healthy target and exited 0,
+    // while `webhook push` on the same journal said `orphaned_dead_letters:
+    // 1` and `webhook dlq list` listed the orphan with `in_config: false`.
+    //
+    // `webhook status` is the report a monitoring caller polls — a stranded
+    // event that nobody holds, permanently, is exactly the debt a periodic
+    // check must surface. So the orphan debt is reported on its own line,
+    // with the targets that hold it, and it holds the exit code like a
+    // blocked target does: silence is not health.
+    //
+    // The total is the JOURNAL's count, not the config's (same rule as the
+    // push report, v0.7.6): a letter whose target left the config would be
+    // rounded away by a per-config sum.
+    let config_pending: i64 = targets
+        .iter()
+        .map(|t| j.webhook_dead_letter_count(&t.id).unwrap_or_else(|e| die(e)))
+        .sum();
+    let orphaned_pending =
+        (j.webhook_total_pending_dead_letters().unwrap_or_else(|e| die(e)) - config_pending).max(0);
+    let orphaned_targets: Vec<String> = j
+        .webhook_pending_targets()
+        .unwrap_or_else(|e| die(e))
+        .into_iter()
+        .filter(|id| !targets.iter().any(|t| &t.id == id))
+        .collect();
+    println!(
+        "{}",
+        serde_json::to_string_pretty(&json!({
+            "targets": out,
+            "orphaned_dead_letters": orphaned_pending,
+            "orphaned_dead_letter_targets": orphaned_targets.iter().map(|id| json!({
+                "target": id,
+                "in_config": false,
+            })).collect::<Vec<_>>(),
+        }))
+        .unwrap()
+    );
+    if orphaned_pending > 0 {
+        eprintln!(
+            "reeflog: {orphaned_pending} dead letter(s) belong to target(s) no longer in this config \
+             — they cannot be replayed until the target is re-added; inspect with \
+             `reeflog webhook dlq list`"
+        );
+        eprintln!(
+            "reeflog: stranded — target(s): {}",
+            orphaned_targets.join(", ")
+        );
+        std::process::exit(3);
+    }
 }
 
 /// List the events that were quarantined for a target.
