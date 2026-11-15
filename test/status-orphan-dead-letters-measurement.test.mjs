@@ -121,6 +121,24 @@ test('H: no host path leaks into either artifact', () => {
   }
 });
 
+test('F3: the PUBLISHED v0.7.29 asset carries the fix — status reports the stranded letters', () => {
+  // The release gate: the bytes a stranger installs must behave like the
+  // fix tree, not like the tag that keeps the defect.
+  const shipped = load('status-orphan-dead-letters-published-v0729-2026-11-15.json');
+  assert.equal(shipped.verdict, 'status-orphan-dead-letter-reported');
+  assert.equal(shipped.label, 'v0.7.29-published');
+  assert.match(shipped.binary.version, /^reeflog 0\.7\.29$/, 'the shipped binary reports its own release');
+  for (const id of ['R1', 'R2', 'R3']) {
+    assert.equal(face(shipped, id).ok, true, `${id} must hold on the published asset`);
+  }
+  assert.equal(shipped.parity.agree, true, 'the published asset agrees with push');
+  assert.equal(shipped.statusExitCode, 3, 'the shipped binary exits 3 on a stranded letter');
+  // Three different binaries were measured: the blind one, the fix tree,
+  // and the shipped one — never the same bytes under three labels.
+  assert.notEqual(shipped.binary.sha256, base.binary.sha256);
+  assert.notEqual(shipped.binary.sha256, fix.binary.sha256);
+});
+
 test('F: an edited artifact cannot re-bless itself', () => {
   // Falsification by construction: flip the baseline's blind face to "ok"
   // and every literal comparison in this file must still disagree with it.
