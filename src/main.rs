@@ -2604,6 +2604,21 @@ fn run_webhook_dlq_list(args: &[String]) {
 ///   The report now carries `pending_before`, `remaining_pending` and
 ///   `truncated` per target (and `remaining_pending` on top), and a pass
 ///   that never reached letters still pending exits 3 naming the count.
+/// * the BODY is read from the journal, not from the snapshot. The
+///   quarantine stores the bytes that were owed at that moment; the journal
+///   is what is owed NOW, and only `push` (which reads `events_after`) ever
+///   consulted it. Measured on the published v0.7.31 binary (2026-11-16,
+///   `tools/measure-dlq-replay-rebuild.mjs`): the chain unmade the
+///   transaction between quarantine and replay — journal seal
+///   `reverted`, retraction delivered by `push` — and the replay re-sent
+///   the frozen body claiming `seal: "finalized"`, the last word the
+///   consumer held for that signature. The body is now rebuilt from
+///   `event_by_seq`, so replay and `push` answer ONE fact with ONE body:
+///   a consumer deduping on `X-Reeflog-Event-Id` sees the same event with
+///   the seal the journal holds (byte-identical while the row has not
+///   moved — the documented signature guarantee holds where it is true).
+///   Letters whose journal row is gone (a planted or pre-events letter)
+///   still replay the stored bytes: nothing is ever dropped.
 fn run_webhook_dlq_replay(args: &[String]) {
     let db = PathBuf::from(arg(args, "--db").unwrap_or_else(|| "reeflog.db".into()));
     let j = Journal::open(&db).unwrap_or_else(|e| die(e));
@@ -2646,6 +2661,10 @@ fn run_webhook_dlq_replay(args: &[String]) {
     let mut pending_before = 0i64;
     let mut remaining = 0i64;
     let mut never_attempted = 0i64;
+    // Letters whose delivered body came from the journal because the
+    // frozen snapshot had stopped being true — named in the report so the
+    // divergence is a fact, not a surprise at the receiver.
+    let mut rebuilt = 0i64;
     let mut out = Vec::new();
     for t in &targets {
         if let Some(only) = &only {
@@ -2671,8 +2690,31 @@ fn run_webhook_dlq_replay(args: &[String]) {
         };
         let mut target_replayed = 0i64;
         let mut target_failed = 0i64;
+        let mut target_rebuilt = 0i64;
         for r in &rows {
-            let sig = webhook::signature_header(&t.secret, &r.body);
+            // The stored bytes are a SNAPSHOT of one moment; the journal is
+            // the fact. `push` always rebuilt the body from the row
+            // (`deliver_events` reads `events_after`) — the replay read the
+            // freeze, so the same event reached a consumer two different
+            // ways depending on which command delivered it, and after a
+            // reorg the frozen way was a claim the chain had unmade.
+            // Rebuild from the row when the journal still holds one; a
+            // letter with no row keeps its stored bytes.
+            let body = if r.kind == "event" {
+                match j.event_by_seq(r.seq).unwrap_or_else(|e| die(e)) {
+                    Some(row) => {
+                        let current = webhook::event_body(&row);
+                        if current != r.body {
+                            target_rebuilt += 1;
+                        }
+                        current
+                    }
+                    None => r.body.clone(),
+                }
+            } else {
+                r.body.clone()
+            };
+            let sig = webhook::signature_header(&t.secret, &body);
             let seq_s = r.seq.to_string();
             let headers = [
                 ("content-type", "application/json"),
@@ -2680,13 +2722,13 @@ fn run_webhook_dlq_replay(args: &[String]) {
                 (webhook::SEQ_HEADER, seq_s.as_str()),
                 (webhook::EVENT_ID_HEADER, r.event_id.as_str()),
             ];
-            let outcome = match poster.post(&t.url, &r.body, &headers) {
+            let outcome = match poster.post(&t.url, &body, &headers) {
                 Ok(status) => webhook::classify_status(status),
                 Err(e) => webhook::Attempt::Transient(e),
             };
             match outcome {
                 webhook::Attempt::Delivered(status) => {
-                    j.webhook_record_delivered(&t.id, &t.url, &r.kind, r.seq, &r.body)
+                    j.webhook_record_delivered(&t.id, &t.url, &r.kind, r.seq, &body)
                         .unwrap_or_else(|e| die(e));
                     j.webhook_record_attempt(
                         &t.id,
@@ -2732,9 +2774,11 @@ fn run_webhook_dlq_replay(args: &[String]) {
             "pending_before": before,
             "replayed": target_replayed,
             "failed": target_failed,
+            "rebuilt": target_rebuilt,
             "remaining_pending": after,
             "truncated": before > attempted,
         }));
+        rebuilt += target_rebuilt;
     }
 
     // When the whole queue was asked for (no --target), orphaned letters
@@ -2757,6 +2801,7 @@ fn run_webhook_dlq_replay(args: &[String]) {
             "targets": out,
             "replayed": replayed,
             "failed": failed,
+            "rebuilt": rebuilt,
             "pending_before": pending_before,
             "remaining_pending": remaining,
             "truncated": never_attempted > 0,

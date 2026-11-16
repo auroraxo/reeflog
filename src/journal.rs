@@ -573,6 +573,45 @@ impl Journal {
         Ok(out)
     }
 
+    /// The event row the journal holds for one `seq`, if it holds one.
+    ///
+    /// The replay path reads THIS instead of trusting the body frozen into
+    /// the dead letter at quarantine time: the journal is the fact, the
+    /// stored bytes are a snapshot of a moment (v0.7.31 measured the
+    /// difference — the chain unmade the transaction between quarantine and
+    /// replay, and the snapshot still said `seal: "finalized"`).
+    pub fn event_by_seq(&self, seq: i64) -> Result<Option<EventRow>, String> {
+        let mut stmt = self
+            .db
+            .prepare(
+                "SELECT seq, signature, slot, err, source, first_seen, seal_status,
+                        logs, payload_state, accounts, account_state
+                 FROM events WHERE seq = ?1",
+            )
+            .map_err(|e| e.to_string())?;
+        let mut rows = stmt
+            .query_map(params![seq], |r| {
+                Ok(EventRow {
+                    seq: r.get(0)?,
+                    signature: r.get(1)?,
+                    slot: r.get(2)?,
+                    err: r.get(3)?,
+                    source: r.get(4)?,
+                    first_seen: r.get(5)?,
+                    seal_status: r.get(6)?,
+                    logs: r.get(7)?,
+                    payload_state: r.get(8)?,
+                    accounts: r.get(9)?,
+                    account_state: r.get(10)?,
+                })
+            })
+            .map_err(|e| e.to_string())?;
+        match rows.next() {
+            Some(row) => Ok(Some(row.map_err(|e| e.to_string())?)),
+            None => Ok(None),
+        }
+    }
+
     /// Rows whose content is still unknown: no payload and no recorded
     /// outcome. Ordered by `seq` so hydration follows delivery order.
     pub fn events_missing_payload(&self, limit: i64) -> Result<Vec<(i64, String)>, String> {

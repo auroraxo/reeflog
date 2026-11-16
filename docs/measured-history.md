@@ -948,7 +948,13 @@ reeflog start --db reeflog.db --webhook-config webhooks.json --webhook-every 5
    is the same signature it would have had — a receiver deduping on
    `X-Reeflog-Event-Id` sees the same event it rejected (or missed), not a
    new one. A replay that is refused again stays in the queue and exits 3;
-   nothing is ever dropped.
+   nothing is ever dropped. Since **v0.7.32** the replay REBUILDS the body
+   from the journal row when the journal still holds one: the stored bytes
+   are a snapshot of the quarantine moment, and the journal is the fact
+   (seal, payload and accounts can all move while a letter waits). A
+   letter with no journal row keeps its stored bytes, and the report names
+   the letters whose body came from the journal (`rebuilt`) — see the deep
+   dive.
 8. **A failure that ended stops being reported.** `webhook status` carries
    `last_error` — the reason the target's MOST RECENT delivery pass stopped.
    Since v0.7.24 that reason belongs to the pass that produced it: the next
@@ -1677,6 +1683,65 @@ mutant. The two-tree measurement is pinned by
 `test/status-payload-debt-exit-measurement.test.mjs` (7 falsifiable claims,
 including the guards-green-on-both-trees face) and the client contract by
 `test/status-payload-debt-exit.test.mjs` (5 claims).
+
+### The replay answers the journal, not the quarantine's snapshot (v0.7.32)
+
+The dead letter stores "the exact bytes it was owed" — true at the moment
+the quarantine wrote them. The journal is the FACT those bytes described,
+and it keeps moving while the letter waits: a seal flips when the chain
+unmakes the transaction, `hydrate` pays a payload the frozen body still
+shows as `null`, account envelopes arrive after ingest.
+
+`webhook push` always rebuilt its body from the row (`deliver_events`
+reads `events_after`). The REPLAY read the freeze. So the same seq
+reached a consumer two different ways depending on which command delivered
+it — and the way only the replay could deliver was the stale one.
+
+Measured 2026-11-16 on the **published v0.7.31 asset** (the linux archive
+whose sha256 equals the digest the Release API publishes;
+`tools/measure-dlq-replay-rebuild.mjs`,
+`research/dlq-replay-rebuild-published-v0731-2026-11-16.json`, verdict
+`dlq-replay-rebuild-blind`, **3 of 3 defect faces violated, 3 of 3 guards
+held**):
+
+| The journal state | `push` delivered | `dlq replay` delivered for the same seq |
+|---|---|---|
+| consumer refused once → quarantined; chain then unmade the tx (seal `reverted` + `reorgs` row) | retraction first, and a fresh target's event body with `seal: "reverted"` | the frozen body with `seal: "finalized"` |
+| the consumer's LAST word for that signature | the truth | **a claim the chain had unmade** |
+| the report | — | `replayed: 1`, nothing naming the divergence |
+
+So after `push` told the consumer the transaction was unmade, `dlq
+replay` handed it back the quarantine's snapshot asserting it was
+finalized — the one fact a retraction exists to correct.
+
+The fix: the replay rebuilds the body from `event_by_seq` when the journal
+still holds the row, so replay and push answer ONE fact with ONE body —
+identical bytes for the same seq (D2). A consumer deduping on
+`X-Reeflog-Event-Id` sees the same event with the seal the journal holds;
+while the row has not moved, the bytes are byte-identical to the freeze,
+so the documented signature guarantee holds where it is true (G1). The
+report carries `rebuilt` per target and on top, naming the letters whose
+body came from the journal instead of the snapshot (D3).
+
+What is deliberately NOT part of the rule, and why:
+
+- **A letter with NO journal row** (planted, or older than the events
+  table) replays its stored bytes and exits 0 — the rebuild must never
+  become a way for a letter to vanish (G2: nothing is ever dropped).
+- **A replay refused again** still stays pending and exits 3 with
+  `failed`/`remaining_pending` named (G3) — v0.7.7 and v0.7.12 hold.
+- **`--target`, the orphan rule, endpoint binding and `--limit`** are
+  untouched: this is the body, not the routing or the accounting.
+
+Gate: `tests/dlq_replay_rebuild.rs` (6 tests — 3 defect pins, 3 guards)
+and `tools/mutation-ladder-dlq-replay-rebuild.sh` (**5/5 mutations caught**,
+tree byte-identical after restore): the frozen body comes back, the rebuild
+keeps the frozen seal, `rebuilt` leaves the report, the rebuild becomes
+unconditional (dropping row-less letters), and the receipt names bytes the
+consumer never saw. The two measurements are pinned by
+`tests/dlq_replay_rebuild_published.rs` (5 tests), which also pins that the
+guards were green on the PUBLISHED defect asset — the red faces are the
+replay's, not the fixture's.
 
 ## The cursor file is read strictly
 

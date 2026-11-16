@@ -1,0 +1,103 @@
+{
+  "measuredAt": "2026-11-16T20:32:25.914Z",
+  "label": "published-v0.7.31",
+  "binary": {
+    "sha256": "19ea6fe54159084b982fc50910284e8961000620bc70e08969d8efab146ab1a4",
+    "version": "reeflog 0.7.31"
+  },
+  "program": "whirLbMiicVdio4qvUfM5KAg6Ct8VwpYzGff3uctyCc",
+  "rule": [
+    "the dead letter stores the bytes that were owed at quarantine time — a snapshot, not a fact",
+    "the journal row is the fact: seal, payload and accounts can all move while a letter waits",
+    "push already rebuilt the body from the row (deliver_events reads events_after); only the replay read the freeze",
+    "one fact, one verdict per surface: the same seq must reach a consumer as the same body whichever command delivers it"
+  ],
+  "faces": [
+    {
+      "face": "D1",
+      "claim": "the replayed body carries the seal the JOURNAL holds for that event (not the seal the quarantine froze)",
+      "expected": {
+        "journalSeal": "reverted",
+        "replayedSeal": "reverted"
+      },
+      "observed": {
+        "journalSeal": "reverted",
+        "replayedSeal": "finalized"
+      },
+      "ok": false,
+      "note": "the chain unmade the tx between quarantine and replay; push delivered the retraction to t1 first: true; the replay then sent seal=\"finalized\" (frozen body said \"finalized\"), exit 0"
+    },
+    {
+      "face": "D2",
+      "claim": "replay and push answer the SAME event with the SAME body — a fresh target read through `push` receives what the replayed target receives",
+      "expected": "identical bodies",
+      "observed": {
+        "replay": "finalized",
+        "push": "reverted",
+        "sameBytes": false
+      },
+      "ok": false,
+      "note": "one journal, two surfaces: push built its body from the row (seal \"reverted\"), the replay sent the freeze (seal \"finalized\")"
+    },
+    {
+      "face": "D3",
+      "claim": "the replay report names the letters whose body came from the journal instead of the freeze (`rebuilt`)",
+      "expected": {
+        "rebuilt": 1
+      },
+      "observed": {
+        "rebuilt": null
+      },
+      "ok": false,
+      "note": "report: {\"failed\":0,\"pending_before\":1,\"remaining_pending\":0,\"replayed\":1,\"targets\":[{\"failed\":0,\"pending_before\":1,\"remaining_pending\":0,\"replayed\":1,\"target\":\"t1\",\"truncated\":false},{\"failed\":0,\"pending_before\":0,\"remaining_pending\":0,\"replayed\":0,\"target\":\"t2\",\"truncated\":false}],\"truncated\":false,\"unreachable_orphans\":0}"
+    },
+    {
+      "face": "G1",
+      "claim": "an UNCHANGED letter still replays byte-for-byte (the documented signature guarantee where it is true)",
+      "expected": {
+        "byteIdentical": true,
+        "exitCode": 0
+      },
+      "observed": {
+        "byteIdentical": true,
+        "exitCode": 0,
+        "rebuilt": null
+      },
+      "ok": true,
+      "note": "frozen 229 bytes, sent 229 bytes, rebuilt null"
+    },
+    {
+      "face": "G2",
+      "claim": "a letter with no journal row replays its STORED bytes and exits 0 — nothing is ever dropped",
+      "expected": {
+        "sentVerbatim": true,
+        "exitCode": 0,
+        "state": "replayed"
+      },
+      "observed": {
+        "sentVerbatim": true,
+        "exitCode": 0,
+        "state": "replayed"
+      },
+      "ok": true,
+      "note": "planted 39 bytes, sent 39 bytes"
+    },
+    {
+      "face": "G3",
+      "claim": "a replay refused again stays pending and exits 3 (the queue keeps holding it)",
+      "expected": {
+        "exitCode": 3,
+        "state": "pending",
+        "pending": 1
+      },
+      "observed": {
+        "exitCode": 3,
+        "state": "pending",
+        "pending": 1
+      },
+      "ok": true,
+      "note": "failed=1, remaining_pending=1"
+    }
+  ],
+  "verdict": "dlq-replay-rebuild-blind"
+}

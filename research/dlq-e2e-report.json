@@ -1,10 +1,10 @@
 {
-  "generatedAt": "2026-10-29T21:06:18.137Z",
+  "generatedAt": "2026-11-16T20:44:01.083Z",
   "program": "675kPX9MHTjS2zt1qfr1NYHuzeLXfQM9H24wFSUt1Mp8",
-  "events": 54,
+  "events": 39,
   "threshold": 3,
-  "requests_received": 112,
-  "accepted": 108,
+  "requests_received": 82,
+  "accepted": 78,
   "checks": 15,
   "passed": 15,
   "failed": 0,
@@ -29,9 +29,9 @@
     {
       "attempts": 3,
       "event_id": "stuck:event:1",
-      "first_failed_at": 1793307977897,
+      "first_failed_at": 1794861840724,
       "kind": "event",
-      "last_failed_at": 1793307977897,
+      "last_failed_at": 1794861840724,
       "reason": "refused with http 403",
       "seq": 1,
       "state": "pending",
@@ -379,126 +379,6 @@
     {
       "path": "/ok",
       "type": "event",
-      "seq": 40,
-      "eventId": "stuck:event:40",
-      "status": 200,
-      "sigValid": true
-    },
-    {
-      "path": "/ok",
-      "type": "event",
-      "seq": 41,
-      "eventId": "stuck:event:41",
-      "status": 200,
-      "sigValid": true
-    },
-    {
-      "path": "/ok",
-      "type": "event",
-      "seq": 42,
-      "eventId": "stuck:event:42",
-      "status": 200,
-      "sigValid": true
-    },
-    {
-      "path": "/ok",
-      "type": "event",
-      "seq": 43,
-      "eventId": "stuck:event:43",
-      "status": 200,
-      "sigValid": true
-    },
-    {
-      "path": "/ok",
-      "type": "event",
-      "seq": 44,
-      "eventId": "stuck:event:44",
-      "status": 200,
-      "sigValid": true
-    },
-    {
-      "path": "/ok",
-      "type": "event",
-      "seq": 45,
-      "eventId": "stuck:event:45",
-      "status": 200,
-      "sigValid": true
-    },
-    {
-      "path": "/ok",
-      "type": "event",
-      "seq": 46,
-      "eventId": "stuck:event:46",
-      "status": 200,
-      "sigValid": true
-    },
-    {
-      "path": "/ok",
-      "type": "event",
-      "seq": 47,
-      "eventId": "stuck:event:47",
-      "status": 200,
-      "sigValid": true
-    },
-    {
-      "path": "/ok",
-      "type": "event",
-      "seq": 48,
-      "eventId": "stuck:event:48",
-      "status": 200,
-      "sigValid": true
-    },
-    {
-      "path": "/ok",
-      "type": "event",
-      "seq": 49,
-      "eventId": "stuck:event:49",
-      "status": 200,
-      "sigValid": true
-    },
-    {
-      "path": "/ok",
-      "type": "event",
-      "seq": 50,
-      "eventId": "stuck:event:50",
-      "status": 200,
-      "sigValid": true
-    },
-    {
-      "path": "/ok",
-      "type": "event",
-      "seq": 51,
-      "eventId": "stuck:event:51",
-      "status": 200,
-      "sigValid": true
-    },
-    {
-      "path": "/ok",
-      "type": "event",
-      "seq": 52,
-      "eventId": "stuck:event:52",
-      "status": 200,
-      "sigValid": true
-    },
-    {
-      "path": "/ok",
-      "type": "event",
-      "seq": 53,
-      "eventId": "stuck:event:53",
-      "status": 200,
-      "sigValid": true
-    },
-    {
-      "path": "/ok",
-      "type": "event",
-      "seq": 54,
-      "eventId": "stuck:event:54",
-      "status": 200,
-      "sigValid": true
-    },
-    {
-      "path": "/ok",
-      "type": "event",
       "seq": 1,
       "eventId": "stuck:event:1",
       "status": 200,
@@ -813,126 +693,6 @@
       "type": "event",
       "seq": 39,
       "eventId": "wrong:event:39",
-      "status": 200,
-      "sigValid": false
-    },
-    {
-      "path": "/ok",
-      "type": "event",
-      "seq": 40,
-      "eventId": "wrong:event:40",
-      "status": 200,
-      "sigValid": false
-    },
-    {
-      "path": "/ok",
-      "type": "event",
-      "seq": 41,
-      "eventId": "wrong:event:41",
-      "status": 200,
-      "sigValid": false
-    },
-    {
-      "path": "/ok",
-      "type": "event",
-      "seq": 42,
-      "eventId": "wrong:event:42",
-      "status": 200,
-      "sigValid": false
-    },
-    {
-      "path": "/ok",
-      "type": "event",
-      "seq": 43,
-      "eventId": "wrong:event:43",
-      "status": 200,
-      "sigValid": false
-    },
-    {
-      "path": "/ok",
-      "type": "event",
-      "seq": 44,
-      "eventId": "wrong:event:44",
-      "status": 200,
-      "sigValid": false
-    },
-    {
-      "path": "/ok",
-      "type": "event",
-      "seq": 45,
-      "eventId": "wrong:event:45",
-      "status": 200,
-      "sigValid": false
-    },
-    {
-      "path": "/ok",
-      "type": "event",
-      "seq": 46,
-      "eventId": "wrong:event:46",
-      "status": 200,
-      "sigValid": false
-    },
-    {
-      "path": "/ok",
-      "type": "event",
-      "seq": 47,
-      "eventId": "wrong:event:47",
-      "status": 200,
-      "sigValid": false
-    },
-    {
-      "path": "/ok",
-      "type": "event",
-      "seq": 48,
-      "eventId": "wrong:event:48",
-      "status": 200,
-      "sigValid": false
-    },
-    {
-      "path": "/ok",
-      "type": "event",
-      "seq": 49,
-      "eventId": "wrong:event:49",
-      "status": 200,
-      "sigValid": false
-    },
-    {
-      "path": "/ok",
-      "type": "event",
-      "seq": 50,
-      "eventId": "wrong:event:50",
-      "status": 200,
-      "sigValid": false
-    },
-    {
-      "path": "/ok",
-      "type": "event",
-      "seq": 51,
-      "eventId": "wrong:event:51",
-      "status": 200,
-      "sigValid": false
-    },
-    {
-      "path": "/ok",
-      "type": "event",
-      "seq": 52,
-      "eventId": "wrong:event:52",
-      "status": 200,
-      "sigValid": false
-    },
-    {
-      "path": "/ok",
-      "type": "event",
-      "seq": 53,
-      "eventId": "wrong:event:53",
-      "status": 200,
-      "sigValid": false
-    },
-    {
-      "path": "/ok",
-      "type": "event",
-      "seq": 54,
-      "eventId": "wrong:event:54",
       "status": 200,
       "sigValid": false
     }
