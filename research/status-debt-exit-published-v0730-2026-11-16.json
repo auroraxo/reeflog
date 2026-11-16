@@ -1,0 +1,83 @@
+{
+  "measuredAt": "2026-11-15T23:59:45.160Z",
+  "label": "published-v0.7.30",
+  "binary": {
+    "sha256": "b1eac6c03d3b4aa3cf0e3a31d4bc6e746afd31b3b835dfdbcdb80629552742fa",
+    "version": "reeflog 0.7.30"
+  },
+  "program": "whirLbMiicVdio4qvUfM5KAg6Ct8VwpYzGff3uctyCc",
+  "rule": [
+    "a pending dead letter does not drain by itself: the quarantine moves the target cursor past the row, and deliver_events reads events_after(next_seq)",
+    "the standing verdict last_error is written by the blocked pass that push already turns into exit 3",
+    "status is the surface a monitoring caller polls; a debt it prints and then calls health is the same lie as a debt it never printed"
+  ],
+  "faces": [
+    {
+      "face": "D1",
+      "claim": "`webhook status` exits 3 while a configured target holds pending dead letters (it prints the count and calls it health)",
+      "expected": {
+        "exitCode": 3,
+        "printed": 1
+      },
+      "observed": {
+        "exitCode": 3,
+        "printed": 1
+      },
+      "ok": true,
+      "note": "push on the same journal: exit 3, dead_letters_pending 1; after 3 push passes the letter is still pending (exit 3) with cursor at 1 — it does not drain by itself, exactly like the orphan"
+    },
+    {
+      "face": "D2",
+      "claim": "`webhook status` exits 3 while a configured target carries a standing failure verdict",
+      "expected": {
+        "exitCode": 3,
+        "hasLastError": true
+      },
+      "observed": {
+        "exitCode": 3,
+        "hasLastError": true
+      },
+      "ok": true,
+      "note": "push on the same journal: exit 3"
+    },
+    {
+      "face": "D3",
+      "claim": "status and push return the SAME exit code for a journal holding pending dead letters",
+      "expected": "equal",
+      "observed": {
+        "status": 3,
+        "push": 3
+      },
+      "ok": true
+    },
+    {
+      "face": "G1",
+      "claim": "a journal with no debt still reports 0 letters and exits 0",
+      "expected": {
+        "exitCode": 0,
+        "letters": 0,
+        "orphans": 0
+      },
+      "observed": {
+        "exitCode": 0,
+        "letters": 0,
+        "orphans": 0
+      },
+      "ok": true
+    },
+    {
+      "face": "G2",
+      "claim": "an ORPHANED dead letter still exits 3 (the v0.7.29 rule holds)",
+      "expected": {
+        "exitCode": 3,
+        "orphans": 1
+      },
+      "observed": {
+        "exitCode": 3,
+        "orphans": 1
+      },
+      "ok": true
+    }
+  ],
+  "verdict": "status-debt-exit-held"
+}
