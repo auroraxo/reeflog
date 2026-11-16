@@ -10,11 +10,11 @@ durable cursor, no catch-up. Every project rebuilds reconnect, dedup,
 gap-fill, and reorg handling, or silently loses events. reeflog makes that
 one daemon, one file, one cursor.
 
-**Status: v0.7.30 (2026-11-16), live against mainnet-beta — no Rust toolchain needed: `npm install reeflog-client`, then `import { bootstrap } from 'reeflog-client'; await bootstrap()` (downloads the prebuilt release archive and verifies its sha256 against what the GitHub release API publishes). The client itself is zero-dependency: one package, no `node_modules` of its own, and it installs without `git` on the machine.**
+**Status: v0.7.31 (2026-11-16), live against mainnet-beta — no Rust toolchain needed: `npm install reeflog-client`, then `import { bootstrap } from 'reeflog-client'; await bootstrap()` (downloads the prebuilt release archive and verifies its sha256 against what the GitHub release API publishes). The client itself is zero-dependency: one package, no `node_modules` of its own, and it installs without `git` on the machine.**
 
 The same client from the tagged release:
-`npm install github:auroraxo/reeflog#v0.7.30`. Or from source:
-`cargo install --git https://github.com/auroraxo/reeflog --tag v0.7.30`.
+`npm install github:auroraxo/reeflog#v0.7.31`. Or from source:
+`cargo install --git https://github.com/auroraxo/reeflog --tag v0.7.31`.
 
 **Honest state:** it works, and it is measured — but so far every real
 consumer belongs to the project itself. There is no unaffiliated third-party
@@ -56,7 +56,7 @@ $BIN start  --db reeflog.db --seconds 60     # ingest over WebSocket
 $BIN seal   --db reeflog.db                  # promote confirmed -> finalized
 $BIN tail   --db reeflog.db --cursor ./c.txt --limit 5   # resume from cursor
 $BIN verify --db reeflog.db                  # find holes (exit 3 if unfinished)
-$BIN status --db reeflog.db                  # journal health as JSON
+$BIN status --db reeflog.db                  # journal health as JSON (exit 3 if a payload is owed)
 ```
 
 The same commands as the installed CLI (on `PATH` after `cargo install`):
@@ -107,7 +107,7 @@ reeflog hydrate --db reeflog.db --accounts         # + account envelopes for soc
 reeflog hydrate --db reeflog.db --owners           # + owning program per address (batched)
 reeflog tail    --db reeflog.db --cursor ./c.txt   # deliver events (content included)
 reeflog webhook push --db reeflog.db --config webhooks.json   # deliver to outside targets
-reeflog status  --db reeflog.db
+reeflog status  --db reeflog.db              # exit 3 if a row still owes its payload
 ```
 
 Three kinds of gap need different tools, and reeflog keeps them apart
@@ -159,6 +159,7 @@ detail and every raw number in
 | Retraction status | the status report named only the event queue: a target with a drained event queue and 2 never-received retractions read as caught up; measured on the published v0.7.27 asset, fixed in v0.7.28 |
 | Orphaned dead letters | the status report named only the configured targets: quarantined events of a target that left the config read as "nothing quarantined" while `push` counted them; measured on the published v0.7.28 asset, fixed in v0.7.29 |
 | Debt exit code | the report printed two debts (`dead_letters: 1`, `last_error`) and exited 0 while `webhook push` on the same journal exited 3 for both; status and push disagreed on one fact; measured on the published v0.7.29 asset, fixed in v0.7.30 |
+| Payload debt exit code | `status` printed `payload_pending: 1` and exited 0 while the payload-bearing `tail` held at the same row and exited 3; the health report a monitoring caller polls called an owed journal healthy; measured on the published v0.7.30 asset, fixed in v0.7.31 |
 
 ## Conditions and limits — the honest part
 
@@ -184,6 +185,9 @@ detail and every raw number in
 - **A consumer must read the exit code.** `tail` exits 3 when a row's
   payload is still owed and holds the cursor there; treating every
   non-zero as "retry everything" replays forever. `exit 1` is a refusal.
+  Since v0.7.31 `status` holds that code too: a journal that still owes a
+  row's content makes the health report exit 3, so the caller that polls it
+  cannot read an owed journal as healthy.
 - **A `--limit` is a budget, not a hint, and the push report is the queue.**
   `webhook push --limit 0` sends zero bytes and moves no cursor; a bounded
   pass reports `remaining_behind_cursor` and `truncated` so a page can never
@@ -238,6 +242,24 @@ detail and every raw number in
   prints — configured quarantine, stranded orphan, or standing failure. A
   clean journal still exits 0. Measured on the published v0.7.29 asset,
   fixed in v0.7.30 (see the deep dive).
+- **The health report holds the debt it prints, too (v0.7.31).** The same
+  rule applies to the JOURNAL's own report: `status` printed
+  `payload_pending: 1` and exited 0, while the default payload-bearing
+  `tail` held at that exact row and exited 3 — the predicate is the same
+  one (`logs IS NULL AND payload_state IS NULL`). `webhook push` has held
+  its target cursor there since v0.7.23, `hydrate` exits 3 while rows are
+  pending, and the daemon exits 3 at shutdown while the payload hydrate is
+  incomplete; only `status` — the surface a monitoring caller polls — read
+  the number as health. It now exits 3 and names `reeflog hydrate` on
+  stderr, and the Node client's `status()` throws on that verdict with the
+  report attached (`error.report`), so the facts are not lost with the
+  verdict. Deliberately NOT part of the verdict: a recorded outcome
+  (`unavailable`/`invalid` — the chain forgot the transaction, which
+  `hydrate` counts as a completed pass) and the opt-in
+  account/owner/account-data queues, which drain only behind
+  `hydrate --accounts` / `tail --with-accounts` and would be a permanent
+  alarm for a default consumer. Measured on the published v0.7.30 asset,
+  fixed in v0.7.31 (see the deep dive).
 - **The client is zero-dependency since v0.7.25.** Until then the npm
   manifest named *itself* as a dependency on github:, so every
   `npm install reeflog-client` also cloned a second, older copy of the
@@ -250,7 +272,7 @@ detail and every raw number in
 ## Deep dives
 
 - [docs/measured-history.md](https://github.com/auroraxo/reeflog/blob/main/docs/measured-history.md) — the complete
-  README measurement and contract history through v0.7.30, unbroken.
+  README measurement and contract history through v0.7.31, unbroken.
 - [`research/`](research/) — every committed measurement artifact behind the
   numbers above (raw JSON reports, pinned by tests).
 - [`tests/`](tests/) and [`test/`](test/) — the contract tests: the CLI

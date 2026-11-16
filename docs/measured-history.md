@@ -1607,6 +1607,77 @@ is pinned by
 carries the defect, the fixed tree holds every face, no artifact carries a
 host path).
 
+### The health report holds the debt it prints (v0.7.31)
+
+v0.7.30 closed the rule for the WEBHOOK report. The JOURNAL's own report
+had the same defect and nobody had measured it: `reeflog status` is the
+surface a monitoring caller polls for the mailbox itself — it asks "is this
+journal whole?" and reads the exit code.
+
+`status` prints `payload_pending`: the count of rows the journal holds a
+SIGNATURE for but not what happened (`logs IS NULL AND payload_state IS
+NULL`). That is not an invented notion of debt — it is the **exact
+predicate** the default payload-bearing `tail` holds at (cursor stays, exit
+3, `hydrate` named), the one `webhook push` has held its target cursor at
+since v0.7.23, the one `hydrate` exits 3 on while its own `pending_left` is
+non-zero, and the one the daemon exits 3 on at shutdown while the payload
+hydrate is incomplete. Four surfaces already held that code. Only `status`
+printed the number and exited 0.
+
+Measured 2026-11-16 on the **published v0.7.30 asset** (linux binary sha256
+`b1eac6c0…` == the bytes the release API publishes;
+`tools/measure-status-payload-debt-exit.mjs`,
+`research/status-payload-debt-exit-published-v0730-2026-11-16.json`, verdict
+`status-payload-debt-exit-blind`):
+
+| The journal state | `status` said | the payload-bearing `tail` said on the same state |
+|---|---|---|
+| 1 row still owes its content | `payload_pending: 1`, **exit 0** | `HELD at seq 1 <sig>: the payload is still owed — run hydrate`, **exit 3** |
+| the same journal, two surfaces | **exit 0** | **exit 3** |
+| the debt paid (`hydrate`) | `payload_pending: 0`, exit 0 | exit 0 |
+| 1 clean journal | exit 0 | exit 0 |
+| a **recorded** outcome (`unavailable`/`invalid`) | exit 0 | exit 0 |
+| the **opt-in** account/owner/account-data queues | exit 0 | exit 0 (held only behind `--with-accounts`) |
+
+So the health report called an owed journal healthy, and the two surfaces
+of the **same** journal disagreed about the same fact — the same shape as
+the v0.7.30 webhook case, one layer down.
+
+The fix is the same rule one surface further in: `status` exits 3 while a
+row still owes its payload, naming `reeflog hydrate` on the stderr line the
+operator reads, and returns to 0 the moment the debt is paid — a verdict
+that never comes back down is an alarm, not a verdict. The Node client
+follows the code: `status()` throws on exit 3 like `verify`/`repair`/
+`hydrate` do, and the thrown `ReeflogError` carries the **parsed report**
+in `error.report`, so a caller that catches it still sees WHAT is owed.
+
+What is deliberately NOT part of the verdict, and why:
+
+- **A recorded outcome** (`payload_state` `unavailable`/`invalid`): the
+  chain forgot the transaction or refused the key. `hydrate` counts those
+  as a *completed* pass — there is nothing left to fill — so a status that
+  alarmed on them would alarm forever.
+- **The opt-in queues** (`accounts_missing`, `owners_missing`,
+  `account_data_missing`): they are filled only by
+  `hydrate --accounts|--owners|--account-data` and held only behind
+  `tail --with-accounts`. For a default consumer they never drain, so
+  folding them into the verdict would be the **permanent false alarm**
+  v0.7.27 had to remove from `gaps_open` — the field an operator reads to
+  decide whether the mailbox is whole.
+- **`gaps_open`**: the same class. `verify`/`repair` own that verdict.
+
+Gate: `tests/status_payload_debt_exit.rs` (7 tests — 3 defect pins, 4
+guards) and `tools/mutation-ladder-status-payload-debt-exit.sh` (**6/6
+mutations caught**, tree byte-identical after restore, including the
+"always alarm" mirror, the recorded-outcome widening, the opt-in widening
+and the `gaps_open` widening). The ladder also rebuilds after restoring
+the tree: the mutation build leaves a mutant binary in `target/release`,
+and a later measurement that runs it without rebuilding would measure the
+mutant. The two-tree measurement is pinned by
+`test/status-payload-debt-exit-measurement.test.mjs` (7 falsifiable claims,
+including the guards-green-on-both-trees face) and the client contract by
+`test/status-payload-debt-exit.test.mjs` (5 claims).
+
 ## The cursor file is read strictly
 
 The cursor file is state the consumer owns, and it never passes through the
