@@ -1,5 +1,6 @@
 //! Pins the measurement of the PUBLISHED v0.7.29 asset: `webhook status`
-//! printed two debts and exited 0 for both.
+//! printed two debts and exited 0 for both — and, after the release, the
+//! PUBLISHED v0.7.30 asset holding the same rule on every face.
 //!
 //! Why this exists (2026-11-16): the fix was measured against the published
 //! v0.7.29 linux asset (the archive whose sha256 equals the digest the
@@ -41,6 +42,7 @@ fn artifact(name: &str) -> serde_json::Value {
 }
 
 const PUBLISHED: &str = "status-debt-exit-published-v0729-2026-11-16.json";
+const SHIPPED: &str = "status-debt-exit-published-v0730-2026-11-16.json";
 const FIXED: &str = "status-debt-exit-fixed-tree-2026-11-16.json";
 
 fn face<'a>(v: &'a serde_json::Value, id: &str) -> &'a serde_json::Value {
@@ -174,8 +176,50 @@ fn the_fixed_tree_holds_every_face() {
 }
 
 #[test]
+fn the_shipped_v0730_asset_holds_every_face() {
+    let v = artifact(SHIPPED);
+    assert_eq!(
+        v["label"].as_str(),
+        Some("published-v0.7.30"),
+        "the artifact must say it measured the PUBLISHED asset, not the tree"
+    );
+    assert_eq!(
+        v["binary"]["sha256"].as_str(),
+        Some("b1eac6c03d3b4aa3cf0e3a31d4bc6e746afd31b3b835dfdbcdb80629552742fa"),
+        "the artifact must name the published v0.7.30 binary by sha256"
+    );
+    assert_eq!(
+        v["binary"]["version"].as_str(),
+        Some("reeflog 0.7.30"),
+        "the version must be read from that binary"
+    );
+    assert_eq!(
+        v["verdict"].as_str(),
+        Some("status-debt-exit-held"),
+        "the released asset holds the debt-exit rule"
+    );
+    for id in ["D1", "D2", "D3", "G1", "G2"] {
+        assert_eq!(
+            face(&v, id)["ok"].as_bool(),
+            Some(true),
+            "the face {id} must hold on the published v0.7.30 asset"
+        );
+    }
+    assert_eq!(
+        face(&v, "D3")["observed"]["status"].as_i64(),
+        Some(3),
+        "the shipped report holds the same exit code push does"
+    );
+    assert_eq!(
+        face(&v, "G1")["observed"]["exitCode"].as_i64(),
+        Some(0),
+        "and a clean journal still exits 0"
+    );
+}
+
+#[test]
 fn no_artifact_carries_a_host_path() {
-    for name in [PUBLISHED, FIXED] {
+    for name in [PUBLISHED, SHIPPED, FIXED] {
         let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .join("research")
             .join(name);
