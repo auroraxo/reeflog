@@ -1,0 +1,106 @@
+{
+  "measuredAt": "2026-11-16T11:58:46.930Z",
+  "label": "published-v0.7.31",
+  "binary": {
+    "sha256": "19ea6fe54159084b982fc50910284e8961000620bc70e08969d8efab146ab1a4",
+    "version": "reeflog 0.7.31"
+  },
+  "program": "whirLbMiicVdio4qvUfM5KAg6Ct8VwpYzGff3uctyCc",
+  "rule": [
+    "payload_pending counts rows the journal holds a signature for but not what happened (logs IS NULL AND payload_state IS NULL)",
+    "the default payload-bearing tail HOLDS at that predicate (cursor stays, exit 3, hydrate named) — since v0.7.23 webhook push holds its cursor at it too, hydrate exits 3 while pending_left is non-zero, and the daemon exits 3 at shutdown while the payload hydrate is incomplete",
+    "status is the surface a monitoring caller polls; a debt it prints and then calls health is the same lie as a debt it never printed",
+    "recorded outcomes (unavailable/invalid) are NOT a debt — hydrate counts them as a completed pass",
+    "the opt-in account/owner/account-data queues are not part of the verdict: they drain only behind an opt-in flag and would be a permanent alarm for a default consumer"
+  ],
+  "faces": [
+    {
+      "face": "D1",
+      "claim": "`status` exits 3 while a row still owes its payload (it prints the count and calls it health)",
+      "expected": {
+        "exitCode": 3,
+        "printed": 1
+      },
+      "observed": {
+        "exitCode": 3,
+        "printed": 1
+      },
+      "ok": true,
+      "note": "reeflog: 1 row(s) still owe their payload — the journal holds a signature, not what happened; run `reeflog hydrate`"
+    },
+    {
+      "face": "D2",
+      "claim": "status and the default payload-bearing tail return the SAME exit code for the same journal",
+      "expected": "equal",
+      "observed": {
+        "status": 3,
+        "tail": 3
+      },
+      "ok": true,
+      "note": "tail: reeflog: 0 events after cursor 0 → cursor now ? (HELD at seq 1 SIG00000000000000000000000000000000000000001: the payload is still owed — run `hydrate`; nothing at or after this row is consumed)"
+    },
+    {
+      "face": "D3",
+      "claim": "paying the payload debt flips status back to exit 0 — the verdict tracks the debt",
+      "expected": {
+        "before": 3,
+        "after": 0
+      },
+      "observed": {
+        "before": 3,
+        "after": 0
+      },
+      "ok": true,
+      "note": "pending 1 -> 0"
+    },
+    {
+      "face": "G1",
+      "claim": "a journal with no debt reports 0 pending and exits 0",
+      "expected": {
+        "exitCode": 0,
+        "pending": 0
+      },
+      "observed": {
+        "exitCode": 0,
+        "pending": 0
+      },
+      "ok": true,
+      "note": "an exit code that never comes back down is an alarm, not a verdict"
+    },
+    {
+      "face": "G2",
+      "claim": "rows in a recorded outcome (unavailable/invalid) are NOT a debt: status exits 0",
+      "expected": {
+        "exitCode": 0,
+        "pending": 0,
+        "unavailable": 1,
+        "invalid": 1
+      },
+      "observed": {
+        "exitCode": 0,
+        "pending": 0,
+        "unavailable": 1,
+        "invalid": 1
+      },
+      "ok": true,
+      "note": "the chain forgot these — hydrate counts them as a completed pass, not a pending row"
+    },
+    {
+      "face": "G3",
+      "claim": "the opt-in queues (accounts/owners/account-data missing) do NOT set the exit code",
+      "expected": {
+        "exitCode": 0,
+        "accountsMissing": 5
+      },
+      "observed": {
+        "exitCode": 0,
+        "accountsMissing": 5,
+        "ownersMissing": 0,
+        "accountDataMissing": 0
+      },
+      "ok": true,
+      "note": "filled only by `hydrate --accounts` and held only behind `tail --with-accounts` — they never drain for a default consumer"
+    }
+  ],
+  "verdict": "status-payload-debt-exit-held"
+}

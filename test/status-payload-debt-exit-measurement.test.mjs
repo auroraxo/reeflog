@@ -39,6 +39,9 @@ const load = (name) => JSON.parse(fs.readFileSync(path.join(dir, name), 'utf8'))
 
 const base = load('status-payload-debt-exit-published-v0730-2026-11-16.json');
 const fix = load('status-payload-debt-exit-fixed-tree-2026-11-16.json');
+// The PUBLISHED v0.7.31 asset — the bytes a stranger installs. The fix must
+// be in them, not only on main.
+const shipped = load('status-payload-debt-exit-published-v0731-2026-11-16.json');
 
 const face = (report, id) => report.faces.find((f) => f.face === id);
 
@@ -123,8 +126,23 @@ test('F3: both artifacts measured DIFFERENT binaries, by bytes', () => {
   assert.match(base.binary.sha256, /^[0-9a-f]{64}$/);
 });
 
+test('F4: the PUBLISHED v0.7.31 asset holds the rule — the fix is in the shipped bytes', () => {
+  assert.equal(shipped.verdict, 'status-payload-debt-exit-held');
+  assert.equal(shipped.label, 'published-v0.7.31');
+  assert.equal(shipped.binary.version, 'reeflog 0.7.31');
+  for (const id of ['D1', 'D2', 'D3', 'G1', 'G2', 'G3']) {
+    assert.equal(face(shipped, id).ok, true, `${id} must hold on the published asset`);
+  }
+  assert.equal(face(shipped, 'D1').observed.exitCode, 3, 'the debt holds the exit code');
+  assert.equal(face(shipped, 'D2').observed.status, face(shipped, 'D2').observed.tail);
+  assert.equal(face(shipped, 'D3').observed.after, 0, 'the verdict comes back down');
+  // The shipped asset is NOT the defective one, and NOT the tree.
+  assert.notEqual(shipped.binary.sha256, base.binary.sha256, 'v0.7.31 is not v0.7.30');
+  assert.notEqual(shipped.binary.sha256, fix.binary.sha256, 'the published asset is not this tree');
+});
+
 test('H: no artifact carries a host path', () => {
-  for (const [name, artifact] of [['published', base], ['fixed', fix]]) {
+  for (const [name, artifact] of [['published', base], ['fixed', fix], ['shipped', shipped]]) {
     const text = JSON.stringify(artifact);
     assert.doesNotMatch(text, /"\/(tmp|home|root)\//, `${name}: a host path is in the artifact`);
     assert.doesNotMatch(text, /\/tmp\/reeflog-/, `${name}: a fixture dir is in the artifact`);
