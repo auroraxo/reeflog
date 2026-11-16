@@ -46,12 +46,17 @@ export const EXIT = {
 
 /** A refusal or incomplete pass, carrying the binary's own words. */
 export class ReeflogError extends Error {
-  constructor(message, { exitCode, stderr, args } = {}) {
+  constructor(message, { exitCode, stderr, args, report } = {}) {
     super(message);
     this.name = 'ReeflogError';
     this.exitCode = exitCode;
     this.stderr = stderr;
     this.args = args;
+    // The PARSED report, when the binary printed one before it gave its
+    // verdict. An incomplete pass still has facts to read — a caller that
+    // catches the error must be able to see WHAT is owed, not only that
+    // something is.
+    this.report = report;
   }
 }
 
@@ -186,11 +191,35 @@ export class Reeflog {
     this.bin = bin;
   }
 
-  /** `reeflog status` as parsed JSON: event counts, payload/envelope debt,
-   *  gap counters, and the exact window the journal claims. */
+  /**
+   * `reeflog status` as parsed JSON: event counts, payload/envelope debt,
+   *  gap counters, and the exact window the journal claims.
+   *
+   *  Since v0.7.31 the binary holds the exit code for the payload debt its
+   *  own report prints: a journal that still owes a row's content
+   *  (`payload_pending > 0`) makes `status` exit 3 — the same code the
+   *  default payload-bearing `tail` holds at, the same code `webhook push`
+   *  holds its cursor at, and the same code `hydrate` exits on while rows
+   *  are pending. A health report that prints a debt and then resolves as
+   *  "fine" is the lie the CLI's exit code exists to prevent.
+   *
+   *  So this THROWS on exit 3, like `verify`/`repair`/`hydrate` do, and the
+   *  thrown error carries the parsed report in `error.report` — the facts
+   *  are not lost with the verdict. `raw(['status', '--db', db])` is the
+   *  unclassified hatch for a caller that wants the report under a debt
+   *  without an exception.
+   */
   async status() {
-    const r = await run(this.bin, ['status', '--db', this.db]);
-    return JSON.parse(r.stdout);
+    const r = await run(this.bin, ['status', '--db', this.db], { allowExit3: true });
+    let report = null;
+    try { report = JSON.parse(r.stdout); } catch { report = null; }
+    if (r.exitCode === EXIT.INCOMPLETE) {
+      throw new ReeflogError(
+        `reeflog status INCOMPLETE: ${r.stderr.trim()}`,
+        { exitCode: r.exitCode, stderr: r.stderr, args: ['status', '--db', this.db], report },
+      );
+    }
+    return report;
   }
 
   /**

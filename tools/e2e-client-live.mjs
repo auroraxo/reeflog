@@ -65,10 +65,25 @@ const box = reeflog({ db: DB, bin: BIN });
 // 1. status equality
 {
   const out = await capture(['status', '--db', DB]);
-  if (out.status !== 0) { console.error(`setup: status failed: ${out.stderr}`); process.exit(2); }
-  const clientStatus = await box.status();
-  const equal = JSON.stringify(clientStatus) === JSON.stringify(JSON.parse(out.stdout));
-  record('status_equals_cli', equal, `events=${clientStatus.events} max_seq=${clientStatus.max_seq} equal=${equal}`);
+  // Since v0.7.31 `status` holds the exit code for the payload debt it
+  // prints: a journal that still owes a row's content exits 3, exactly like
+  // the default payload-bearing `tail` holds at. The comparison below is
+  // about the REPORT, so an incomplete verdict is read from the error's
+  // report rather than skipped — and the exit code is compared too, so the
+  // client and the CLI cannot disagree about the verdict.
+  const clientStatus = await box.status().then(
+    (r) => ({ report: r, exitCode: 0 }),
+    (e) => {
+      if (!(e instanceof ReeflogError) || e.exitCode !== 3 || !e.report) throw e;
+      return { report: e.report, exitCode: e.exitCode };
+    },
+  );
+  if (out.status !== clientStatus.exitCode) {
+    console.error(`setup: status exit differs: cli=${out.status} client=${clientStatus.exitCode}`);
+    process.exit(2);
+  }
+  const equal = JSON.stringify(clientStatus.report) === JSON.stringify(JSON.parse(out.stdout));
+  record('status_equals_cli', equal, `events=${clientStatus.report.events} max_seq=${clientStatus.report.max_seq} exit=${clientStatus.exitCode} equal=${equal}`);
 }
 
 const cursorA = `${DB}.e2e-a.cursor`;

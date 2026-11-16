@@ -1833,6 +1833,37 @@ fn run_reorg_tail(args: &[String]) {
     );
 }
 
+/// The journal's own health report.
+///
+/// The exit code is part of the report. `status` is the surface a monitoring
+/// caller polls: it asks "is this journal whole?" and reads the exit code.
+/// The payload debt it prints — `payload_pending`, the rows the journal holds
+/// a SIGNATURE for but not what happened (`logs IS NULL AND payload_state IS
+/// NULL`) — is the very predicate the default payload-bearing `tail` HOLDS
+/// at (cursor stays, exit 3, `hydrate` named), the one `webhook push` holds
+/// its target cursor at (since v0.7.23), the one `hydrate` exits 3 on while
+/// its own `pending_left` is non-zero, and the one the daemon exits 3 on at
+/// shutdown. Printing that count and exiting 0 calls it health — the same
+/// lie v0.7.30 closed for the webhook report ("the report that prints a debt
+/// holds the exit code").
+///
+/// Measured 2026-11-16 on the published v0.7.30 asset: the same journal read
+/// `payload_pending: 1, exit 0` through `status` and `HELD at seq 1 …
+/// the payload is still owed`, `exit 3` through `tail`
+/// (research/status-payload-debt-exit-published-v0730-2026-11-16.json).
+///
+/// What is deliberately NOT part of the verdict:
+///   * `payload_unavailable` / `payload_invalid` — a RECORDED outcome. The
+///     chain forgot the transaction or refused the key; `hydrate` counts
+///     those as a completed pass, not a pending row. Alarming on them would
+///     alarm forever.
+///   * `accounts_missing` / `owners_missing` / `account_data_missing` — the
+///     opt-in queues. They are filled only by `hydrate --accounts|--owners|
+///     --account-data` and held only behind `tail --with-accounts`; for a
+///     default consumer they never drain, so folding them in would be the
+///     permanent false alarm v0.7.27 removed from `gaps_open`.
+///   * `gaps_open` — the same class of permanent alarm; it is the ledger's
+///     own field, and a healed hole must not read as a hole forever.
 fn run_status(args: &[String]) {
     let db = PathBuf::from(arg(args, "--db").unwrap_or_else(|| "reeflog.db".into()));
     let j = Journal::open(&db).unwrap_or_else(|e| die(e));
@@ -1883,6 +1914,19 @@ fn run_status(args: &[String]) {
         }))
         .unwrap()
     );
+    // The debt the report just printed holds the exit code. A row without
+    // content is a signature, not an event: the consumer that reads this
+    // report has to learn that from the exit code, because the number in the
+    // JSON is easy to ignore and "all clear" is what a monitoring caller
+    // acts on.
+    if c.payload_pending > 0 {
+        eprintln!(
+            "reeflog: {} row(s) still owe their payload — the journal holds a signature, not what \
+             happened; run `reeflog hydrate`",
+            c.payload_pending
+        );
+        std::process::exit(3);
+    }
 }
 
 /// Fill in the content of rows the journal holds a signature for but does not
@@ -2790,7 +2834,7 @@ fn usage_text() -> String {
     "  reeflog webhook status --db <file> --config <file>\n",
     "  reeflog webhook dlq list   --db <file> --config <file> [--target <id>] [--limit N]\n",
     "  reeflog webhook dlq replay --db <file> --config <file> [--target <id>] [--limit N]\n",
-    "  reeflog status --db <file>\n",
+    "  reeflog status --db <file>   (exit 3 while a row still owes its payload)\n",
     "  reeflog --version\n",
     "\n",
     "A flag this command does not know is refused, not ignored: a typo in\n",
