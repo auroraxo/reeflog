@@ -38,6 +38,7 @@ fn artifact(name: &str) -> serde_json::Value {
 }
 
 const PUBLISHED_DEFECT: &str = "dlq-replay-rebuild-published-v0731-2026-11-16.json";
+const PUBLISHED_FIXED: &str = "dlq-replay-rebuild-published-v0732-2026-11-16.json";
 const FIXED: &str = "dlq-replay-rebuild-fixed-2026-11-16.json";
 
 fn face<'a>(v: &'a serde_json::Value, id: &str) -> &'a serde_json::Value {
@@ -169,8 +170,40 @@ fn the_fixed_artifact_holds_the_rule() {
 }
 
 #[test]
+fn the_published_v0732_asset_holds_the_rule() {
+    // The fix is only real if it is in the bytes a stranger installs: the
+    // published v0.7.32 archive (sha256 == the digest the Release API
+    // publishes) must hold every face.
+    let v = artifact(PUBLISHED_FIXED);
+    assert_eq!(
+        v["binary"]["sha256"].as_str(),
+        Some("534c2ec75cfcae1d0c70b5302e70bab1eb9405603f72c0753cf7e355e6053d97"),
+        "the artifact must name the published v0.7.32 binary by sha256"
+    );
+    assert_eq!(v["binary"]["version"].as_str(), Some("reeflog 0.7.32"));
+    assert_eq!(v["label"].as_str(), Some("published-v0.7.32"));
+    assert_eq!(
+        v["verdict"].as_str(),
+        Some("dlq-replay-rebuild-held"),
+        "the published v0.7.32 asset must hold the rule"
+    );
+    for id in ["D1", "D2", "D3", "G1", "G2", "G3"] {
+        assert_eq!(
+            face(&v, id)["ok"],
+            true,
+            "the face {id} must be green on the published v0.7.32 asset"
+        );
+    }
+    assert_eq!(
+        face(&v, "D1")["observed"]["replayedSeal"].as_str(),
+        Some("reverted")
+    );
+    assert_eq!(face(&v, "D3")["observed"]["rebuilt"].as_i64(), Some(1));
+}
+
+#[test]
 fn no_artifact_carries_a_host_path() {
-    for name in [PUBLISHED_DEFECT, FIXED] {
+    for name in [PUBLISHED_DEFECT, PUBLISHED_FIXED, FIXED] {
         let text = fs::read_to_string(
             PathBuf::from(env!("CARGO_MANIFEST_DIR"))
                 .join("research")

@@ -97,6 +97,7 @@ const capture = (args) => new Promise((resolve, reject) => {
 const box = reeflog({ db, bin });
 
 // 4.1 status equality
+let statusReport = null;
 {
   const out = await capture(['status', '--db', db]);
   // Since v0.7.31 `status` holds the exit code for the payload debt it
@@ -117,7 +118,18 @@ const box = reeflog({ db, bin });
   const equal = JSON.stringify(cs.report) === JSON.stringify(JSON.parse(out.stdout));
   record('status_equals_cli', equal, `events=${cs.report.events} max_seq=${cs.report.max_seq} exit=${cs.exitCode} equal=${equal}`);
   if (!equal || cs.report.events === 0) { console.error('setup: no journal rows to read'); process.exit(2); }
+  statusReport = cs.report;
 }
+
+// The report the 4.1 block already read. Reused below so the run does NOT
+// depend on a SECOND `status` call resolving: since v0.7.31 `status` holds
+// the exit code for the payload debt it prints, and a live journal that
+// ended with rows still owing their payload makes `status()` THROW. The
+// throw is the correct product behaviour (the debt is named), but a
+// harness that calls `status()` unguarded at the end dies on it and
+// writes NO artifact — the measurement is lost even though every check
+// passed. Measured 2026-11-16 on the v0.7.32 live run: 13,022 events,
+// payload_pending 5,418 — the run reached the last line and died.
 
 const curA = path.join(root, 'c-a.cursor'), curB = path.join(root, 'c-b.cursor'), curCli = path.join(root, 'c-cli.cursor');
 
@@ -204,7 +216,7 @@ const first = await box.tail({ cursor: curA, limit: LIMIT });
 }
 
 const failed = checks.filter(c => !c.ok);
-const status = await box.status();
+const status = statusReport;
 const report = {
   package: PKG,
   installedVersion: instManifest.version,

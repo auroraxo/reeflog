@@ -29,6 +29,7 @@ const read = (name) => JSON.parse(fs.readFileSync(path.join(RESEARCH, name), 'ut
 
 const PUB = read('dlq-replay-rebuild-published-v0731-2026-11-16.json');
 const FIX = read('dlq-replay-rebuild-fixed-2026-11-16.json');
+const PUB_FIX = read('dlq-replay-rebuild-published-v0732-2026-11-16.json');
 
 const face = (art, id) => {
   const f = art.faces.find((x) => x.face === id);
@@ -76,9 +77,24 @@ test('P4: the fixed tree holds the rule on every face', () => {
   assert.equal(face(FIX, 'G1').observed.rebuilt, 0);
 });
 
-test('P5: neither artifact carries a host path', () => {
+test('P5: the PUBLISHED v0.7.32 asset holds the rule — the fix is in the bytes a stranger installs', () => {
+  assert.equal(PUB_FIX.binary.sha256, '534c2ec75cfcae1d0c70b5302e70bab1eb9405603f72c0753cf7e355e6053d97');
+  assert.equal(PUB_FIX.binary.version, 'reeflog 0.7.32');
+  assert.equal(PUB_FIX.label, 'published-v0.7.32');
+  assert.equal(PUB_FIX.verdict, 'dlq-replay-rebuild-held');
+  assert.equal(PUB_FIX.faces.length, 6);
+  for (const id of ['D1', 'D2', 'D3', 'G1', 'G2', 'G3']) {
+    assert.equal(face(PUB_FIX, id).ok, true, `face ${id} must be green on the published v0.7.32 asset`);
+  }
+  assert.equal(face(PUB_FIX, 'D1').observed.replayedSeal, 'reverted');
+  assert.equal(face(PUB_FIX, 'D2').observed.sameBytes, true);
+  assert.equal(face(PUB_FIX, 'D3').observed.rebuilt, 1);
+});
+
+test('P6: neither artifact carries a host path', () => {
   for (const name of [
     'dlq-replay-rebuild-published-v0731-2026-11-16.json',
+    'dlq-replay-rebuild-published-v0732-2026-11-16.json',
     'dlq-replay-rebuild-fixed-2026-11-16.json',
   ]) {
     const text = fs.readFileSync(path.join(RESEARCH, name), 'utf8');
