@@ -1939,13 +1939,16 @@ reads as "already delivered" somewhere it never was.
 
 The rule now: the state row and every delivery receipt carry the endpoint
 they were written for, and a config whose url differs from the recorded one
-is **refused before a single byte moves** — exit 1, naming the target id,
-BOTH endpoints and the repair (give the new endpoint its own target id), on
-`webhook push`, `webhook status` and `webhook dlq replay` alike. The journal
-is untouched: the old endpoint's cursors survive the refused pass exactly.
-A state row written before this rule (no endpoint recorded) is **adopted**
-by the url it meets first — same url, same cursors, no re-delivery — so an
-upgrading journal keeps working without ceremony.
+is **refused before a single byte moves** — naming the target id, BOTH
+endpoints and the repair (give the new endpoint its own target id), on
+`webhook push`, `webhook status` and `webhook dlq replay` alike. The
+journal is untouched: the old endpoint's cursors survive the refused pass
+exactly. A state row written before this rule (no endpoint recorded) is
+**adopted** by the url it meets first — same url, same cursors, no
+re-delivery — so an upgrading journal keeps working without ceremony.
+Since v0.7.34 the refusal is also PER TARGET (exit 3, reported and held —
+see below): v0.7.15 through v0.7.33 raised it at the config level, so ONE
+repointed id aborted the whole command.
 
 Measured after the fix (`research/endpoint-binding-fixed-2026-11-11.json`,
 pinned by `tests/endpoint_binding_measurement.rs`, defect faces also pinned
@@ -2030,6 +2033,67 @@ red on the published tag tree. Mutation ladder
 shape, crate-bumped-manifest-forgotten, pre-release), tree byte-identical.
 The artifact is pinned by 5 tests, falsified by a tampered number and by a
 host path.
+
+### One refused target no longer silences the fan-out (v0.7.34)
+
+The binding rule above is about ONE consumer — a cursor is a promise to
+one endpoint — but the refusal was raised at the CONFIG level: the first
+failing target in config order aborted the whole command. All three
+webhook surfaces inherited the abort, and every OTHER consumer in the
+config was collateral:
+
+* `webhook push` exited 1 with **no report at all**;
+* `webhook status` exited 1 with **no report at all** — the surface a
+  monitoring caller polls went dark;
+* `webhook dlq replay` exited 1 and replayed **nothing** — one repointed
+  id stranded every healthy target's quarantined events too;
+* and the healthy sink starved: measured 2026-11-17 on the v0.7.33 tree
+  (`tools/measure-fanout-isolation.mjs`,
+  `research/fanout-isolation-blind-v0733-06694b0-2026-11-17.json`, verdict
+  `fanout-isolation-blind`, 5 of 8 faces) the healthy sink received **3 of
+  5 bodies** — the two events pending while the sibling was repointed
+  never left the machine.
+
+Exit 1 was also the wrong voice: the repo's own vocabulary says 3 =
+"reported and held" and 1 = "abort without report". A refusal that
+suppresses every report cannot be read by anything but a human staring at
+a missing stdout.
+
+The fix: the refusal becomes a fact about ONE consumer, carried as that
+target's own row on every surface —
+
+* **push**: the refused target is a row (`refused: true`, `blocked: true`,
+  the reason in `error`), the pass continues for every other target, exit
+  3;
+* **status**: the refused target gets its own row with NO delivery numbers
+  of the other endpoint's state (that would be the v0.7.14 defect in
+  report form), plus a top-level `refused_targets` count, exit 3;
+* **dlq replay**: the refused target's letters stay PENDING and are
+  counted (the quarantine table is keyed by target id, so the count is a
+  fact about the id, not about the endpoint), the other targets are still
+  replayed, exit 3.
+
+What is deliberately NOT part of the rule, and why:
+
+- **The v0.7.15 binding rule is untouched**: for the refused target no
+  byte moves, no cursor is read, and its recorded state row stays exactly
+  as it was (F5). This fix changes the BLAST RADIUS, never the refusal —
+  the new endpoint still receives 0 bytes.
+- **The refusal does not become a warning**: it still holds the exit code
+  (3). A monitoring caller must learn "this config has a target I could
+  not serve" from both the report AND the code (F6).
+- **Order is not semantics**: the healthy targets' numbers are their own
+  journal facts, whether the misconfigured target sits before or after
+  them in the config.
+
+Gate: `tests/webhook_fanout_isolation.rs` (5 tests — D1/D2/D3 written
+red-first against the pre-fix tree, G1/G2 guards green on both), the
+instrument re-run on the fixed tree
+(`research/fanout-isolation-fixed-2026-11-17.json`, verdict
+`fanout-isolation-held`, 8/8 faces), both artifacts pinned by
+`tests/fanout_isolation_measurement.rs`, and the endpoint-binding mutation
+ladder repinned to the new call sites — 9/9 mutations caught, tree
+byte-identical after restore.
 
 ## Repeated use
 
