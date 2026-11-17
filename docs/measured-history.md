@@ -2047,12 +2047,14 @@ config was collateral:
   monitoring caller polls went dark;
 * `webhook dlq replay` exited 1 and replayed **nothing** — one repointed
   id stranded every healthy target's quarantined events too;
-* and the healthy sink starved: measured 2026-11-17 on the v0.7.33 tree
-  (`tools/measure-fanout-isolation.mjs`,
-  `research/fanout-isolation-blind-v0733-06694b0-2026-11-17.json`, verdict
-  `fanout-isolation-blind`, 5 of 8 faces) the healthy sink received **3 of
-  5 bodies** — the two events pending while the sibling was repointed
-  never left the machine.
+* and the healthy sink starved: measured 2026-11-17 on the **published
+  v0.7.33 asset** (the linux archive whose sha256 equals the digest the
+  Release API publishes, binary sha256 `e660b9ec…`;
+  `tools/measure-fanout-isolation.mjs`,
+  `research/fanout-isolation-published-v0733-2026-11-17.json`, verdict
+  `fanout-isolation-blind`, 5 of 8 faces — the same verdict on the v0.7.33
+  tree at 06694b0) the healthy sink received **3 of 5 bodies** — the two
+  events pending while the sibling was repointed never left the machine.
 
 Exit 1 was also the wrong voice: the repo's own vocabulary says 3 =
 "reported and held" and 1 = "abort without report". A refusal that
@@ -2090,10 +2092,13 @@ Gate: `tests/webhook_fanout_isolation.rs` (5 tests — D1/D2/D3 written
 red-first against the pre-fix tree, G1/G2 guards green on both), the
 instrument re-run on the fixed tree
 (`research/fanout-isolation-fixed-2026-11-17.json`, verdict
-`fanout-isolation-held`, 8/8 faces), both artifacts pinned by
-`tests/fanout_isolation_measurement.rs`, and the endpoint-binding mutation
-ladder repinned to the new call sites — 9/9 mutations caught, tree
-byte-identical after restore.
+`fanout-isolation-held`, 8/8 faces) AND on the **published v0.7.34 asset**
+(archive sha256 `d866d346…` == the Release-API digest;
+`research/fanout-isolation-published-v0734-2026-11-17.json`, same verdict,
+8/8 — the fix is in the bytes a stranger installs), all four artifacts
+pinned by `tests/fanout_isolation_measurement.rs` (5 tests, host paths
+excluded), and the endpoint-binding mutation ladder repinned to the new
+call sites — 9/9 mutations caught, tree byte-identical after restore.
 
 ## Repeated use
 

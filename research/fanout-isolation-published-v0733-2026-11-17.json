@@ -1,0 +1,91 @@
+{
+  "tool": "measure-fanout-isolation",
+  "label": "published-v0.7.33",
+  "binary": "reeflog",
+  "binarySha256": "e660b9ecb37d8ba6774ee6ef6d65e08d11b2696d9d603d7edf39c85ae3197d9b",
+  "archiveSha256": "3554257664eb95e48ebe421b93dfc58e2138d3cf42d10ac5b92536c975185ae8",
+  "binaryVersion": "reeflog 0.7.33",
+  "program": "whirLbMiicVdio4qvUfM5KAg6Ct8VwpYzGff3uctyCc",
+  "faces": [
+    {
+      "name": "G1_a_healthy_config_delivers_to_every_target",
+      "pass": true,
+      "detail": "control push exit 0; targets [[\"healthy\",3],[\"moved\",3]]; sinks healthy=3/3 movedOld=3/3 (snapshotted at the control pass)"
+    },
+    {
+      "name": "F1_a_repointed_target_does_not_silence_the_healthy_one",
+      "pass": false,
+      "detail": "push exit 1; targets []; the healthy sink got 3/5 (the 2 pending events were the test)"
+    },
+    {
+      "name": "F2_the_misconfigured_target_is_named_with_its_reason",
+      "pass": true,
+      "detail": "push stderr=\"reeflog: error: webhook moved: target `moved` is bound to endpoint `http://127.0.0.1:36413/hook` in the journal, but this config points it at `http://127.0.0.1:41491/hook` — delivery state and receipts are bound to the endpoint; give the new endpoint its own target id (measured v0.7.14: a repointed id starved the new consumer silently behind exit 0)\"; moved row=null"
+    },
+    {
+      "name": "F3_status_still_reports_the_healthy_target",
+      "pass": false,
+      "detail": "status exit 1; targets []"
+    },
+    {
+      "name": "F4_status_names_the_misconfigured_target",
+      "pass": true,
+      "detail": "status stderr=\"reeflog: error: target `moved` is bound to endpoint `http://127.0.0.1:36413/hook` in the journal, but this config points it at `http://127.0.0.1:41491/hook` — delivery state and receipts are bound to the endpoint; give the new endpoint its own target id (measured v0.7.14: a repointed id starved the new consumer silently behind exit 0)\"; targets []"
+    },
+    {
+      "name": "F5_the_misconfigured_target_is_refused_and_its_state_is_untouched",
+      "pass": true,
+      "detail": "the NEW endpoint received 0 bodies (must be 0); the recorded state row is {\"endpoint\":\"http://127.0.0.1:36413/hook\",\"next_seq\":3}"
+    },
+    {
+      "name": "F6_the_refused_target_holds_the_exit_code",
+      "pass": false,
+      "detail": "push exit 1, status exit 1 (a refused target is a debt: 3 = reported-and-held, 1 = abort-without-report, 0 = silent success)"
+    },
+    {
+      "name": "G2_a_single_healthy_target_reports_its_own_numbers",
+      "pass": true,
+      "detail": "status exit 0; row={\"dead_letters\":0,\"delivered\":3,\"endpoint_recorded\":\"http://127.0.0.1:43877/hook\",\"failed_attempts\":0,\"last_error\":null,\"next_reorg_id\":0,\"next_seq\":3,\"pending_events\":0,\"pending_retractions\":0,\"target\":\"healthy\",\"transport_failures\":0,\"url\":\"http://127.0.0.1:43877/hook\"}"
+    }
+  ],
+  "context": {
+    "seeds": "3 events (control) + 2 events (pending when the sibling was repointed)",
+    "urls": {
+      "healthy": "http://127.0.0.1:43877/hook",
+      "moved_old": "http://127.0.0.1:36413/hook",
+      "moved_new": "http://127.0.0.1:41491/hook"
+    },
+    "control_push_exit": 0,
+    "control_sink_bodies": {
+      "healthy": 3,
+      "moved_old": 3
+    },
+    "control_push_targets": [
+      {
+        "target": "healthy",
+        "delivered": 3,
+        "next_seq": 3
+      },
+      {
+        "target": "moved",
+        "delivered": 3,
+        "next_seq": 3
+      }
+    ],
+    "repointed_push_exit": 1,
+    "repointed_push_stderr": "reeflog: error: webhook moved: target `moved` is bound to endpoint `http://127.0.0.1:36413/hook` in the journal, but this config points it at `http://127.0.0.1:41491/hook` — delivery state and receipts are bound to the endpoint; give the new endpoint its own target id (measured v0.7.14: a repointed id starved the new consumer silently behind exit 0)",
+    "repointed_push_report_present": false,
+    "repointed_push_targets": [],
+    "repointed_status_exit": 1,
+    "repointed_status_stderr": "reeflog: error: target `moved` is bound to endpoint `http://127.0.0.1:36413/hook` in the journal, but this config points it at `http://127.0.0.1:41491/hook` — delivery state and receipts are bound to the endpoint; give the new endpoint its own target id (measured v0.7.14: a repointed id starved the new consumer silently behind exit 0)",
+    "repointed_status_report_present": false,
+    "repointed_status_targets": [],
+    "sink_counts": {
+      "healthy": 3,
+      "moved_old": 3,
+      "moved_new": 0
+    },
+    "single_healthy_status_exit": 0
+  },
+  "verdict": "fanout-isolation-blind"
+}

@@ -4,9 +4,11 @@
 //! sinks, the binary's own report:
 //!
 //! * The BLIND side is the v0.7.33 tree (commit 06694b0, binary sha256
-//!   412cc1e9…, verdict `fanout-isolation-blind`, 5/8 faces). A webhook
-//!   target whose delivery state is bound to ANOTHER endpoint aborted the
-//!   whole command: `webhook push` exited 1 with NO report, `webhook status`
+//!   412cc1e9…, verdict `fanout-isolation-blind`, 5/8 faces) — and the
+//!   PUBLISHED v0.7.33 release asset (binary sha256 e660b9ec…, the digest
+//!   the stranger's install verifies, same verdict, 5/8): a webhook target
+//!   whose delivery state is bound to ANOTHER endpoint aborted the whole
+//!   command: `webhook push` exited 1 with NO report, `webhook status`
 //!   exited 1 with NO report, `webhook dlq replay` exited 1 and replayed
 //!   nothing. The healthy sink received 3 of 5 bodies — the two events that
 //!   were pending while the sibling was repointed never left the machine —
@@ -14,10 +16,13 @@
 //!   BLAST RADIUS was wrong).
 //!
 //! * The FIXED side is this tree (verdict `fanout-isolation-held`, 8/8
-//!   faces): the refusal is a fact about ONE consumer, so the other
-//!   consumers keep running, every surface still prints a report, the
-//!   refused target is named, and it holds the exit code (3 = "reported and
-//!   held", where 1 = "abort without report" is the pre-fix behaviour).
+//!   faces) — and the PUBLISHED v0.7.34 release asset (archive sha256
+//!   d866d346… == the Release-API digest, same verdict, 8/8): the fix is in
+//!   the bytes a stranger installs, not only in the tree. The refusal is a
+//!   fact about ONE consumer, so the other consumers keep running, every
+//!   surface still prints a report, the refused target is named, and it
+//!   holds the exit code (3 = "reported and held", where 1 = "abort
+//!   without report" is the pre-fix behaviour).
 //!
 //! The pin holds the MEASURED numbers, not a summary: the blind artifact
 //! must still carry the starvation it recorded, so a later tree cannot
@@ -144,10 +149,74 @@ fn the_fixed_tree_artifact_records_the_isolation() {
 }
 
 #[test]
+fn the_published_v0733_asset_carries_the_defect() {
+    let text = artifact("fanout-isolation-published-v0733-2026-11-17.json");
+
+    assert_contains(
+        &text,
+        "\"label\": \"published-v0.7.33\"",
+        "the measured seat is the published release asset (label)",
+    );
+    // The binary the stranger's install verifies — the digest the client
+    // delivery channel pinned for v0.7.33.
+    assert_contains(
+        &text,
+        "e660b9ec",
+        "the measured binary's sha256 (the published v0.7.33 binary)",
+    );
+    assert_contains(&text, "\"verdict\": \"fanout-isolation-blind\"", "the verdict");
+    assert_contains(
+        &text,
+        "\"repointed_push_exit\": 1",
+        "the abort-without-report voice",
+    );
+    assert_contains(
+        &text,
+        "\"repointed_push_report_present\": false",
+        "the published push printed no report",
+    );
+}
+
+#[test]
+fn the_published_v0734_asset_holds_the_rule() {
+    let text = artifact("fanout-isolation-published-v0734-2026-11-17.json");
+
+    assert_contains(
+        &text,
+        "\"label\": \"published-v0.7.34\"",
+        "the measured seat is the published release asset (label)",
+    );
+    // The archive digest the Release API publishes (verified with
+    // sha256sum -c before the measurement ran).
+    assert_contains(
+        &text,
+        "d866d346e57e0791f7d954630544a8b65ee44bfd3fba8cd6536020392a3ebebc",
+        "the published v0.7.34 archive's sha256",
+    );
+    assert_contains(
+        &text,
+        "\"verdict\": \"fanout-isolation-held\"",
+        "the verdict: the fan-out is isolated in the bytes a stranger installs",
+    );
+    assert!(
+        !text.contains("\"pass\": false"),
+        "no face may be recorded as failing on the published fixed asset"
+    );
+    assert_contains(&text, "\"repointed_push_exit\": 3", "reported and held");
+    assert_contains(
+        &text,
+        "\"repointed_push_report_present\": true",
+        "the published push prints a report again",
+    );
+}
+
+#[test]
 fn neither_artifact_carries_a_host_path() {
     for name in [
         "fanout-isolation-blind-v0733-06694b0-2026-11-17.json",
         "fanout-isolation-fixed-2026-11-17.json",
+        "fanout-isolation-published-v0733-2026-11-17.json",
+        "fanout-isolation-published-v0734-2026-11-17.json",
     ] {
         let text = artifact(name);
         for marker in ["/home/", "/tmp/", "/Users/", "C:\\", "github_repos"] {

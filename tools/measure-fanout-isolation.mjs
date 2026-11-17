@@ -289,12 +289,17 @@ movedNew.child.kill();
 
 const binarySha256 = createHash('sha256').update(fs.readFileSync(BIN)).digest('hex');
 const binaryVersion = execFileSync(BIN, ['--version'], { cwd: dir }).toString().trim();
+// When measuring a RELEASE seat, the archive digest the Release API
+// publishes is the seat's own claim — recorded next to the binary's so the
+// artifact can be checked against the release without re-deriving it.
+const ARCHIVE_SHA256 = process.env.ARCHIVE_SHA256 || null;
 
 const artifact = {
   tool: 'measure-fanout-isolation',
   label: LABEL,
   binary: path.basename(BIN),
   binarySha256,
+  ...(ARCHIVE_SHA256 ? { archiveSha256: ARCHIVE_SHA256 } : {}),
   binaryVersion,
   program: PROGRAM,
   faces,

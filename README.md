@@ -162,7 +162,7 @@ detail and every raw number in
 | Payload debt exit code | `status` printed `payload_pending: 1` and exited 0 while the payload-bearing `tail` held at the same row and exited 3; the health report a monitoring caller polls called an owed journal healthy; measured on the published v0.7.30 asset, fixed in v0.7.31 |
 | Replay body | `dlq replay` re-sent the body frozen into the quarantine: after the chain unmade the transaction, `push` delivered `seal: "reverted"` and the replay delivered `seal: "finalized"` for the same seq; measured on the published v0.7.31 asset, fixed in v0.7.32 |
 | Retraction block | a refused retraction was reported as a phantom event position (`at seq None`) on the event channel, the operator's line leaked Rust debug formatting, and the retraction's reason shared the event channel's `blocked_error` — the operator could not tell which queue was stuck; measured on the published v0.7.32 asset, fixed in v0.7.33 |
-| Fan-out isolation | ONE target whose delivery state is bound to another endpoint aborted the whole webhook command: `push`/`status`/`dlq replay` exited 1 with NO report, the healthy sink starved (3 of 5 bodies), the reports a monitoring caller polls went dark; measured on the v0.7.33 tree, fixed in v0.7.34 |
+| Fan-out isolation | ONE target whose delivery state is bound to another endpoint aborted the whole webhook command: `push`/`status`/`dlq replay` exited 1 with NO report, the healthy sink starved (3 of 5 bodies), the reports a monitoring caller polls went dark; measured on the published v0.7.33 asset, fixed in v0.7.34 |
 
 ## Conditions and limits — the honest part
 
@@ -302,11 +302,12 @@ detail and every raw number in
   own in every report (`refused: true`, the reason named), the other
   targets keep running, the refused target holds the exit code (3 =
   reported and held), and for it no byte moves and no cursor is read — the
-  binding rule itself is untouched. Measured on the v0.7.33 tree
-  ([blind](research/fanout-isolation-blind-v0733-06694b0-2026-11-17.json),
-  5/8 faces, verdict `fanout-isolation-blind`;
-  [fixed](research/fanout-isolation-fixed-2026-11-17.json), 8/8 faces,
-  verdict `fanout-isolation-held`).
+  binding rule itself is untouched. Measured on the published v0.7.33
+  asset ([blind](research/fanout-isolation-published-v0733-2026-11-17.json),
+  5/8 faces, verdict `fanout-isolation-blind`) and re-measured on the
+  published v0.7.34 asset
+  ([held](research/fanout-isolation-published-v0734-2026-11-17.json), 8/8
+  faces, verdict `fanout-isolation-held`).
 - **The client is zero-dependency since v0.7.25.** Until then the npm
   manifest named *itself* as a dependency on github:, so every
   `npm install reeflog-client` also cloned a second, older copy of the
