@@ -1,0 +1,132 @@
+{
+  "measuredAt": "2026-11-17T08:30:45.614Z",
+  "label": "published-v0.7.33",
+  "binary": {
+    "sha256": "e660b9ecb37d8ba6774ee6ef6d65e08d11b2696d9d603d7edf39c85ae3197d9b",
+    "version": "reeflog 0.7.33"
+  },
+  "rule": [
+    "the retraction queue is its own channel: an event is held at a seq, a retraction at a reorg id",
+    "a blocked retraction is named as a retraction — the operator's line says which queue is stuck and at which id",
+    "the retraction's reason travels on its own field; one queue's reason is never read as the other's",
+    "a refused retraction is never quarantined: a late retraction costs money, so that queue stays blocked"
+  ],
+  "faces": [
+    {
+      "id": "D1",
+      "claim": "the operator's line names the RETRACTION channel and the reorg id, and never prints a non-existent event position",
+      "expected": {
+        "namesRetraction": true,
+        "namesReorgId": true,
+        "noPhantomPosition": true
+      },
+      "observed": {
+        "namesRetraction": true,
+        "namesReorgId": true,
+        "noPhantomPosition": true,
+        "stderr": "reeflog: 1 target(s) blocked — delivery is at-least-once and in order, so the queue stops at the first failure; the failure is recorded, not swallowed | reeflog: blocked — t1 at reorg 1: refused with http 404 — the RETRACTION is still owed, the consumer has not been told that the chain unmade it"
+      },
+      "ok": true,
+      "note": "the pre-fix tree prints `at seq None` — the event cursor of a retraction block"
+    },
+    {
+      "id": "D2",
+      "claim": "the operator's line carries no Rust debug formatting",
+      "expected": {
+        "noDebugFormatting": true
+      },
+      "observed": {
+        "noDebugFormatting": true,
+        "stderr": "reeflog: 1 target(s) blocked — delivery is at-least-once and in order, so the queue stops at the first failure; the failure is recorded, not swallowed | reeflog: blocked — t1 at reorg 1: refused with http 404 — the RETRACTION is still owed, the consumer has not been told that the chain unmade it"
+      },
+      "ok": true,
+      "note": "the pre-fix tree prints `at seq Some(1)` for a blocked EVENT"
+    },
+    {
+      "id": "D3",
+      "claim": "the report carries the retraction's reason on its own field; the event channel's error stays null",
+      "expected": {
+        "reorgErrorNamed": true,
+        "eventErrorNull": true
+      },
+      "observed": {
+        "reorgError": "refused with http 404",
+        "eventError": null,
+        "reorgErrorNamed": true,
+        "eventErrorNull": true
+      },
+      "ok": true,
+      "note": "the pre-fix tree has no `reorg_error`; the reason sat in the shared `blocked_error`"
+    },
+    {
+      "id": "D4",
+      "claim": "the report keeps naming the channel facts it already named",
+      "expected": {
+        "blocked": true,
+        "blockedReorgId": 1,
+        "remainingReorgs": 3
+      },
+      "observed": {
+        "blocked": true,
+        "blockedReorgId": 1,
+        "remainingReorgs": 3,
+        "nextReorgId": 0
+      },
+      "ok": true,
+      "note": "the report already carried these; the fix must not move a fact"
+    }
+  ],
+  "guards": [
+    {
+      "id": "G1",
+      "claim": "an accepted retraction is delivered, receipts and advances the cursor — the fix changes no delivery behaviour",
+      "expected": {
+        "reorgDelivered": 2,
+        "bodies": 2,
+        "nextReorgId": 2,
+        "deadLetters": 0,
+        "blocked": false
+      },
+      "observed": {
+        "reorgDelivered": 2,
+        "bodies": 2,
+        "nextReorgId": 2,
+        "deadLetters": 0,
+        "blocked": false
+      },
+      "ok": true,
+      "note": "the fix touches the report and the lines, never the delivery"
+    },
+    {
+      "id": "G2",
+      "claim": "a refused retraction is NEVER quarantined and never skips the cursor (the pre-existing design rule)",
+      "expected": {
+        "deadLetters": 0,
+        "nextReorgId": 0
+      },
+      "observed": {
+        "deadLetters": [],
+        "nextReorgId": 0
+      },
+      "ok": true,
+      "note": "the DLQ commit excludes retractions on purpose: a late retraction costs money, so that queue stays blocked"
+    },
+    {
+      "id": "G3",
+      "claim": "the report keeps the queue facts it already carried",
+      "expected": {
+        "blocked": true,
+        "blockedReorgId": 1,
+        "remainingReorgs": 3
+      },
+      "observed": {
+        "blocked": true,
+        "blockedReorgId": 1,
+        "remainingReorgs": 3
+      },
+      "ok": true,
+      "note": "the facts were right before the fix and must stay right"
+    }
+  ],
+  "verdict": "retraction-block-named"
+}
