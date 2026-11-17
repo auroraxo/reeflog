@@ -1743,6 +1743,68 @@ consumer never saw. The two measurements are pinned by
 guards were green on the PUBLISHED defect asset — the red faces are the
 replay's, not the fixture's.
 
+### A blocked retraction is named as a retraction (v0.7.33)
+
+The webhook fan-out has TWO queues per target: the events (owed at a
+`seq`) and the retractions (owed at a `reorg` id). A retraction is what
+the chain sends when it UNMAKES a transaction — it is the one fact a
+consumer must not miss, and it is delivered on its own channel.
+
+When a consumer refused a retraction with http 404, the operator was told
+nothing true about it:
+
+- the stderr line was the EVENT channel's (`blocked — t1 at seq None`) — a
+  phantom position: a retraction is owed at a reorg id, not at an event
+  seq, and the cursor sat at seq 1 where nothing was owed;
+- the same line leaked Rust debug formatting (`at seq Some(1)`) whenever
+  an event was blocked;
+- the report carried ONE `blocked_error` shared by both queues, so the
+  retraction's "refused with http 404" was read as the event channel's
+  reason and the event channel's as the retraction's;
+- the daemon printed nothing at all for a blocked retraction.
+
+The operator could not tell WHICH queue was stuck, and the one queue that
+matters most (the retraction — a late retraction costs money) was the one
+named least.
+
+Measured 2026-11-17 on the **published v0.7.32 asset** (the linux archive
+whose sha256 equals the digest the Release API publishes;
+`tools/measure-retraction-block.mjs`,
+`research/retraction-block-blind-2026-11-17.json`, verdict
+`retraction-block-blind`, **3 of 4 defect faces violated, 3 of 3 guards
+held**): the operator's line named a non-existent event position for a
+retraction block, the reason arrived on the wrong field, and no line
+named the reorg id.
+
+The fix: the operator's line names the retraction channel and the reorg id
+(`blocked — t1 at reorg 1: …`) and says the RETRACTION is still owed
+(D1); no `{:?}` reaches the stderr lines any more (D2); the report
+carries `reorg_error` beside `error` — one queue's reason travels on its
+own field (D3) — and `reorg_dead_lettered` with the per-channel split
+(D4); the daemon prints the blocked-retraction line, so a running
+daemon's log and its exit code tell the same story the foreground push
+does.
+
+What is deliberately NOT part of the rule, and why:
+
+- **A refused retraction is still NEVER quarantined** and never skips the
+  cursor (G2): a late retraction costs money, so that queue stays blocked
+  rather than being papered over — the pre-existing design rule from the
+  dead-letter commit, unchanged here. This fix makes the block LEGIBLE;
+  it does not resolve it.
+- **An ACCEPTED retraction is delivered exactly as before** (G1): this
+  change names a block, it does not move a delivery.
+- **The queue facts the report already named stay exactly as they were**
+  (G3) — `blocked_seq`, `blocked_reorg_id`, `remaining_*_behind_cursor`
+  are untouched.
+
+Gate: `tests/webhook_retraction_debt_exit.rs` (7 tests — 4 defect pins,
+3 guards), green after and with the same 4 pins red against the pre-fix
+sources rebuilt as a second tree. The two-tree measurement
+(`tools/measure-retraction-block.mjs`): published v0.7.32
+`retraction-block-blind` (1/4 faces, 3/3 guards), fixed tree
+`retraction-block-named` (4/4, 3/3).
+
 ## The cursor file is read strictly
 
 The cursor file is state the consumer owns, and it never passes through the

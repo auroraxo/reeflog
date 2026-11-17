@@ -1,9 +1,9 @@
 {
-  "measuredAt": "2026-11-16T20:50:10.677Z",
+  "measuredAt": "2026-11-17T08:23:56.625Z",
   "label": "this-tree",
   "binary": {
-    "sha256": "aa65d09019e31953b1deb661dda493fc9312bba84e6a4cbf4821d82161b0f664",
-    "version": "reeflog 0.7.32"
+    "sha256": "412cc1e9df0efa4983efc245d80380ee9c5138404a63e3c504fec4fb123c3fca",
+    "version": "reeflog 0.7.33"
   },
   "program": "whirLbMiicVdio4qvUfM5KAg6Ct8VwpYzGff3uctyCc",
   "rule": [

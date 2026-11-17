@@ -16,8 +16,8 @@
   "fixed": {
     "tree": "post-fix tree",
     "binary": {
-      "sha256": "b7040569a8c59bd62df60ad1d2e38ab5101bd9817dd20386bbd102d2e7c63b35",
-      "version": "reeflog 0.7.32"
+      "sha256": "412cc1e9df0efa4983efc245d80380ee9c5138404a63e3c504fec4fb123c3fca",
+      "version": "reeflog 0.7.33"
     },
     "verdict": "retraction-block-named",
     "faces": "4/4",

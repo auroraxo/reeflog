@@ -10,11 +10,11 @@ durable cursor, no catch-up. Every project rebuilds reconnect, dedup,
 gap-fill, and reorg handling, or silently loses events. reeflog makes that
 one daemon, one file, one cursor.
 
-**Status: v0.7.32 (2026-11-16), live against mainnet-beta — no Rust toolchain needed: `npm install reeflog-client`, then `import { bootstrap } from 'reeflog-client'; await bootstrap()` (downloads the prebuilt release archive and verifies its sha256 against what the GitHub release API publishes). The client itself is zero-dependency: one package, no `node_modules` of its own, and it installs without `git` on the machine.**
+**Status: v0.7.33 (2026-11-17), live against mainnet-beta — no Rust toolchain needed: `npm install reeflog-client`, then `import { bootstrap } from 'reeflog-client'; await bootstrap()` (downloads the prebuilt release archive and verifies its sha256 against what the GitHub release API publishes). The client itself is zero-dependency: one package, no `node_modules` of its own, and it installs without `git` on the machine.**
 
 The same client from the tagged release:
-`npm install github:auroraxo/reeflog#v0.7.32`. Or from source:
-`cargo install --git https://github.com/auroraxo/reeflog --tag v0.7.32`.
+`npm install github:auroraxo/reeflog#v0.7.33`. Or from source:
+`cargo install --git https://github.com/auroraxo/reeflog --tag v0.7.33`.
 
 **Honest state:** it works, and it is measured — but so far every real
 consumer belongs to the project itself. There is no unaffiliated third-party
@@ -161,6 +161,7 @@ detail and every raw number in
 | Debt exit code | the report printed two debts (`dead_letters: 1`, `last_error`) and exited 0 while `webhook push` on the same journal exited 3 for both; status and push disagreed on one fact; measured on the published v0.7.29 asset, fixed in v0.7.30 |
 | Payload debt exit code | `status` printed `payload_pending: 1` and exited 0 while the payload-bearing `tail` held at the same row and exited 3; the health report a monitoring caller polls called an owed journal healthy; measured on the published v0.7.30 asset, fixed in v0.7.31 |
 | Replay body | `dlq replay` re-sent the body frozen into the quarantine: after the chain unmade the transaction, `push` delivered `seal: "reverted"` and the replay delivered `seal: "finalized"` for the same seq; measured on the published v0.7.31 asset, fixed in v0.7.32 |
+| Retraction block | a refused retraction was reported as a phantom event position (`at seq None`) on the event channel, the operator's line leaked Rust debug formatting, and the retraction's reason shared the event channel's `blocked_error` — the operator could not tell which queue was stuck; measured on the published v0.7.32 asset, fixed in v0.7.33 |
 
 ## Conditions and limits — the honest part
 
@@ -276,6 +277,20 @@ detail and every raw number in
   row still replays its stored bytes (nothing is dropped), and the report
   names the rebuilt letters (`rebuilt`). Measured on the published v0.7.31
   asset, fixed in v0.7.32 (see the deep dive).
+- **A blocked retraction is named as a retraction (v0.7.33).** The webhook
+  fan-out has two queues per target — events (owed at a `seq`) and
+  retractions (owed at a `reorg` id) — and a refused retraction was
+  reported on the EVENT channel's line, at a position that did not exist
+  (`at seq None`), with Rust debug formatting in the same line, and with
+  the retraction's reason arriving on the event channel's `blocked_error`
+  field. The operator could not tell which queue was stuck, and the queue
+  that matters most (a late retraction costs money) was named least. The
+  operator's line now names the retraction channel and the reorg id, the
+  report carries `reorg_error` beside `error`, and the daemon prints the
+  line too. A refused retraction is still never quarantined — that
+  design rule is unchanged; this makes the block legible, not resolved.
+  Measured on the published v0.7.32 asset, fixed in v0.7.33 (see the deep
+  dive).
 - **The client is zero-dependency since v0.7.25.** Until then the npm
   manifest named *itself* as a dependency on github:, so every
   `npm install reeflog-client` also cloned a second, older copy of the
@@ -288,7 +303,7 @@ detail and every raw number in
 ## Deep dives
 
 - [docs/measured-history.md](https://github.com/auroraxo/reeflog/blob/main/docs/measured-history.md) — the complete
-  README measurement and contract history through v0.7.32, unbroken.
+  README measurement and contract history through v0.7.33, unbroken.
 - [`research/`](research/) — every committed measurement artifact behind the
   numbers above (raw JSON reports, pinned by tests).
 - [`tests/`](tests/) and [`test/`](test/) — the contract tests: the CLI
