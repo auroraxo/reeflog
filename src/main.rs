@@ -825,12 +825,24 @@ async fn run_start(args: &[String]) {
                                 // Name WHY: a queue held at an owed payload and
                                 // a queue stopped by a refused endpoint are
                                 // different problems with different repairs.
-                                eprintln!(
-                                    "reeflog: webhook {} blocked at seq {:?} — the event stays owed: {}",
-                                    t.id,
-                                    r.blocked_seq,
-                                    r.blocked_error.as_deref().unwrap_or("unknown reason")
-                                );
+                                // The event channel holds at a `seq`, the
+                                // retraction channel at a reorg id — printing
+                                // the event cursor for a retraction block
+                                // printed `seq None`, a position that does
+                                // not exist (measured 2026-11-17 on this
+                                // tree, verdict `retraction-block-blind`).
+                                match r.blocked_seq {
+                                    Some(seq) => eprintln!(
+                                        "reeflog: webhook {} blocked at seq {seq} — the event stays owed: {}",
+                                        t.id,
+                                        r.blocked_error.as_deref().unwrap_or("unknown reason")
+                                    ),
+                                    None => eprintln!(
+                                        "reeflog: webhook {} blocked — the event queue is fine: {}",
+                                        t.id,
+                                        r.blocked_error.as_deref().unwrap_or("unknown reason")
+                                    ),
+                                }
                             }
                         }
                         Err(e) => eprintln!("reeflog: webhook {}: {e}", t.id),
@@ -838,8 +850,17 @@ async fn run_start(args: &[String]) {
                     match webhook::deliver_reorgs(&j, t, &mut poster, webhook_limit) {
                         Ok(r) => {
                             webhook_delivered += r.reorg_delivered;
-                            if r.blocked_reorg_id.is_some() {
+                            if let Some(reorg) = r.blocked_reorg_id {
                                 webhook_blocked += 1;
+                                // A retraction is the one message whose
+                                // lateness costs money: the line the operator
+                                // reads must say WHICH channel is blocked and
+                                // that the retraction is still owed.
+                                eprintln!(
+                                    "reeflog: webhook {} blocked at reorg {reorg} — the RETRACTION stays owed, the consumer has not been told that the chain unmade it: {}",
+                                    t.id,
+                                    r.blocked_reorg_error.as_deref().unwrap_or("unknown reason")
+                                );
                             }
                         }
                         Err(e) => eprintln!("reeflog: webhook {}: {e}", t.id),
@@ -2152,7 +2173,10 @@ fn run_webhook_push(args: &[String]) {
                 rep.failed += r.failed;
                 if r.blocked_reorg_id.is_some() {
                     rep.blocked_reorg_id = r.blocked_reorg_id;
-                    rep.blocked_error = r.blocked_error;
+                    // The retraction's own reason, never the event's: the
+                    // two queues are independent, so one reason cannot
+                    // stand in for the other.
+                    rep.blocked_reorg_error = r.blocked_reorg_error;
                 }
                 rep.next_reorg_id = r.next_reorg_id;
             }
@@ -2240,6 +2264,11 @@ fn run_webhook_push(args: &[String]) {
                 "blocked_seq": r.blocked_seq,
                 "blocked_reorg_id": r.blocked_reorg_id,
                 "error": r.blocked_error,
+                // The retraction channel's own reason. `error` stays the
+                // EVENT channel's reason — one queue's reason must never be
+                // read as the other's (the two queues are independent, and a
+                // consumer can be blocked on both at once).
+                "reorg_error": r.blocked_reorg_error,
                 "next_seq": r.next_seq,
                 "next_reorg_id": r.next_reorg_id,
             })).collect::<Vec<_>>(),
@@ -2259,13 +2288,43 @@ fn run_webhook_push(args: &[String]) {
         let reasons: Vec<String> = reports
             .iter()
             .filter(|r| r.blocked())
-            .map(|r| {
-                format!(
-                    "{} at seq {:?}: {}",
-                    r.target,
-                    r.blocked_seq,
-                    r.blocked_error.as_deref().unwrap_or("unknown reason")
-                )
+            .flat_map(|r| {
+                // The two channels have DIFFERENT positions: an event is
+                // held at a `seq`, a retraction at a reorg id. Printing the
+                // event cursor for a retraction block printed
+                // `at seq None` — a position that does not exist, pointing
+                // the operator at the wrong queue. And a retraction is the
+                // one message whose lateness costs money: the line must say
+                // so (measured 2026-11-17 on this tree, verdict
+                // `retraction-block-blind`).
+                //
+                // Both channels can be blocked at once (the retraction queue
+                // is deliberately independent of the event queue), so each
+                // one gets its own line — a single line for two queues is
+                // how the operator ends up looking in the wrong place.
+                let mut lines = Vec::new();
+                if let Some(seq) = r.blocked_seq {
+                    lines.push(format!(
+                        "{} at seq {seq}: {}",
+                        r.target,
+                        r.blocked_error.as_deref().unwrap_or("unknown reason")
+                    ));
+                }
+                if let Some(reorg) = r.blocked_reorg_id {
+                    lines.push(format!(
+                        "{} at reorg {reorg}: {} — the RETRACTION is still owed, the consumer has not been told that the chain unmade it",
+                        r.target,
+                        r.blocked_reorg_error.as_deref().unwrap_or("unknown reason")
+                    ));
+                }
+                if lines.is_empty() {
+                    lines.push(format!(
+                        "{}: {}",
+                        r.target,
+                        r.blocked_error.as_deref().unwrap_or("unknown reason")
+                    ));
+                }
+                lines
             })
             .collect();
         eprintln!(

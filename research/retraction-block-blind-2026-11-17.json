@@ -1,0 +1,183 @@
+{
+  "artifact": "retraction-block-blind",
+  "measuredAt": "2026-11-17T08:19:45Z",
+  "defect": "a refused retraction was reported as a phantom event position (`at seq None`) on the event channel, the operator's line leaked Rust debug formatting, and the retraction's reason shared the event channel's blocked_error \u2014 the operator could not tell which queue was stuck",
+  "method": "the same scenario against the published v0.7.32 release asset and against the fixed tree: a journal with one held event and three planted retractions, against a receiver process that answers events and refuses retractions with http 404; the faces must be RED on the published asset and GREEN after, the guards GREEN on both",
+  "baseline": {
+    "tree": "published v0.7.32 release asset",
+    "binary": {
+      "sha256": "534c2ec75cfcae1d0c70b5302e70bab1eb9405603f72c0753cf7e355e6053d97",
+      "version": "reeflog 0.7.32"
+    },
+    "verdict": "retraction-block-blind",
+    "faces": "1/4",
+    "guards": "3/3"
+  },
+  "fixed": {
+    "tree": "post-fix tree",
+    "binary": {
+      "sha256": "b7040569a8c59bd62df60ad1d2e38ab5101bd9817dd20386bbd102d2e7c63b35",
+      "version": "reeflog 0.7.32"
+    },
+    "verdict": "retraction-block-named",
+    "faces": "4/4",
+    "guards": "3/3"
+  },
+  "rule": [
+    "the retraction queue is its own channel: an event is held at a seq, a retraction at a reorg id",
+    "a blocked retraction is named as a retraction \u2014 the operator's line says which queue is stuck and at which id",
+    "the retraction's reason travels on its own field; one queue's reason is never read as the other's",
+    "a refused retraction is never quarantined: a late retraction costs money, so that queue stays blocked"
+  ],
+  "faces": [
+    {
+      "face": "D1",
+      "claim": "the operator's line names the RETRACTION channel and the reorg id, and never prints a non-existent event position",
+      "pre": {
+        "ok": false,
+        "observed": {
+          "namesRetraction": false,
+          "namesReorgId": false,
+          "noPhantomPosition": false,
+          "stderr": "reeflog: 1 target(s) blocked \u2014 delivery is at-least-once and in order, so the queue stops at the first failure; the failure is recorded, not swallowed | reeflog: blocked \u2014 t1 at seq None: refused with http 404"
+        }
+      },
+      "post": {
+        "ok": true,
+        "observed": {
+          "namesRetraction": true,
+          "namesReorgId": true,
+          "noPhantomPosition": true,
+          "stderr": "reeflog: 1 target(s) blocked \u2014 delivery is at-least-once and in order, so the queue stops at the first failure; the failure is recorded, not swallowed | reeflog: blocked \u2014 t1 at reorg 1: refused with http 404 \u2014 the RETRACTION is still owed, the consumer has not been told that the chain unmade it"
+        }
+      }
+    },
+    {
+      "face": "D2",
+      "claim": "the operator's line carries no Rust debug formatting",
+      "pre": {
+        "ok": false,
+        "observed": {
+          "noDebugFormatting": false,
+          "stderr": "reeflog: 1 target(s) blocked \u2014 delivery is at-least-once and in order, so the queue stops at the first failure; the failure is recorded, not swallowed | reeflog: blocked \u2014 t1 at seq None: refused with http 404"
+        }
+      },
+      "post": {
+        "ok": true,
+        "observed": {
+          "noDebugFormatting": true,
+          "stderr": "reeflog: 1 target(s) blocked \u2014 delivery is at-least-once and in order, so the queue stops at the first failure; the failure is recorded, not swallowed | reeflog: blocked \u2014 t1 at reorg 1: refused with http 404 \u2014 the RETRACTION is still owed, the consumer has not been told that the chain unmade it"
+        }
+      }
+    },
+    {
+      "face": "D3",
+      "claim": "the report carries the retraction's reason on its own field; the event channel's error stays null",
+      "pre": {
+        "ok": false,
+        "observed": {
+          "reorgError": null,
+          "eventError": "refused with http 404",
+          "reorgErrorNamed": false,
+          "eventErrorNull": false
+        }
+      },
+      "post": {
+        "ok": true,
+        "observed": {
+          "reorgError": "refused with http 404",
+          "eventError": null,
+          "reorgErrorNamed": true,
+          "eventErrorNull": true
+        }
+      }
+    },
+    {
+      "face": "D4",
+      "claim": "the report keeps naming the channel facts it already named",
+      "pre": {
+        "ok": true,
+        "observed": {
+          "blocked": true,
+          "blockedReorgId": 1,
+          "remainingReorgs": 3,
+          "nextReorgId": 0
+        }
+      },
+      "post": {
+        "ok": true,
+        "observed": {
+          "blocked": true,
+          "blockedReorgId": 1,
+          "remainingReorgs": 3,
+          "nextReorgId": 0
+        }
+      }
+    }
+  ],
+  "guards": [
+    {
+      "guard": "G1",
+      "claim": "an accepted retraction is delivered, receipts and advances the cursor \u2014 the fix changes no delivery behaviour",
+      "pre": {
+        "ok": true,
+        "observed": {
+          "reorgDelivered": 2,
+          "bodies": 2,
+          "nextReorgId": 2,
+          "deadLetters": 0,
+          "blocked": false
+        }
+      },
+      "post": {
+        "ok": true,
+        "observed": {
+          "reorgDelivered": 2,
+          "bodies": 2,
+          "nextReorgId": 2,
+          "deadLetters": 0,
+          "blocked": false
+        }
+      }
+    },
+    {
+      "guard": "G2",
+      "claim": "a refused retraction is NEVER quarantined and never skips the cursor (the pre-existing design rule)",
+      "pre": {
+        "ok": true,
+        "observed": {
+          "deadLetters": [],
+          "nextReorgId": 0
+        }
+      },
+      "post": {
+        "ok": true,
+        "observed": {
+          "deadLetters": [],
+          "nextReorgId": 0
+        }
+      }
+    },
+    {
+      "guard": "G3",
+      "claim": "the report keeps the queue facts it already carried",
+      "pre": {
+        "ok": true,
+        "observed": {
+          "blocked": true,
+          "blockedReorgId": 1,
+          "remainingReorgs": 3
+        }
+      },
+      "post": {
+        "ok": true,
+        "observed": {
+          "blocked": true,
+          "blockedReorgId": 1,
+          "remainingReorgs": 3
+        }
+      }
+    }
+  ],
+  "summary": "published v0.7.32 measured retraction-block-blind (faces 1/4, guards 3/3): the defect faces D1-D3 were red, D4 green; the fixed tree measures retraction-block-named (faces 4/4, guards 3/3); the guards were green on both trees, so the fix names the block and moves no behaviour \u2014 a refused retraction is still never quarantined"
+}

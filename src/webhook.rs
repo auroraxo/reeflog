@@ -465,6 +465,12 @@ pub struct TargetReport {
     pub blocked_reorg_id: Option<i64>,
     /// Why the target is stuck.
     pub blocked_error: Option<String>,
+    /// Why the RETRACTION queue is stuck — a separate field on purpose: the
+    /// two queues are independent (a retraction must still reach a consumer
+    /// whose event queue is blocked), so one reason cannot stand in for the
+    /// other. With a single field, a target blocked on BOTH channels
+    /// reported the retraction's reason against the event's seq.
+    pub blocked_reorg_error: Option<String>,
     /// The event cursor after this pass.
     pub next_seq: i64,
     /// The retraction cursor after this pass.
@@ -737,7 +743,7 @@ pub fn deliver_reorgs(
                 j.webhook_set_error(&target.id, &target.url, err.as_deref())?;
                 rep.failed += 1;
                 rep.blocked_reorg_id = Some(r.id);
-                rep.blocked_error = err;
+                rep.blocked_reorg_error = err;
                 break;
             }
         }
