@@ -2158,30 +2158,53 @@ fn run_webhook_push(args: &[String]) {
 
     let mut reports = Vec::new();
     for t in &targets {
-        let mut poster = webhook::HttpPoster {
-            timeout_ms: t.timeout_ms,
-        };
-        // Events first, then retractions: a retraction must never wait
-        // behind a blocked event queue.
-        let mut rep = match webhook::deliver_events(&j, t, &mut poster, limit) {
-            Ok(r) => r,
-            Err(e) => die(format!("webhook {}: {e}", t.id)),
-        };
-        match webhook::deliver_reorgs(&j, t, &mut poster, limit) {
-            Ok(r) => {
-                rep.reorg_delivered = r.reorg_delivered;
-                rep.failed += r.failed;
-                if r.blocked_reorg_id.is_some() {
-                    rep.blocked_reorg_id = r.blocked_reorg_id;
-                    // The retraction's own reason, never the event's: the
-                    // two queues are independent, so one reason cannot
-                    // stand in for the other.
-                    rep.blocked_reorg_error = r.blocked_reorg_error;
+        // ONE misconfigured target must not silence the WHOLE fan-out
+        // (measured 2026-11-17, PULS AP, verdict `fanout-isolation-blind`:
+        // the pre-fix tree aborted at the first failing target in config
+        // order — exit 1, NO report, and the healthy consumer behind it
+        // starved: 3 of 5 bodies, the two events pending while the sibling
+        // was repointed never left the machine). The binding refusal is a
+        // fact about ONE consumer: it is named IN THE REPORT as that
+        // target's block, the pass continues for every other target, and
+        // the refused target holds the exit code below (3) — the same
+        // "a debt holds the code" rule every other block follows.
+        // The v0.7.15 rule itself is untouched: no byte moves for the
+        // refused target, no cursor is read for it, and its recorded state
+        // row stays exactly as it was.
+        let rep = match webhook::bind_endpoint(&j, t) {
+            Ok(_) => {
+                let mut poster = webhook::HttpPoster {
+                    timeout_ms: t.timeout_ms,
+                };
+                // Events first, then retractions: a retraction must never wait
+                // behind a blocked event queue.
+                let mut rep = match webhook::deliver_events(&j, t, &mut poster, limit) {
+                    Ok(r) => r,
+                    Err(e) => die(format!("webhook {}: {e}", t.id)),
+                };
+                // The retraction channel runs even when the event queue is
+                // blocked (a retraction is the one message whose lateness can
+                // cost money) — but never for a target the binding refused:
+                // for that target no channel may move at all.
+                match webhook::deliver_reorgs(&j, t, &mut poster, limit) {
+                    Ok(r) => {
+                        rep.reorg_delivered = r.reorg_delivered;
+                        rep.failed += r.failed;
+                        if r.blocked_reorg_id.is_some() {
+                            rep.blocked_reorg_id = r.blocked_reorg_id;
+                            // The retraction's own reason, never the event's: the
+                            // two queues are independent, so one reason cannot
+                            // stand in for the other.
+                            rep.blocked_reorg_error = r.blocked_reorg_error;
+                        }
+                        rep.next_reorg_id = r.next_reorg_id;
+                    }
+                    Err(e) => die(format!("webhook {}: {e}", t.id)),
                 }
-                rep.next_reorg_id = r.next_reorg_id;
+                rep
             }
-            Err(e) => die(format!("webhook {}: {e}", t.id)),
-        }
+            Err(reason) => webhook::target_refusal(t, &reason),
+        };
         reports.push(rep);
     }
 
@@ -2263,6 +2286,10 @@ fn run_webhook_push(args: &[String]) {
                 "blocked": r.blocked(),
                 "blocked_seq": r.blocked_seq,
                 "blocked_reorg_id": r.blocked_reorg_id,
+                // A target refused BEFORE any byte moved (delivery state bound
+                // to a different endpoint) — named so the report says which
+                // consumer was not served, not just that one was blocked.
+                "refused": r.refused,
                 "error": r.blocked_error,
                 // The retraction channel's own reason. `error` stays the
                 // EVENT channel's reason — one queue's reason must never be
@@ -2355,6 +2382,15 @@ fn run_webhook_status(args: &[String]) {
     let cfg = PathBuf::from(require(args, "--config"));
     let targets = webhook::load_targets(&cfg).unwrap_or_else(|e| die(e));
     let mut out = Vec::new();
+    // ONE misconfigured target must not silence the WHOLE report (measured
+    // 2026-11-17, PULS AP: the pre-fix tree exited 1 and printed NOTHING —
+    // the surface a monitoring caller polls went dark because ONE consumer
+    // in the list was repointed). The binding refusal is named as THAT
+    // target's row instead: the healthy targets keep their own numbers, the
+    // refused target holds the exit code below, and — per the v0.7.15 rule —
+    // no other endpoint's delivery record is ever printed next to a url it
+    // does not belong to.
+    let mut refused: Vec<(&webhook::Target, String)> = Vec::new();
     for t in &targets {
         // Status is a report about one consumer. A repointed id would print
         // the OLD endpoint's delivery record next to the NEW url — measured
@@ -2362,7 +2398,10 @@ fn run_webhook_status(args: &[String]) {
         // so the same binding rule push enforces applies here: refuse with
         // both endpoints named instead of printing a record that does not
         // belong to the configured url.
-        webhook::bind_endpoint(&j, t).unwrap_or_else(|e| die(e));
+        if let Err(reason) = webhook::bind_endpoint(&j, t) {
+            refused.push((t, reason));
+            continue;
+        }
         let s = j.webhook_summary(&t.id).unwrap_or_else(|e| die(e));
         let recorded = j
             .webhook_state_with_endpoint(&t.id)
@@ -2396,6 +2435,29 @@ fn run_webhook_status(args: &[String]) {
             "pending_retractions": pending_retractions,
             "dead_letters": dead_letters,
             "last_error": s.last_error,
+        }));
+    }
+    // The refused targets get their OWN rows in the same report: a caller
+    // polling this surface must learn WHICH consumer is misconfigured, and
+    // must not have to parse stderr to find out. The row carries no
+    // delivery numbers of its own — the journal holds a state row for that
+    // id, but it belongs to the OTHER endpoint, so its numbers must not be
+    // printed next to this url (the v0.7.14 defect, unchanged).
+    for (t, reason) in &refused {
+        out.push(json!({
+            "target": t.id,
+            "url": t.url,
+            "endpoint_recorded": Value::Null,
+            "next_seq": 0,
+            "next_reorg_id": 0,
+            "delivered": 0,
+            "failed_attempts": 0,
+            "transport_failures": 0,
+            "pending_events": 0,
+            "pending_retractions": 0,
+            "dead_letters": 0,
+            "last_error": reason,
+            "refused": true,
         }));
     }
     // A pending letter belongs to a TARGET, not to a config entry. When a
@@ -2466,9 +2528,25 @@ fn run_webhook_status(args: &[String]) {
             // names, so one fact carries one number across the surfaces.
             "dead_letters_pending": config_pending + orphaned_pending,
             "failing_targets": failing_targets.len(),
+            // The targets whose delivery state is bound to a DIFFERENT
+            // endpoint than this config names. They are counted, and they
+            // hold the exit code: a consumer that cannot be served is a debt
+            // like any other, and a report that prints it and exits 0 tells a
+            // polling monitor everything is fine.
+            "refused_targets": refused.len(),
         }))
         .unwrap()
     );
+    if !refused.is_empty() {
+        for (_t, reason) in &refused {
+            eprintln!("reeflog: refused — {reason}");
+        }
+        eprintln!(
+            "reeflog: {} target(s) are bound to a different endpoint than this config names — \
+             they were not served; every other target in this config was",
+            refused.len()
+        );
+    }
     if orphaned_pending > 0 {
         eprintln!(
             "reeflog: {orphaned_pending} dead letter(s) belong to target(s) no longer in this config \
@@ -2497,7 +2575,7 @@ fn run_webhook_status(args: &[String]) {
             failing_targets.len()
         );
     }
-    if orphaned_pending > 0 || config_pending > 0 || !failing_targets.is_empty() {
+    if orphaned_pending > 0 || config_pending > 0 || !failing_targets.is_empty() || !refused.is_empty() {
         std::process::exit(3);
     }
 }
@@ -2687,6 +2765,7 @@ fn run_webhook_dlq_replay(args: &[String]) {
         .and_then(|s| s.parse().ok())
         .unwrap_or(100);
     let only = arg(args, "--target");
+    let mut refused: Vec<(String, String)> = Vec::new();
 
     if let Some(id) = &only {
         if !targets.iter().any(|t| &t.id == id) {
@@ -2736,8 +2815,37 @@ fn run_webhook_dlq_replay(args: &[String]) {
             .unwrap_or_else(|e| die(e));
         // The replay is a delivery path: the stored bytes must not follow a
         // repointed url under the same id. The same binding rule as push,
-        // before the first letter moves.
-        webhook::bind_endpoint(&j, t).unwrap_or_else(|e| die(e));
+        // before the first letter moves. The refusal is THIS target's fact:
+        // it is reported as that target's row and the pass continues for the
+        // other consumers (2026-11-17, PULS AP — the pre-fix tree exited 1
+        // and replayed NOTHING, so one repointed id stranded every healthy
+        // target's quarantined events too).
+        if let Err(reason) = webhook::bind_endpoint(&j, t) {
+            eprintln!("reeflog: refused — {reason}");
+            // The letters of this target id stay PENDING — they were
+            // quarantined for this id, and the id is now bound to another
+            // endpoint. Their count is a fact about the TARGET ID (the
+            // quarantine table is keyed by id), not about the endpoint, so
+            // it is reported honestly: the queue still holds them, the
+            // replay did not reach them, and the pass must not read as
+            // "cleanly finished".
+            pending_before += before;
+            never_attempted += before;
+            remaining += before;
+            out.push(json!({
+                "target": t.id,
+                "pending_before": before,
+                "replayed": 0,
+                "failed": 0,
+                "rebuilt": 0,
+                "remaining_pending": before,
+                "truncated": before > 0,
+                "refused": true,
+                "reason": reason,
+            }));
+            refused.push((t.id.clone(), reason));
+            continue;
+        }
         let rows = j
             .webhook_dead_letters(&t.id, limit)
             .unwrap_or_else(|e| die(e));
@@ -2865,9 +2973,25 @@ fn run_webhook_dlq_replay(args: &[String]) {
             "remaining_pending": remaining,
             "truncated": never_attempted > 0,
             "unreachable_orphans": orphaned,
+            // The targets whose delivery state is bound to a DIFFERENT
+            // endpoint than this config names. Their letters stay pending —
+            // nothing is dropped — and they hold the exit code below: a
+            // consumer that cannot be served is a debt like any other.
+            "refused_targets": refused.len(),
         }))
         .unwrap()
     );
+    if !refused.is_empty() {
+        for (id, reason) in &refused {
+            eprintln!("reeflog: refused — {id}: {reason}");
+        }
+        eprintln!(
+            "reeflog: {} target(s) are bound to a different endpoint than this config names — \
+             their dead letters stay pending; every other target in this config was replayed",
+            refused.len()
+        );
+        std::process::exit(3);
+    }
     if failed > 0 {
         eprintln!(
             "reeflog: {failed} dead letter(s) still refused — they stay in the dead-letter queue, nothing is dropped"

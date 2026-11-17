@@ -477,11 +477,18 @@ pub struct TargetReport {
     pub next_reorg_id: i64,
     /// Events that were refused outright and moved to the dead-letter queue.
     pub dead_lettered: i64,
+    /// True when the target was REFUSED before a single byte moved: its
+    /// delivery state is bound to a different endpoint than the config
+    /// names (the v0.7.15 endpoint-binding rule). The refusal is a fact
+    /// about THIS consumer — it must not silence the other consumers in the
+    /// config, but it is still a target that was not served, so it holds the
+    /// exit code like any other block.
+    pub refused: bool,
 }
 
 impl TargetReport {
     pub fn blocked(&self) -> bool {
-        self.blocked_seq.is_some() || self.blocked_reorg_id.is_some()
+        self.blocked_seq.is_some() || self.blocked_reorg_id.is_some() || self.refused
     }
 }
 
@@ -511,6 +518,45 @@ pub fn bind_endpoint(j: &Journal, target: &Target) -> Result<bool, String> {
             target.id, target.url
         )),
         None => Ok(false),
+    }
+}
+
+/// The refusal of ONE misconfigured target, as the report carries it.
+///
+/// WHY THIS EXISTS (measured 2026-11-17, PULS AP, verdict
+/// `fanout-isolation-blind`, `tools/measure-fanout-isolation.mjs`): the
+/// binding refusal above is about ONE consumer — a cursor is a promise to
+/// one endpoint — but it was raised at the CONFIG level. The first failing
+/// target aborted the whole command: `webhook push` exited 1 with NO
+/// report, `webhook status` exited 1 with NO report, `webhook dlq replay`
+/// exited 1 with no replay. Every OTHER consumer in the config was never
+/// served (the healthy sink got 3 of 5 bodies: the events that were
+/// pending while the sibling was misconfigured never left the machine), and
+/// the report a monitoring caller polls said nothing at all — not even the
+/// healthy targets' own numbers.
+///
+/// A misconfiguration is a fact about one consumer. The other consumers must
+/// keep running, and the operator must hear about the broken one IN THE
+/// REPORT — not only as a bare error line that replaces the report.
+///
+/// The shape is the report's own vocabulary, so one fact carries one name:
+/// the target is `blocked` (it cannot be served), it carries the reason in
+/// `error`, and the reason names the recorded endpoint, the configured one
+/// and the repair.
+pub fn target_refusal(target: &Target, reason: &str) -> TargetReport {
+    TargetReport {
+        target: target.id.clone(),
+        delivered: 0,
+        reorg_delivered: 0,
+        failed: 0,
+        blocked_seq: None,
+        blocked_reorg_id: None,
+        blocked_error: Some(reason.to_string()),
+        blocked_reorg_error: None,
+        next_seq: 0,
+        next_reorg_id: 0,
+        dead_lettered: 0,
+        refused: true,
     }
 }
 

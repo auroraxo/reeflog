@@ -15,9 +15,12 @@
 #     endpoint's cursors again (the measured starvation, D1);
 # M2  the refusal is downgraded to silent success (D1);
 # M3  `webhook status` stops enforcing the binding -> it prints the OLD
-#     endpoint's delivery record next to the NEW url again (D2);
+#     endpoint's delivery record next to the NEW url again, exit 0 (D2;
+#     repinned 2026-11-17: the refusal is now a per-target report row);
 # M4  `webhook dlq replay` stops enforcing the binding -> quarantined bytes
-#     follow a repointed url under the same id (D3);
+#     follow a repointed url under the same id (D3; repinned 2026-11-17:
+#     the refusal is now a per-target row and its letters hold the exit
+#     code);
 # M5  the refusal names only the configured endpoint: the operator cannot
 #     tell which consumer holds the state (D1);
 # M6  the refusal drops the repair: the message does not say what to do (D1);
@@ -146,23 +149,56 @@ mutate "downgrade the refusal to silent success" \
     "$D1" "src/webhook.rs" "$PATTERNS/m2.s" "$PATTERNS/m2.r"
 
 # --- M3: status stops enforcing the binding -------------------------------
+# (2026-11-17, PULS AP: the refusal became a per-target report row — the
+# check is the `if let Err` at the status call site, and removing it must
+# make D2 red again: status would print the OLD endpoint's delivery record
+# next to the NEW url, and exit 0.)
 cat > "$PATTERNS/m3.s" <<'EOF'
-        // belong to the configured url.
-        webhook::bind_endpoint(&j, t).unwrap_or_else(|e| die(e));
+        if let Err(reason) = webhook::bind_endpoint(&j, t) {
+            refused.push((t, reason));
+            continue;
+        }
 EOF
 cat > "$PATTERNS/m3.r" <<'EOF'
-        // belong to the configured url.
+        // (mutation: status no longer enforces the binding)
 EOF
 mutate "status stops enforcing the binding" \
     "$D2" "src/main.rs" "$PATTERNS/m3.s" "$PATTERNS/m3.r"
 
 # --- M4: dlq replay stops enforcing the binding ---------------------------
+# (2026-11-17, PULS AP: the replay refusal became a per-target row whose
+# letters stay pending and whose debt holds the exit code; the check is the
+# `if let Err` block at the replay call site, and removing it must make D3
+# red again: the quarantined bytes would follow the repointed url.)
 cat > "$PATTERNS/m4.s" <<'EOF'
-        // before the first letter moves.
-        webhook::bind_endpoint(&j, t).unwrap_or_else(|e| die(e));
+        if let Err(reason) = webhook::bind_endpoint(&j, t) {
+            eprintln!("reeflog: refused — {reason}");
+            // The letters of this target id stay PENDING — they were
+            // quarantined for this id, and the id is now bound to another
+            // endpoint. Their count is a fact about the TARGET ID (the
+            // quarantine table is keyed by id), not about the endpoint, so
+            // it is reported honestly: the queue still holds them, the
+            // replay did not reach them, and the pass must not read as
+            // "cleanly finished".
+            pending_before += before;
+            never_attempted += before;
+            remaining += before;
+            out.push(json!({
+                "target": t.id,
+                "pending_before": before,
+                "replayed": 0,
+                "failed": 0,
+                "rebuilt": 0,
+                "remaining_pending": before,
+                "truncated": before > 0,
+                "refused": true,
+                "reason": reason,
+            }));
+            refused.push((t.id.clone(), reason));
+            continue;
+        }
 EOF
 cat > "$PATTERNS/m4.r" <<'EOF'
-        // before the first letter moves.
 EOF
 mutate "dlq replay stops enforcing the binding" \
     "$D3" "src/main.rs" "$PATTERNS/m4.s" "$PATTERNS/m4.r"
