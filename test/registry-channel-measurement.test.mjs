@@ -264,6 +264,37 @@ test('V3i: the stranger path DELIVERED the v0.7.31 binary to the pin', () => {
   for (const f of d.faces) assert.equal(f.ok, true, `${f.name} must pass`);
 });
 
+test('V2k: the v0.7.33 tarball measures registry-consistent — 0 defects', () => {
+  const r = load('registry-channel-v0733-2026-11-17.json');
+  assert.equal(r.source, 'published reeflog-client@0.7.33 tarball from registry.npmjs.org');
+  assert.equal(r.verdict, 'registry-consistent');
+  assert.equal(r.defects, 0);
+  for (const f of r.faces) assert.equal(f.ok, true, `${f.name} must hold`);
+  assert.equal(r.distTags.latest, '0.7.33');
+});
+
+test('V3j: the published 0.7.33 passed the live registry-install user-zero 12/12', () => {
+  const live33 = load('registry-install-live-v0733-2026-11-17.json');
+  assert.equal(live33.package, 'reeflog-client@0.7.33');
+  assert.equal(live33.installedVersion, '0.7.33');
+  assert.equal(live33.verdict, 'all_pass');
+  assert.equal(live33.checks.length, 12);
+  assert.ok(live33.journalEvents > 0, 'every read was answered by a real mainnet journal');
+  for (const c of live33.checks) assert.equal(c.ok, true, `${c.name} must pass`);
+  const bv = live33.checks.find((c) => c.name === 'binary_version_matches_manifest');
+  assert.equal(bv.ok, true);
+  assert.match(String(bv.detail), /0\.7\.33/);
+});
+
+test('V3k: the stranger path DELIVERED the v0.7.33 binary to the pin', () => {
+  const d = load('client-pin-delivery-v0733-2026-11-17.json');
+  assert.equal(d.verdict, 'DELIVERED-TO-THE-PIN');
+  assert.equal(d.passed, d.total);
+  assert.equal(d.total, 6);
+  assert.equal(d.tag, 'v0.7.33', 'the delivery must name the tag it delivered');
+  for (const f of d.faces) assert.equal(f.ok, true, `${f.name} must pass`);
+});
+
 test('V4: no host path leaks into the artifacts', () => {
   for (const f of ['registry-channel-v0720-2026-11-13.json',
     'registry-channel-v0721-2026-11-13.json',
@@ -282,7 +313,10 @@ test('V4: no host path leaks into the artifacts', () => {
     'registry-install-live-v0726-2026-11-14.json',
     'registry-install-live-v0727-2026-11-14.json',
     'registry-install-live-v0729-2026-11-15.json',
-    'registry-install-live-v0730-2026-11-16.json']) {
+    'registry-install-live-v0730-2026-11-16.json',
+    'registry-channel-v0733-2026-11-17.json',
+    'registry-install-live-v0733-2026-11-17.json',
+    'client-pin-delivery-v0733-2026-11-17.json']) {
     const text = fs.readFileSync(path.join(dir, f), 'utf8');
     assert.doesNotMatch(text, /\/home\/|\/Users\/|C:\\/, `${f} must not pin the claim to one machine`);
   }
