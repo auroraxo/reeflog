@@ -624,7 +624,7 @@ dependencies = [
 
 [[package]]
 name = "reeflog"
-version = "0.7.34"
+version = "0.7.35"
 dependencies = [
  "base64 0.22.1",
  "futures-util",
@@ -632,6 +632,7 @@ dependencies = [
  "http",
  "rusqlite",
  "serde_json",
+ "sha1",
  "sha2",
  "tokio",
  "tokio-tungstenite",

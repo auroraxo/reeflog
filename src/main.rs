@@ -940,31 +940,37 @@ async fn run_start(args: &[String]) {
             Ok(Ok(pair)) => pair,
             Ok(Err(e)) => {
                 stats.disconnects += 1;
-                open_gap = Some(
-                    j.gap_open(
+                // ONE row per episode, not one per attempt: a refused
+                // endpoint retried every 1.5 s must not flood the ledger —
+                // the refusal detail lands on the already-open row instead.
+                // (Pre-fix: one row per attempt, and only the last was ever
+                // closed — a healed journal kept reporting `gaps_open: N-1`
+                // forever. Measured on v0.7.34, 2026-11-18.)
+                let g = j
+                    .gap_episode_note(
                         "connect_fail",
                         j.max_seq().unwrap_or(0),
                         j.max_slot().unwrap_or(None),
                         j.last_signature().unwrap_or(None).as_deref(),
                         &format!("ws connect failed: {e}"),
                     )
-                    .unwrap_or_else(|e| die(e)),
-                );
+                    .unwrap_or_else(|e| die(e));
+                open_gap = Some(g);
                 tokio::time::sleep(Duration::from_millis(RECONNECT_BACKOFF_MS)).await;
                 continue;
             }
             Err(_) => {
                 stats.disconnects += 1;
-                open_gap = Some(
-                    j.gap_open(
+                let g = j
+                    .gap_episode_note(
                         "connect_fail",
                         j.max_seq().unwrap_or(0),
                         j.max_slot().unwrap_or(None),
                         j.last_signature().unwrap_or(None).as_deref(),
                         "ws connect timed out",
                     )
-                    .unwrap_or_else(|e| die(e)),
-                );
+                    .unwrap_or_else(|e| die(e));
+                open_gap = Some(g);
                 tokio::time::sleep(Duration::from_millis(RECONNECT_BACKOFF_MS)).await;
                 continue;
             }
@@ -977,7 +983,7 @@ async fn run_start(args: &[String]) {
         if let Err(e) = ws.send(Message::Text(sub.to_string())).await {
             stats.disconnects += 1;
             let g = j
-                .gap_open(
+                .gap_episode_note(
                     "subscribe_fail",
                     j.max_seq().unwrap_or(0),
                     j.max_slot().unwrap_or(None),
@@ -990,13 +996,25 @@ async fn run_start(args: &[String]) {
             continue;
         }
 
-        // If a gap is still open from a previous disconnect, close it now that
-        // the stream is back: catch up first, then resume live.
-        if let Some(g) = open_gap.take() {
+        // If a gap is still open from a previous disconnect — OR if an
+        // episode row from an earlier (killed) run is still open — catch up
+        // now that the stream is back, then resolve the episode. A COMPLETE
+        // backfill proves the outage cost nothing the journal cannot show:
+        // every open connect_fail/subscribe_fail row of this episode is
+        // closed as history (the oldest carrying the fill count, so
+        // `SUM(backfill_count)` counts fills, not rows) — a refusal retried
+        // N times must not leave N alarms behind. A truncated or failed
+        // backfill keeps everything open and loud: alarm beats silence.
+        let episode_open = matches!(j.gap_find_open("connect_fail"), Ok(Some(_)))
+            || matches!(j.gap_find_open("subscribe_fail"), Ok(Some(_)));
+        if open_gap.is_some() || episode_open {
+            let g = open_gap.take();
             let r = match backfill_gap(&j, &mut fetcher, &program) {
                 Ok(r) => r,
                 Err(e) => {
-                    j.gap_update_detail(g, &format!("; tail backfill failed: {e}")).ok();
+                    if let Some(g) = g {
+                        j.gap_update_detail(g, &format!("; tail backfill failed: {e}")).ok();
+                    }
                     Report {
                         truncated: true,
                         error: Some(e),
@@ -1015,11 +1033,29 @@ async fn run_start(args: &[String]) {
                 r.error.clone().unwrap_or_else(|| "none".into())
             );
             if r.truncated || r.error.is_some() {
-                j.gap_update_detail(g, &format!("{note}; GAP STILL OPEN")).ok();
-                open_gap = Some(g);
+                if let Some(g) = g {
+                    j.gap_update_detail(g, &format!("{note}; GAP STILL OPEN")).ok();
+                    open_gap = Some(g);
+                }
             } else {
-                j.gap_close(g, j.max_slot().unwrap_or(None), r.inserted, &note)
+                // The stream is back and the claim is whole: the WHOLE
+                // episode resolves — not just the newest handle. A healed
+                // journal must report `gaps_open: 0` (this is the defect
+                // v0.7.27 fixed for `hole` rows; the connect/subscribe
+                // episode now follows the same rule).
+                let _ = j
+                    .gap_episode_resolve(j.max_slot().unwrap_or(None), r.inserted, &note)
                     .unwrap_or_else(|e| die(e));
+                // The handle may be a restart row the sweep must NOT touch
+                // (only connect/subscribe kinds belong to the episode); a
+                // resolved episode row must not be closed twice — the fill
+                // count would land on a second row and the note double up.
+                if let Some(g) = g {
+                    if j.gap_is_open(g).unwrap_or_else(|e| die(e)) {
+                        j.gap_close(g, j.max_slot().unwrap_or(None), r.inserted, &note)
+                            .unwrap_or_else(|e| die(e));
+                    }
+                }
             }
         }
 

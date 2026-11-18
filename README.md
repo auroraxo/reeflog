@@ -10,11 +10,11 @@ durable cursor, no catch-up. Every project rebuilds reconnect, dedup,
 gap-fill, and reorg handling, or silently loses events. reeflog makes that
 one daemon, one file, one cursor.
 
-**Status: v0.7.34 (2026-11-17), live against mainnet-beta — no Rust toolchain needed: `npm install reeflog-client`, then `import { bootstrap } from 'reeflog-client'; await bootstrap()` (downloads the prebuilt release archive and verifies its sha256 against what the GitHub release API publishes). The client itself is zero-dependency: one package, no `node_modules` of its own, and it installs without `git` on the machine.**
+**Status: v0.7.35 (2026-11-18), live against mainnet-beta — no Rust toolchain needed: `npm install reeflog-client`, then `import { bootstrap } from 'reeflog-client'; await bootstrap()` (downloads the prebuilt release archive and verifies its sha256 against what the GitHub release API publishes). The client itself is zero-dependency: one package, no `node_modules` of its own, and it installs without `git` on the machine.**
 
 The same client from the tagged release:
-`npm install github:auroraxo/reeflog#v0.7.34`. Or from source:
-`cargo install --git https://github.com/auroraxo/reeflog --tag v0.7.34`.
+`npm install github:auroraxo/reeflog#v0.7.35`. Or from source:
+`cargo install --git https://github.com/auroraxo/reeflog --tag v0.7.35`.
 
 **Honest state:** it works, and it is measured — but so far every real
 consumer belongs to the project itself. There is no unaffiliated third-party
@@ -163,6 +163,7 @@ detail and every raw number in
 | Replay body | `dlq replay` re-sent the body frozen into the quarantine: after the chain unmade the transaction, `push` delivered `seal: "reverted"` and the replay delivered `seal: "finalized"` for the same seq; measured on the published v0.7.31 asset, fixed in v0.7.32 |
 | Retraction block | a refused retraction was reported as a phantom event position (`at seq None`) on the event channel, the operator's line leaked Rust debug formatting, and the retraction's reason shared the event channel's `blocked_error` — the operator could not tell which queue was stuck; measured on the published v0.7.32 asset, fixed in v0.7.33 |
 | Fan-out isolation | ONE target whose delivery state is bound to another endpoint aborted the whole webhook command: `push`/`status`/`dlq replay` exited 1 with NO report, the healthy sink starved (3 of 5 bodies), the reports a monitoring caller polls went dark; measured on the published v0.7.33 asset, fixed in v0.7.34 |
+| Disconnect episodes | ONE outage left one OPEN gap row per refused connect attempt and healed only the last: a journal whose stream had returned reported `gaps_open: 6` forever, and every nightly network switch re-opened the alarm; measured on the published v0.7.34 asset, fixed in v0.7.35 |
 
 ## Conditions and limits — the honest part
 
@@ -308,6 +309,23 @@ detail and every raw number in
   published v0.7.34 asset
   ([held](research/fanout-isolation-published-v0734-2026-11-17.json), 8/8
   faces, verdict `fanout-isolation-held`).
+- **One outage is ONE row, and the heal resolves it (v0.7.35).** The
+  reconnect loop opened a fresh `connect_fail` gap row for EVERY refused
+  connect attempt and closed only the last one on recovery. One episode
+  with 6 refused attempts left 6 OPEN rows; the healed journal reported
+  `gaps_open: 6` forever — the same permanent false alarm v0.7.27 removed
+  from the hole rows — and a nightly network down-switch re-opened it
+  every day. One episode is now ONE row per kind while the endpoint is
+  down (the retries ride on the row's detail, so the outage stays loud),
+  and the reconnect heal resolves the whole episode as history —
+  `gaps_open: 0` when the stream is back, the fill count on one row so
+  `SUM(backfill_count)` still counts fills. A truncated heal is not a
+  heal: the episode stays open until a complete walk proves the claim.
+  Measured on the published v0.7.34 asset
+  ([7 defect faces](research/gap-episode-dedup-published-v0734-2026-11-18.json),
+  verdict `gap-episode-rows-accumulate`) and on the fixed tree
+  ([held](research/gap-episode-dedup-fixed-2026-11-18.json), 8/8 faces,
+  verdict `gap-episode-dedup-held`).
 - **The client is zero-dependency since v0.7.25.** Until then the npm
   manifest named *itself* as a dependency on github:, so every
   `npm install reeflog-client` also cloned a second, older copy of the
@@ -320,7 +338,7 @@ detail and every raw number in
 ## Deep dives
 
 - [docs/measured-history.md](https://github.com/auroraxo/reeflog/blob/main/docs/measured-history.md) — the complete
-  README measurement and contract history through v0.7.34, unbroken.
+  README measurement and contract history through v0.7.35, unbroken.
 - [`research/`](research/) — every committed measurement artifact behind the
   numbers above (raw JSON reports, pinned by tests).
 - [`tests/`](tests/) and [`test/`](test/) — the contract tests: the CLI

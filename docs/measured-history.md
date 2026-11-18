@@ -2100,6 +2100,75 @@ pinned by `tests/fanout_isolation_measurement.rs` (5 tests, host paths
 excluded), and the endpoint-binding mutation ladder repinned to the new
 call sites — 9/9 mutations caught, tree byte-identical after restore.
 
+### One outage is ONE row, and the heal resolves it (v0.7.35)
+
+The gap ledger's contract is the one the hole rows got in v0.7.27:
+one episode = one row, and a journal whose stream came back owes
+nothing (`gaps_open: 0`). The reconnect loop never learned that rule.
+It opened a FRESH `connect_fail` row for every refused connect attempt
+(`open_gap = Some(j.gap_open(...))` overwrote the handle in memory and
+never closed or reused the row before it), and `subscribe_fail` did the
+same. The heal on reconnect closed only the newest handle — so:
+
+* one outage with 6 refused attempts left **6 open `connect_fail` rows**;
+  `reeflog status` reported `gaps: 6, gaps_open: 6` — the same permanent
+  false alarm v0.7.27 removed from the `hole` rows (PULS AJ);
+* the heal closed one row and left the rest open: a healed journal still
+  reported `gaps_open: 5` **forever**, and a daemon that down-switches
+  networks nightly reopened the alarm every day;
+* a run killed mid-episode (SIGKILL) left its rows open with no handle
+  behind at all, so no later run ever resolved them.
+
+Measured 2026-11-18 on the **published v0.7.34 asset** (the linux archive
+downloaded from the Release API, binary sha256 `a67ae152…`;
+`tools/measure-gap-episode-dedup.mjs`,
+`research/gap-episode-dedup-published-v0734-2026-11-18.json`, verdict
+`gap-episode-rows-accumulate`, **7 of 8 faces defective**): 6 attempts →
+6 open rows, the heal left all 6 open, a second episode added a 7th —
+`gaps_open: 7` on a journal whose stream had long returned.
+
+The fix keeps every ledger invariant, in the journal where one place
+can hold them:
+
+* **while the endpoint is down the episode is LOUD**: one row per kind,
+  the retries append to that row's detail (`gap_episode_note`), so
+  `gaps_open: 1` counts the outage honestly instead of its retry count;
+* **the heal resolves the whole episode as history**: every open
+  `connect_fail`/`subscribe_fail` row of the episode closes together
+  (`gap_episode_resolve`), rows are never deleted — `gaps` keeps
+  counting resolved episodes;
+* **`SUM(backfill_count)` still counts FILLS**: the fill count lands on
+  the oldest connect row only;
+* **a truncated heal is not a heal**: `r.truncated || r.error.is_some()`
+  keeps the whole episode open and says so in the detail — alarm beats
+  silence;
+* **the `restart` boundary row is untouched**: it is its own kind and
+  closes on its own tail-backfill, never swept by an episode heal.
+
+Gate: `tests/gap_episode_dedup.rs` (5 tests: D1/D2 written red-first
+against the pre-fix tree — the fake sink performs a REAL RFC 6455
+upgrade, because the daemon only resumes after a real one — G guards
+green on both trees), the instrument re-run on the fixed tree
+(`research/gap-episode-dedup-fixed-2026-11-18.json`, verdict
+`gap-episode-dedup-held`, 8/8 faces) AND on the **published v0.7.34
+asset** (same verdict `gap-episode-rows-accumulate`, 7/8 — the defect is
+in the bytes a stranger installs), the artifacts pinned without host
+paths (`tests/research_artifacts.rs`), and the mutation ladder
+`tools/mutation-ladder-gap-episode-dedup.sh` — **7/7 caught** (connect
+dup, subscribe dup, sweep missing the sibling kind, deletion instead of
+resolution, unconditional sweep on a truncated heal, the daemon routing
+around the journal rule, and the daemon's own heal sweeping only
+`connect_fail` — a planted `subscribe_fail` row of a killed run survives
+it), tree byte-identical after restore.
+
+The third seat is the **pre-fix tree** (`0335674`, the commit v0.7.34 was
+cut from; binary sha256 `ee68ec88…`,
+`research/gap-episode-dedup-prefix-2026-11-18.json`, verdict
+`gap-episode-rows-accumulate`, 7 of 8 faces defective): the same probe
+against the tree the fix was written on records 6 open rows after one
+episode and `gaps_open: 7` after the second — the accumulation is in the
+tree, not in one published build.
+
 ## Repeated use
 
 ```bash

@@ -458,6 +458,20 @@ impl Journal {
         Ok(self.db.last_insert_rowid())
     }
 
+    /// Append to a row's detail WITHOUT growing the ledger.
+    ///
+    /// The episode row stays ONE row; the extra attempts are named on it.
+    /// A separator keeps the text readable and every attempt countable.
+    pub fn gap_append_detail(&self, gap_id: i64, suffix: &str) -> Result<(), String> {
+        self.db
+            .execute(
+                "UPDATE gaps SET detail = detail || ?2 WHERE id=?1",
+                params![gap_id, format!("; {suffix}")],
+            )
+            .map_err(|e| e.to_string())?;
+        Ok(())
+    }
+
     pub fn gap_close(
         &self,
         gap_id: i64,
@@ -477,7 +491,8 @@ impl Journal {
     }
 
     /// A gap that never saw another event stays open — honest state.
-    pub fn gap_update_detail(&self, gap_id: i64, suffix: &str) -> Result<(), String> {        self.db
+    pub fn gap_update_detail(&self, gap_id: i64, suffix: &str) -> Result<(), String> {
+        self.db
             .execute(
                 "UPDATE gaps SET detail = detail || ?2 WHERE id=?1",
                 params![gap_id, suffix],
@@ -520,6 +535,91 @@ impl Journal {
             self.gap_close(*id, until_slot, count, detail_suffix)?;
         }
         Ok(ids.len())
+    }
+
+    /// Record one attempt of a disconnect episode on ONE row.
+    ///
+    /// An episode is a run of failures with no successful connection in
+    /// between. The ledger must hold ONE row for it: the retries ride on
+    /// the already-open row as appended detail instead of inserting a
+    /// duplicate. Pre-fix (measured 2026-11-18 on the published v0.7.34
+    /// binary) every refused attempt opened its own row and only the last
+    /// was ever closed — a healed journal kept reporting `gaps_open: N-1`
+    /// forever, the same permanent false alarm v0.7.27 removed from the
+    /// hole rows.
+    ///
+    /// Returns the row id of the episode (the existing one, or a new one).
+    pub fn gap_episode_note(
+        &self,
+        kind: &str,
+        since_seq: i64,
+        since_slot: Option<i64>,
+        since_sig: Option<&str>,
+        detail: &str,
+    ) -> Result<i64, String> {
+        match self.gap_find_open(kind)? {
+            Some(id) => {
+                self.gap_append_detail(id, detail)?;
+                Ok(id)
+            }
+            None => self.gap_open(kind, since_seq, since_slot, since_sig, detail),
+        }
+    }
+
+    /// Resolve a whole disconnect episode: every open row of these kinds
+    /// becomes history.
+    ///
+    /// The kinds are swept together because one episode can write both a
+    /// `connect_fail` and a `subscribe_fail` row — the wire gave up
+    /// between the two. The fill count lands on the OLDEST connect row
+    /// only, so `SUM(backfill_count)` keeps counting FILLS, not rows.
+    /// Returns how many rows were closed.
+    pub fn gap_episode_resolve(
+        &self,
+        until_slot: Option<i64>,
+        backfill_count: i64,
+        detail_suffix: &str,
+    ) -> Result<usize, String> {
+        let mut closed = self.gap_close_all_open("connect_fail", until_slot, backfill_count, detail_suffix)?;
+        closed += self.gap_close_all_open("subscribe_fail", until_slot, 0, detail_suffix)?;
+        Ok(closed)
+    }
+
+    /// Is this row still open? The heal needs it: a row the sweep already
+    /// resolved must not be closed a second time (that would append the
+    /// note twice and put the fill count on a second row), while a restart
+    /// row that survived the sweep still owes its resolution.
+    pub fn gap_is_open(&self, gap_id: i64) -> Result<bool, String> {
+        let mut stmt = self
+            .db
+            .prepare("SELECT resolved_at IS NULL FROM gaps WHERE id=?1")
+            .map_err(|e| e.to_string())?;
+        let mut rows = stmt
+            .query_map(params![gap_id], |r| r.get::<_, i64>(0))
+            .map_err(|e| e.to_string())?;
+        match rows.next() {
+            Some(v) => Ok(v.map_err(|e| e.to_string())? != 0),
+            None => Ok(false),
+        }
+    }
+
+    /// The detail text of a gap row — the record of what the episode saw.
+    ///
+    /// Consumed by the episode unit tests (the ledger's read face for one
+    /// row); the integration gate reads the column through SQL directly.
+    #[cfg(test)]
+    pub fn gap_detail(&self, gap_id: i64) -> Result<String, String> {
+        let mut stmt = self
+            .db
+            .prepare("SELECT detail FROM gaps WHERE id=?1")
+            .map_err(|e| e.to_string())?;
+        let mut rows = stmt
+            .query_map(params![gap_id], |r| r.get::<_, String>(0))
+            .map_err(|e| e.to_string())?;
+        match rows.next() {
+            Some(v) => v.map_err(|e| e.to_string()),
+            None => Err(format!("no gap row {gap_id}")),
+        }
     }
 
     /// The oldest open gap of this kind, if any. Repeated repair passes that
@@ -1938,6 +2038,69 @@ mod tests {
         assert_eq!(c.gaps_open, 0);
         assert_eq!(c.backfilled, 5);
         assert!(c.blind_ms >= 0);
+    }
+
+    #[test]
+    fn gap_episode_is_one_row_per_kind() {
+        let j = tmp("episode");
+        j.append("a", 10, None, None, "ws").unwrap();
+        // Six refused attempts of ONE episode: one row, six details.
+        let mut id = 0;
+        for i in 0..6 {
+            id = j
+                .gap_episode_note("connect_fail", 1, Some(10), Some("a"), &format!("ws connect failed: {i}"))
+                .unwrap();
+            assert_eq!(id, 1, "every attempt of the episode rides on ONE row");
+        }
+        let c = j.counts().unwrap();
+        assert_eq!(c.gaps, 1, "one episode = one row");
+        assert_eq!(c.gaps_open, 1, "the episode is open while the wire is down");
+        let row = j.gap_detail(id).unwrap();
+        assert_eq!(row.matches("ws connect failed").count(), 6);
+    }
+
+    #[test]
+    fn gap_episode_kinds_do_not_share_a_row() {
+        let j = tmp("episode-kinds");
+        j.append("a", 10, None, None, "ws").unwrap();
+        let c = j.gap_episode_note("connect_fail", 1, Some(10), Some("a"), "ws connect failed").unwrap();
+        let s = j.gap_episode_note("subscribe_fail", 1, Some(10), Some("a"), "subscribe failed").unwrap();
+        assert_ne!(c, s, "a different kind is a different row");
+        let s2 = j
+            .gap_episode_note("subscribe_fail", 1, Some(10), Some("a"), "subscribe failed again")
+            .unwrap();
+        assert_eq!(s, s2, "a retried subscribe ride on the ONE subscribe row");
+        let sub_detail = j.gap_detail(s).unwrap();
+        assert_eq!(
+            sub_detail.matches("subscribe failed").count(),
+            2,
+            "both attempts are named on the one subscribe row: {sub_detail}"
+        );
+        assert_eq!(j.counts().unwrap().gaps, 2, "two kinds, two rows — no duplicates");
+    }
+
+    #[test]
+    fn gap_episode_resolve_closes_the_whole_episode_as_history() {
+        let j = tmp("episode-resolve");
+        j.append("a", 10, None, None, "ws").unwrap();
+        j.gap_episode_note("connect_fail", 1, Some(10), Some("a"), "ws connect failed").unwrap();
+        j.gap_episode_note("subscribe_fail", 1, Some(10), Some("a"), "subscribe failed").unwrap();
+        let closed = j.gap_episode_resolve(Some(42), 7, "; healed").unwrap();
+        assert_eq!(closed, 2, "both rows of the episode resolve");
+        let c = j.counts().unwrap();
+        assert_eq!(c.gaps, 2, "the episode stays HISTORY");
+        assert_eq!(c.gaps_open, 0, "a healed journal owes nothing");
+        assert_eq!(c.backfilled, 7, "the fill count lands on the connect row alone");
+    }
+
+    #[test]
+    fn gap_is_open_reports_the_row_state() {
+        let j = tmp("gap-open-state");
+        let g = j.gap_open("hole", 1, Some(10), Some("a"), "a hole").unwrap();
+        assert!(j.gap_is_open(g).unwrap());
+        j.gap_close(g, Some(10), 0, "; healed").unwrap();
+        assert!(!j.gap_is_open(g).unwrap(), "a resolved row is not open");
+        assert!(!j.gap_is_open(9999).unwrap(), "an unknown row is not open");
     }
 
     #[test]
