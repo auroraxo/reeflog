@@ -1,18 +1,18 @@
 {
-  "package": "reeflog-client",
+  "package": "reeflog-client@0.7.35",
   "installedVersion": "0.7.35",
   "measuredAt": "2026-11-18",
   "liveSeconds": 100,
   "program": "whirLbMiicVdio4qvUfM5KAg6Ct8VwpYzGff3uctyCc",
   "archiveDigestPrefix": "5f9496ae",
   "binarySha256Prefix": "c6fcc5b0",
-  "journalEvents": 6131,
-  "journalMaxSeq": 6131,
+  "journalEvents": 6592,
+  "journalMaxSeq": 6592,
   "checks": [
     {
       "name": "registry_install_from_empty_app",
       "ok": true,
-      "detail": "reeflog-client -> 0.7.35 (no git URL, no toolchain)"
+      "detail": "reeflog-client@0.7.35 -> 0.7.35 (no git URL, no toolchain)"
     },
     {
       "name": "bootstrap_installs_binary",
@@ -27,12 +27,12 @@
     {
       "name": "daemon_live_run",
       "ok": true,
-      "detail": "exit=0 after 286s against mainnet-beta"
+      "detail": "exit=0 after 107s against mainnet-beta"
     },
     {
       "name": "status_equals_cli",
       "ok": true,
-      "detail": "events=6131 max_seq=6131 exit=0 equal=true"
+      "detail": "events=6592 max_seq=6592 exit=0 equal=true"
     },
     {
       "name": "tail_strictly_increasing_seq",
