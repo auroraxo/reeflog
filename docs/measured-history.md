@@ -2150,10 +2150,12 @@ against the pre-fix tree — the fake sink performs a REAL RFC 6455
 upgrade, because the daemon only resumes after a real one — G guards
 green on both trees), the instrument re-run on the fixed tree
 (`research/gap-episode-dedup-fixed-2026-11-18.json`, verdict
-`gap-episode-dedup-held`, 8/8 faces) AND on the **published v0.7.34
-asset** (same verdict `gap-episode-rows-accumulate`, 7/8 — the defect is
-in the bytes a stranger installs), the artifacts pinned without host
-paths (`tests/research_artifacts.rs`), and the mutation ladder
+`gap-episode-dedup-held`, 8/8 faces) AND on the **published v0.7.35
+asset** (archive from the Release API, binary sha256 `c6fcc5b0…`;
+`research/gap-episode-dedup-published-v0735-2026-11-18.json`, same
+verdict, 8/8 — the fix is in the bytes a stranger installs), the four
+artifacts pinned by `tests/gap_episode_dedup_measurement.rs` (5 tests,
+host paths excluded), and the mutation ladder
 `tools/mutation-ladder-gap-episode-dedup.sh` — **7/7 caught** (connect
 dup, subscribe dup, sweep missing the sibling kind, deletion instead of
 resolution, unconditional sweep on a truncated heal, the daemon routing

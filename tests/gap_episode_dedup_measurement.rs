@@ -16,11 +16,13 @@
 //!   kinds.
 //!
 //! * The FIXED side is this tree (verdict `gap-episode-dedup-held`, 8/8
-//!   faces): one episode is ONE row per kind while the endpoint is down
-//!   (the retries ride on the row's detail — the outage stays loud), the
-//!   heal resolves the whole episode as history (`gaps_open: 0` when the
-//!   stream is back), the fill count lands on one row, and a truncated
-//!   heal keeps the episode open (alarm beats silence).
+//!   faces) — and the PUBLISHED v0.7.35 release asset (binary sha256
+//!   c6fcc5b0…, same verdict, 8/8): the fix is in the bytes a stranger
+//!   installs, not only in the tree. One episode is ONE row per kind while
+//!   the endpoint is down (the retries ride on the row's detail — the
+//!   outage stays loud), the heal resolves the whole episode as history
+//!   (`gaps_open: 0` when the stream is back), the fill count lands on one
+//!   row, and a truncated heal keeps the episode open (alarm beats silence).
 //!
 //! The pin holds the MEASURED numbers, not a summary: the defect artifact
 //! must still carry the accumulation it recorded, so a later tree cannot
@@ -141,9 +143,28 @@ fn the_prefix_tree_artifact_records_the_same_accumulation() {
 }
 
 #[test]
+fn the_published_v0735_asset_carries_the_fix() {
+    let text = artifact("gap-episode-dedup-published-v0735-2026-11-18.json");
+    assert_contains(
+        &text,
+        "\"label\": \"published-v0735\"",
+        "which binary was measured (label)",
+    );
+    assert_contains(
+        &text,
+        "\"binVersion\": \"reeflog 0.7.35\"",
+        "the measured binary's own version",
+    );
+    assert_contains(&text, "\"verdict\": \"gap-episode-dedup-held\"", "the verdict");
+    assert_contains(&text, "\"defects\": 0", "no defect faces on the published bytes");
+    assert_contains(&text, "\"gaps_open\": 0", "the healed journal owes nothing");
+}
+
+#[test]
 fn no_artifact_carries_a_host_path() {
     for name in [
         "gap-episode-dedup-published-v0734-2026-11-18.json",
+        "gap-episode-dedup-published-v0735-2026-11-18.json",
         "gap-episode-dedup-prefix-2026-11-18.json",
         "gap-episode-dedup-fixed-2026-11-18.json",
     ] {

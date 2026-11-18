@@ -323,9 +323,11 @@ detail and every raw number in
   heal: the episode stays open until a complete walk proves the claim.
   Measured on the published v0.7.34 asset
   ([7 defect faces](research/gap-episode-dedup-published-v0734-2026-11-18.json),
-  verdict `gap-episode-rows-accumulate`) and on the fixed tree
-  ([held](research/gap-episode-dedup-fixed-2026-11-18.json), 8/8 faces,
-  verdict `gap-episode-dedup-held`).
+  verdict `gap-episode-rows-accumulate`) and re-measured on the published
+  v0.7.35 asset
+  ([held](research/gap-episode-dedup-published-v0735-2026-11-18.json), 8/8
+  faces, verdict `gap-episode-dedup-held` — the fix is in the bytes a
+  stranger installs).
 - **The client is zero-dependency since v0.7.25.** Until then the npm
   manifest named *itself* as a dependency on github:, so every
   `npm install reeflog-client` also cloned a second, older copy of the

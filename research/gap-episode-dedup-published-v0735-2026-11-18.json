@@ -1,0 +1,84 @@
+{
+  "verdict": "gap-episode-dedup-held",
+  "defects": 0,
+  "bin": "reeflog",
+  "binSha256": "c6fcc5b086427c0f5c63d047eee3066f6c740979c6212d8c1e6f0af630b09e1b",
+  "binVersion": "reeflog 0.7.35",
+  "label": "published-v0735",
+  "at": "2026-11-18T09:24:24.518Z",
+  "dir": "<tmp>/",
+  "attemptsPerEpisode": 6,
+  "results": [
+    {
+      "name": "F1 one episode = exactly ONE open connect_fail row",
+      "pass": true,
+      "detail": {
+        "open": 1,
+        "openByKind": "connect_fail=1"
+      }
+    },
+    {
+      "name": "F2 the episode row carries every attempt (>= 6)",
+      "pass": true,
+      "detail": {
+        "attempts": 6,
+        "openByKind": "connect_fail=1"
+      }
+    },
+    {
+      "name": "F3 status gaps_open == 1 while the endpoint is down (loud)",
+      "pass": true,
+      "detail": {
+        "gaps_open": 1,
+        "gaps": 1
+      }
+    },
+    {
+      "name": "F4 after the heal: ZERO open rows",
+      "pass": true,
+      "detail": {
+        "open": 0,
+        "openByKind": ""
+      }
+    },
+    {
+      "name": "F5 after the heal: the episode stays as ONE resolved row",
+      "pass": true,
+      "detail": {
+        "resolved": 1,
+        "total": 1,
+        "byKind": "connect_fail=1"
+      }
+    },
+    {
+      "name": "F6 after the heal: status gaps_open == 0",
+      "pass": true,
+      "detail": {
+        "gaps_open": 0,
+        "gaps": 1
+      }
+    },
+    {
+      "name": "F7a a second episode adds exactly one open row",
+      "pass": true,
+      "detail": {
+        "total": 2,
+        "open": 1,
+        "byKind": "connect_fail=2"
+      }
+    },
+    {
+      "name": "F7b both episodes stay as resolved history, nothing open",
+      "pass": true,
+      "detail": {
+        "resolved": 2,
+        "open": 0,
+        "gaps_open": 0,
+        "total": 2
+      }
+    }
+  ],
+  "stderr_sample": [
+    ""
+  ]
+}
