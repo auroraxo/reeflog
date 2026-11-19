@@ -10,11 +10,11 @@ durable cursor, no catch-up. Every project rebuilds reconnect, dedup,
 gap-fill, and reorg handling, or silently loses events. reeflog makes that
 one daemon, one file, one cursor.
 
-**Status: v0.7.38 (2026-11-19), live against mainnet-beta — no Rust toolchain needed: `npm install reeflog-client`, then `import { bootstrap } from 'reeflog-client'; await bootstrap()` (downloads the prebuilt release archive and verifies its sha256 against what the GitHub release API publishes). The client itself is zero-dependency: one package, no `node_modules` of its own, and it installs without `git` on the machine.**
+**Status: v0.7.39 (2026-11-19), live against mainnet-beta — no Rust toolchain needed: `npm install reeflog-client`, then `import { bootstrap } from 'reeflog-client'; await bootstrap()` (downloads the prebuilt release archive and verifies its sha256 against what the GitHub release API publishes). The client itself is zero-dependency: one package, no `node_modules` of its own, and it installs without `git` on the machine.**
 
 The same client from the tagged release:
-`npm install github:auroraxo/reeflog#v0.7.38`. Or from source:
-`cargo install --git https://github.com/auroraxo/reeflog --tag v0.7.38`.
+`npm install github:auroraxo/reeflog#v0.7.39`. Or from source:
+`cargo install --git https://github.com/auroraxo/reeflog --tag v0.7.39`.
 
 **Honest state:** it works, and it is measured — but so far every real
 consumer belongs to the project itself. There is no unaffiliated third-party
@@ -167,6 +167,7 @@ detail and every raw number in
 | Webhook redirect | the poster followed HTTP redirects: a redirecting endpoint recorded every event as delivered (attempt status = the hop's own 200) while the configured consumer received ZERO event bodies and a bodyless GET carried the signature header to a host the config never named — the cursor advanced past the event, so it could never be re-delivered; measured on the published v0.7.35 asset, fixed in v0.7.36 |
 | Two-queue reason | the two delivery queues kept ONE standing reason: a blocked event queue written after a blocked retraction queue OVERWROTE it, so `webhook status` showed the retraction's 404 where the event queue's repair (`hydrate`) belonged — the report a monitoring caller polls named the wrong queue's repair; measured on the published v0.7.36 asset, fixed in v0.7.37 |
 | Zero cadence | the four cadence flags (`--seal-every`/`--reorg-every`/`--repair-every`/`--webhook-every`) turned a documented 0 into ONE SECOND: every pass ran at 1 Hz while the SAME run's shutdown gates read the same zero as "never" — and `--webhook-every 0` delivered signed bodies at 1 Hz; measured on the published v0.7.37 asset, fixed in v0.7.38 |
+| Retraction refusal voice | the retraction queue formatted the refusal reason by hand instead of consulting the one mint: with an endpoint answering 302, the event queue said `refused with http 302 redirect — … repoint this target's url explicitly …` while the RETRACTION queue's four surfaces (the attempt record, the report's `reorg_error`, `webhook status`, the blocked line) all read the flat `refused with http 302` — the queue whose lateness costs money read a bare status with no repair; measured on the published v0.7.38 asset, fixed in v0.7.39 |
 | Field use | the same cursor rule answered an open question in someone else's product: a LaserStream SDK issue asked whether reconnect `from_slot` can skip undelivered data — measured with a runnable mock (`379a6ba`, three variants + control): ticks at live head advance the SDK's resume cursor past payloads still being replayed, whatever their commitment status ([laserstream-sdk#115](https://github.com/helius-labs/laserstream-sdk/issues/115#issuecomment-7016745189), harness [auroraxo/laserstream-cursor-measure](https://github.com/auroraxo/laserstream-cursor-measure)) — the skip becomes a visible, backfillable gap row here (2026-11-19) |
 
 ## Conditions and limits — the honest part
@@ -380,6 +381,20 @@ detail and every raw number in
   ([5 defect faces](research/scheduler-zero-cadence-2026-11-19.json),
   verdict `scheduler-zero-cadence-busy`) and re-measured on this tree
   (held, 0 defect faces).
+- **The retraction queue speaks the same refusal mint (v0.7.39).** The
+  v0.7.36 rule made one mint the refusal voice (a 3xx names the redirect
+  and the explicit repoint repair), but `deliver_reorgs` still formatted
+  the reason by hand: with an endpoint answering 302, the event queue
+  named the redirect and the repair while the RETRACTION queue's attempt
+  record, report row, polled status and blocked line all read the flat
+  `refused with http 302` — the one message whose lateness costs money
+  read a bare status with no repair. The retraction queue now calls the
+  same mint; a 4xx keeps the flat wording it always had, the
+  classification does not move (blocked with its owed id, exit 3, the
+  redirect never followed). Measured on the published v0.7.38 asset
+  ([4 defect faces](research/reorg-refusal-voice-2026-11-19.json),
+  verdict `reorg-refusal-voice-borrowed-flat-wording`) and re-measured on
+  this tree (held, 0 defect faces).
 - **The client is zero-dependency since v0.7.25.** Until then the npm
   manifest named *itself* as a dependency on github:, so every
   `npm install reeflog-client` also cloned a second, older copy of the

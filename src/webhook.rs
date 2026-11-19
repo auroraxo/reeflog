@@ -817,7 +817,16 @@ pub fn deliver_reorgs(
             }
             other => {
                 let (status, err) = match &other {
-                    Attempt::Refused(s) => (Some(*s as i64), Some(format!("refused with http {s}"))),
+                    // Same mint as the event queue (`refusal_reason`): a 3xx
+                    // on THIS queue must name the redirect and its repair
+                    // too. A retraction is the one message whose lateness
+                    // costs money, and its operator reads the same wording
+                    // the event channel's operator reads — borrowing the
+                    // flat 4xx wording here left the recorded attempt, the
+                    // report's `reorg_error` and the blocked line naming
+                    // neither the mechanism nor the repair for exactly the
+                    // queue that can cost money.
+                    Attempt::Refused(s) => (Some(*s as i64), Some(refusal_reason(*s))),
                     Attempt::Transient(e) => (None, Some(e.clone())),
                     Attempt::Delivered(_) => unreachable!(),
                 };

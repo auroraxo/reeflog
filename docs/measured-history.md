@@ -2340,6 +2340,48 @@ v0.7.37 **5 defect faces**, fixed tree **0**. Artifact pinned by
 `scheduler_zero_cadence_measurement.rs` (4 tests, host paths excluded).
 The v0.7.37 tag keeps the defect — tags are immutable.
 
+### The retraction queue speaks the same refusal mint (v0.7.39)
+
+The v0.7.36 rule ("a redirect is a refusal of THIS url") made ONE mint the
+refusal voice: `refusal_reason` — a 3xx names the redirect and the explicit
+repoint repair, so a redirect never borrows the flat "refused with http
+404" wording of a 4xx. `deliver_events` calls it. The dlq replay calls it.
+The RETRACTION queue did not: `deliver_reorgs` still formatted
+`refused with http {status}` by hand.
+
+Measured on the **published v0.7.38 asset** (the linux archive whose sha256
+equals the digest the Release API publishes; binary `0f937457…` =
+`reeflog 0.7.38`; `tools/probe-reorg-refusal-voice.mjs`, the real binaries
+against a real local sink that answers a scripted status and records every
+request; `research/reorg-refusal-voice-2026-11-19.json`, verdict
+`reorg-refusal-voice-borrowed-flat-wording`, **4 defect faces**): with an
+endpoint that answers 302, the event queue's reason read "refused with
+http 302 redirect — … repoint this target's url explicitly …" while the
+retraction queue read the flat "refused with http 302" in four surfaces at
+once — the recorded attempt, the report's `reorg_error`, `webhook status`,
+and the operator's blocked line. A retraction is the one message whose
+lateness costs money, and its operator was the one reading a bare status
+without the repair.
+
+The fix is ONE call, in the ONE place the retraction verdict is worded:
+`deliver_reorgs` consults the same mint. A 3xx on the retraction queue now
+names the redirect and the repair; a 4xx keeps the flat wording it always
+had; the classification does not move — the queue still blocks with its
+owed id and exit 3, and the redirect is still never followed.
+
+Gate: `tests/webhook_reorg_refusal_voice.rs` (7 tests: D1–D4 written RED on
+the pre-fix tree — the attempt record, the report row, the blocked line and
+the polled status — G1–G3 guards green on both trees), the mutation ladder
+`tools/mutation-ladder-reorg-refusal-voice.sh` — **7/7 caught** (the flat
+wording restored, each of the four surfaces, the mint itself dropping the
+redirect, the mint losing the repair, and the mint growing redirect wording
+for the 4xx class), tree byte-identical after restore against the
+PRE-ladder snapshot, and the two-tree instrument
+`tools/probe-reorg-refusal-voice.mjs`: baseline v0.7.38 **4 defect faces**,
+fixed tree **0**. Artifact pinned by
+`tests/webhook_reorg_refusal_voice_measurement.rs` (4 tests, host paths
+excluded). The v0.7.38 tag keeps the defect — tags are immutable.
+
 ## Repeated use
 
 ```bash

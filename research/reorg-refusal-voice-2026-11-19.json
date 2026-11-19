@@ -1,0 +1,332 @@
+{
+ "tool": "probe-reorg-refusal-voice.mjs",
+ "date": "2026-11-19",
+ "verdict": "reorg-refusal-voice-borrowed-flat-wording",
+ "baseline": {
+  "binary_version": "reeflog 0.7.38",
+  "sha256": "0f937457a21e2128318b39fa0fa120b03668b1097be639e7c0f408533d788167"
+ },
+ "fixed": {
+  "binary_version": "reeflog 0.7.38",
+  "sha256": "4d4d069931b7c023575069cdf9b212515115ea8342d2a0499dc262f7e9a1ac7a"
+ },
+ "faces": [
+  {
+   "id": "D1",
+   "question": "the retraction attempt record names the redirect mechanism",
+   "baseline": {
+    "defect": true,
+    "value": "refused with http 302"
+   },
+   "fixed": {
+    "defect": false,
+    "value": "refused with http 302 redirect — the endpoint redirected the delivery; delivery follows the url AS CONFIGURED, never the redirect: repoint this target's url explicitly if the redirect destination is the real consumer"
+   }
+  },
+  {
+   "id": "D2",
+   "question": "the report row names the redirect mechanism in reorg_error",
+   "baseline": {
+    "defect": true,
+    "value": "refused with http 302"
+   },
+   "fixed": {
+    "defect": false,
+    "value": "refused with http 302 redirect — the endpoint redirected the delivery; delivery follows the url AS CONFIGURED, never the redirect: repoint this target's url explicitly if the redirect destination is the real consumer"
+   }
+  },
+  {
+   "id": "D3",
+   "question": "the operator blocked line on stderr names the redirect mechanism",
+   "baseline": {
+    "defect": true,
+    "value": "reeflog: blocked — t1 at reorg 1: refused with http 302 — the RETRACTION is still owed, the consumer has not been told that the chain unmade it"
+   },
+   "fixed": {
+    "defect": false,
+    "value": "reeflog: blocked — t1 at reorg 1: refused with http 302 redirect — the endpoint redirected the delivery; delivery follows the url AS CONFIGURED, never the redirect: repoint this target's url explicitly if the redirect destination is the real consumer — the RETRACTION is still owed, the consumer has not been told that the chain unmade it"
+   }
+  },
+  {
+   "id": "D4",
+   "question": "the event channel reason names the redirect and is byte-identical across trees (one mint)",
+   "baseline": {
+    "defect": false,
+    "value": "refused with http 302 redirect — the endpoint redirected the delivery; delivery follows the url AS CONFIGURED, never the redirect: repoint this target's url explicitly if the redirect destination is the real consumer"
+   },
+   "fixed": {
+    "defect": false,
+    "value": "refused with http 302 redirect — the endpoint redirected the delivery; delivery follows the url AS CONFIGURED, never the redirect: repoint this target's url explicitly if the redirect destination is the real consumer"
+   },
+   "consistent": true
+  },
+  {
+   "id": "D5",
+   "question": "the polled `webhook status` surface names the redirect on the retraction queue",
+   "baseline": {
+    "defect": true,
+    "value": "refused with http 302"
+   },
+   "fixed": {
+    "defect": false,
+    "value": "refused with http 302 redirect — the endpoint redirected the delivery; delivery follows the url AS CONFIGURED, never the redirect: repoint this target's url explicitly if the redirect destination is the real consumer"
+   }
+  }
+ ],
+ "guards": [
+  {
+   "id": "G1",
+   "question": "a 200 sink still delivers the retraction (exit 0, receipt, cursor)",
+   "baseline": true,
+   "fixed": true,
+   "baseline_value": {
+    "label": "baseline-200",
+    "binary_version": "reeflog 0.7.38",
+    "exit_code": 0,
+    "report_error": null,
+    "report_reorg_error": null,
+    "report_blocked": false,
+    "report_blocked_reorg_id": null,
+    "report_reorg_delivered": 1,
+    "attempt": [
+     {
+      "status": 200,
+      "error": null
+     }
+    ],
+    "event_attempt": [
+     {
+      "status": 200,
+      "error": null
+     }
+    ],
+    "next_reorg_id": 1,
+    "reorg_receipts": 1,
+    "status_reorg_error": null,
+    "stderr_blocked_line": null,
+    "sink_post_count": 2,
+    "sink_hit_count": 2
+   },
+   "fixed_value": {
+    "label": "fixed-200",
+    "binary_version": "reeflog 0.7.38",
+    "exit_code": 0,
+    "report_error": null,
+    "report_reorg_error": null,
+    "report_blocked": false,
+    "report_blocked_reorg_id": null,
+    "report_reorg_delivered": 1,
+    "attempt": [
+     {
+      "status": 200,
+      "error": null
+     }
+    ],
+    "event_attempt": [
+     {
+      "status": 200,
+      "error": null
+     }
+    ],
+    "next_reorg_id": 1,
+    "reorg_receipts": 1,
+    "status_reorg_error": null,
+    "stderr_blocked_line": null,
+    "sink_post_count": 2,
+    "sink_hit_count": 2
+   }
+  },
+  {
+   "id": "G2",
+   "question": "a 404 refusal keeps the flat wording on the retraction channel",
+   "baseline": true,
+   "fixed": true,
+   "baseline_value": "refused with http 404",
+   "fixed_value": "refused with http 404"
+  },
+  {
+   "id": "G3",
+   "question": "the redirect refusal blocks the retraction queue with the owed id (both trees)",
+   "baseline": true,
+   "fixed": true,
+   "baseline_value": {
+    "exit": 3,
+    "blocked_reorg_id": 1
+   },
+   "fixed_value": {
+    "exit": 3,
+    "blocked_reorg_id": 1
+   }
+  }
+ ],
+ "measured": {
+  "baseline": {
+   "label": "baseline",
+   "binary_version": "reeflog 0.7.38",
+   "exit_code": 3,
+   "report_error": "refused with http 302 redirect — the endpoint redirected the delivery; delivery follows the url AS CONFIGURED, never the redirect: repoint this target's url explicitly if the redirect destination is the real consumer",
+   "report_reorg_error": "refused with http 302",
+   "report_blocked": true,
+   "report_blocked_reorg_id": 1,
+   "report_reorg_delivered": 0,
+   "attempt": [
+    {
+     "status": 302,
+     "error": "refused with http 302"
+    }
+   ],
+   "event_attempt": [
+    {
+     "status": 302,
+     "error": "refused with http 302 redirect — the endpoint redirected the delivery; delivery follows the url AS CONFIGURED, never the redirect: repoint this target's url explicitly if the redirect destination is the real consumer"
+    }
+   ],
+   "next_reorg_id": 0,
+   "reorg_receipts": 0,
+   "status_reorg_error": "refused with http 302",
+   "stderr_blocked_line": "reeflog: blocked — t1 at reorg 1: refused with http 302 — the RETRACTION is still owed, the consumer has not been told that the chain unmade it",
+   "sink_post_count": 2,
+   "sink_hit_count": 2
+  },
+  "fixed": {
+   "label": "fixed",
+   "binary_version": "reeflog 0.7.38",
+   "exit_code": 3,
+   "report_error": "refused with http 302 redirect — the endpoint redirected the delivery; delivery follows the url AS CONFIGURED, never the redirect: repoint this target's url explicitly if the redirect destination is the real consumer",
+   "report_reorg_error": "refused with http 302 redirect — the endpoint redirected the delivery; delivery follows the url AS CONFIGURED, never the redirect: repoint this target's url explicitly if the redirect destination is the real consumer",
+   "report_blocked": true,
+   "report_blocked_reorg_id": 1,
+   "report_reorg_delivered": 0,
+   "attempt": [
+    {
+     "status": 302,
+     "error": "refused with http 302 redirect — the endpoint redirected the delivery; delivery follows the url AS CONFIGURED, never the redirect: repoint this target's url explicitly if the redirect destination is the real consumer"
+    }
+   ],
+   "event_attempt": [
+    {
+     "status": 302,
+     "error": "refused with http 302 redirect — the endpoint redirected the delivery; delivery follows the url AS CONFIGURED, never the redirect: repoint this target's url explicitly if the redirect destination is the real consumer"
+    }
+   ],
+   "next_reorg_id": 0,
+   "reorg_receipts": 0,
+   "status_reorg_error": "refused with http 302 redirect — the endpoint redirected the delivery; delivery follows the url AS CONFIGURED, never the redirect: repoint this target's url explicitly if the redirect destination is the real consumer",
+   "stderr_blocked_line": "reeflog: blocked — t1 at reorg 1: refused with http 302 redirect — the endpoint redirected the delivery; delivery follows the url AS CONFIGURED, never the redirect: repoint this target's url explicitly if the redirect destination is the real consumer — the RETRACTION is still owed, the consumer has not been told that the chain unmade it",
+   "sink_post_count": 2,
+   "sink_hit_count": 2
+  },
+  "baseline404": {
+   "label": "baseline-404",
+   "binary_version": "reeflog 0.7.38",
+   "exit_code": 3,
+   "report_error": "refused with http 404",
+   "report_reorg_error": "refused with http 404",
+   "report_blocked": true,
+   "report_blocked_reorg_id": 1,
+   "report_reorg_delivered": 0,
+   "attempt": [
+    {
+     "status": 404,
+     "error": "refused with http 404"
+    }
+   ],
+   "event_attempt": [
+    {
+     "status": 404,
+     "error": "refused with http 404"
+    }
+   ],
+   "next_reorg_id": 0,
+   "reorg_receipts": 0,
+   "status_reorg_error": "refused with http 404",
+   "stderr_blocked_line": "reeflog: blocked — t1 at reorg 1: refused with http 404 — the RETRACTION is still owed, the consumer has not been told that the chain unmade it",
+   "sink_post_count": 2,
+   "sink_hit_count": 2
+  },
+  "fixed404": {
+   "label": "fixed-404",
+   "binary_version": "reeflog 0.7.38",
+   "exit_code": 3,
+   "report_error": "refused with http 404",
+   "report_reorg_error": "refused with http 404",
+   "report_blocked": true,
+   "report_blocked_reorg_id": 1,
+   "report_reorg_delivered": 0,
+   "attempt": [
+    {
+     "status": 404,
+     "error": "refused with http 404"
+    }
+   ],
+   "event_attempt": [
+    {
+     "status": 404,
+     "error": "refused with http 404"
+    }
+   ],
+   "next_reorg_id": 0,
+   "reorg_receipts": 0,
+   "status_reorg_error": "refused with http 404",
+   "stderr_blocked_line": "reeflog: blocked — t1 at reorg 1: refused with http 404 — the RETRACTION is still owed, the consumer has not been told that the chain unmade it",
+   "sink_post_count": 2,
+   "sink_hit_count": 2
+  },
+  "baseline200": {
+   "label": "baseline-200",
+   "binary_version": "reeflog 0.7.38",
+   "exit_code": 0,
+   "report_error": null,
+   "report_reorg_error": null,
+   "report_blocked": false,
+   "report_blocked_reorg_id": null,
+   "report_reorg_delivered": 1,
+   "attempt": [
+    {
+     "status": 200,
+     "error": null
+    }
+   ],
+   "event_attempt": [
+    {
+     "status": 200,
+     "error": null
+    }
+   ],
+   "next_reorg_id": 1,
+   "reorg_receipts": 1,
+   "status_reorg_error": null,
+   "stderr_blocked_line": null,
+   "sink_post_count": 2,
+   "sink_hit_count": 2
+  },
+  "fixed200": {
+   "label": "fixed-200",
+   "binary_version": "reeflog 0.7.38",
+   "exit_code": 0,
+   "report_error": null,
+   "report_reorg_error": null,
+   "report_blocked": false,
+   "report_blocked_reorg_id": null,
+   "report_reorg_delivered": 1,
+   "attempt": [
+    {
+     "status": 200,
+     "error": null
+    }
+   ],
+   "event_attempt": [
+    {
+     "status": 200,
+     "error": null
+    }
+   ],
+   "next_reorg_id": 1,
+   "reorg_receipts": 1,
+   "status_reorg_error": null,
+   "stderr_blocked_line": null,
+   "sink_post_count": 2,
+   "sink_hit_count": 2
+  }
+ }
+}
