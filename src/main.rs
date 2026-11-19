@@ -788,18 +788,53 @@ async fn run_start(args: &[String]) {
         None
     };
 
+    // ONE cadence rule for the whole scheduler (PULS AU, 2026-11-19).
+    //
+    // A cadence of 0 means OFF — never on the tick and never at the
+    // shutdown gate. It used to mean the opposite in the same run: the
+    // scheduler seeded its next-due instants as `now + max(cadence, 1)` and
+    // re-seeded them the same way, so a cadence of 0 collapsed to ONE
+    // SECOND and every periodic pass ran at 1 Hz — while the run's own
+    // shutdown gate read the very same value as "never"
+    // (`if repair_every_s > 0 { … } else { skipped }`). One flag value, two
+    // contradictory meanings, and the expensive one was the 1 Hz one: a
+    // 10 s run with all four cadences at 0 cost 17 RPC calls where the
+    // same run at a never-due cadence cost 5.
+    //
+    // The zero is legal by design everywhere else in this product's flag
+    // domain — `flags.rs` keeps 0 legal in NUMERIC precisely BECAUSE
+    // "several flags document it as 'disable this pass'", and
+    // `--payload-limit 0` / `--repair-pages 0` are the documented
+    // spellings of "off" in this very command. The scheduler was the one
+    // layer that re-read a documented zero into a busy schedule.
+    //
+    // ONE helper, so the four schedules and the two shutdown gates cannot
+    // drift apart again: a cadence is either 0 (never) or a positive
+    // number of seconds (the next due instant is that many seconds away).
+    // The next due instant of a schedule: `None` means the schedule is OFF
+    // and must never fire. A positive cadence keeps its old meaning (and
+    // the old `max(1)` floor), so a value of 1 is still the tightest
+    // schedule an operator can ask for.
+    let next_due = |cadence: u64| -> Option<Instant> {
+        if cadence == 0 {
+            None
+        } else {
+            Some(Instant::now() + Duration::from_secs(cadence.max(1)))
+        }
+    };
+
     // The periodic hole-repair scheduler. `repair_every_s` must be well under
     // `repair_lookback` in chain-progress terms, or a hole can age out of the
     // rolling window between two passes and never be filled: at ~10 slots/s
     // a 3600-slot window gives a hole ~6 minutes of life and passes run every
     // 30s, so each hole gets ~12 chances.
-    let mut next_repair = Instant::now() + Duration::from_secs(repair_every_s.max(1));
-    let mut next_webhook = Instant::now() + Duration::from_secs(webhook_every_s.max(1));
+    let mut next_repair = next_due(repair_every_s);
+    let mut next_webhook = next_due(webhook_every_s);
     // One bounded webhook pass over all targets. Each target has its own
     // cursor, so one target being blocked does not hold the others back.
     macro_rules! webhook_tick_now {
         () => {{
-            next_webhook = Instant::now() + Duration::from_secs(webhook_every_s.max(1));
+            next_webhook = next_due(webhook_every_s);
             if let Some(targets) = &webhook_cfg {
                 webhook_passes += 1;
                 for t in targets {
@@ -873,7 +908,7 @@ async fn run_start(args: &[String]) {
     // Kept as a closure-free block so the journal is never borrowed twice.
     macro_rules! repair_tick {
         () => {{
-            next_repair = Instant::now() + Duration::from_secs(repair_every_s.max(1));
+            next_repair = next_due(repair_every_s);
             let since = j.max_slot().unwrap_or(None).map(|s| s - repair_lookback);
             let summary = repair_pass(&j, &rpc_url, &program, repair_pages, since);
             stats.repair_passes += 1;
@@ -887,11 +922,11 @@ async fn run_start(args: &[String]) {
     // The seal + reorg scheduler. Sealing first, then checking: a reorg check
     // over unsealed rows would prove nothing, because an unsealed row was
     // never promised as final.
-    let mut next_seal = Instant::now() + Duration::from_secs(seal_every_s.max(1));
-    let mut next_reorg = Instant::now() + Duration::from_secs(reorg_every_s.max(1));
+    let mut next_seal = next_due(seal_every_s);
+    let mut next_reorg = next_due(reorg_every_s);
     macro_rules! seal_tick_now {
         () => {{
-            next_seal = Instant::now() + Duration::from_secs(seal_every_s.max(1));
+            next_seal = next_due(seal_every_s);
             let promoted = seal_tick(&j, &rpc_url);
             stats.seal_passes += 1;
             for k in ["finalized", "confirmed", "error", "missing"] {
@@ -901,7 +936,7 @@ async fn run_start(args: &[String]) {
     }
     macro_rules! reorg_tick_now {
         () => {{
-            next_reorg = Instant::now() + Duration::from_secs(reorg_every_s.max(1));
+            next_reorg = next_due(reorg_every_s);
             let report = reorg_tick(&j, &rpc_url, reorg_limit, reorg_lookback);
             stats.reorg_passes += 1;
             stats.reorg_considered += report["considered"].as_i64().unwrap_or(0);
@@ -1066,16 +1101,16 @@ async fn run_start(args: &[String]) {
             // when the stream is quiet: a hole dropped by the socket looks
             // exactly like a healthy connection with nothing to say.
             let frame = tokio::time::timeout(Duration::from_secs(5), ws.next()).await;
-            if Instant::now() >= next_repair {
+            if next_repair.is_some_and(|due| Instant::now() >= due) {
                 repair_tick!();
             }
-            if Instant::now() >= next_seal {
+            if next_seal.is_some_and(|due| Instant::now() >= due) {
                 seal_tick_now!();
             }
-            if Instant::now() >= next_reorg {
+            if next_reorg.is_some_and(|due| Instant::now() >= due) {
                 reorg_tick_now!();
             }
-            if Instant::now() >= next_webhook {
+            if next_webhook.is_some_and(|due| Instant::now() >= due) {
                 webhook_tick_now!();
             }
             if Instant::now() >= deadline {

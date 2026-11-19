@@ -2283,6 +2283,63 @@ faces**, fixed tree **0**. Artifact pinned by
 `tests/status_two_queue_reason_measurement.rs` (4 tests, host paths
 excluded). The v0.7.36 tag keeps the defect — tags are immutable.
 
+### A zero cadence means OFF, not "every second" (v0.7.38)
+
+`reeflog start` takes four cadence flags — `--seal-every` (default 15 s),
+`--reorg-every` (60 s), `--repair-every` (30 s) and `--webhook-every`
+(5 s) — and the scheduler seeded its next-due instants as
+`now + Duration::from_secs(cadence.max(1))`, re-seeding the same way after
+every pass. A cadence of **0** therefore collapsed to **one second**: the
+pass ran at 1 Hz instead of never. The same run's shutdown gate read the
+very same value as "never" (`if repair_every_s > 0 { … } else { skipped }`),
+so **one flag value carried two contradictory meanings inside one run** —
+and the expensive meaning was the 1 Hz one.
+
+The zero is legal by design everywhere else in this product's flag domain:
+`flags.rs` keeps 0 legal in NUMERIC precisely BECAUSE "several flags
+document it as 'disable this pass'", and `--payload-limit 0` /
+`--repair-pages 0` are the documented spellings of "off" in this very
+command. The scheduler was the one layer that re-read a documented zero
+into a busy schedule — and its own shutdown pass refused to follow.
+
+Measured on the **published v0.7.37 asset** (the linux archive whose
+sha256 equals the digest the Release API publishes; binary `ddba9506…` =
+`reeflog 0.7.37`; `tools/measure-scheduler-zero-cadence.mjs`, the real
+binaries against a real local chain sink that counts every RPC call the
+daemon makes and every webhook body it delivers;
+`research/scheduler-zero-cadence-2026-11-19.json`, verdict
+`scheduler-zero-cadence-busy`, **5 defect faces**):
+
+* `--seal-every 0` scheduled a seal pass every second (the summary's
+  `seal_passes` counter counted it);
+* `--reorg-every 0` scheduled a reorg pass every second while the SAME
+  run's `final_reorg` claimed `{"skipped": true}`;
+* `--repair-every 0` scheduled a repair pass every second while
+  `final_repair` claimed `{"skipped": true}`;
+* `--webhook-every 0` with a configured target **delivered** signed bodies
+  at 1 Hz — the one face where the defect left the machine;
+* with all four at 0, one summary document showed both meanings at once:
+  schedules ran, gates said never.
+
+The fix is ONE rule, in ONE place: a cadence of 0 means the schedule is
+OFF (`None` as its next-due instant), never on a tick and never at a
+shutdown gate. A positive cadence keeps its old meaning — including the old
+`max(1)` floor, so 1 s remains the tightest schedule an operator can ask
+for.
+
+Gate: `tests/scheduler_zero_cadence.rs` (8 tests: D1–D5 written RED on the
+pre-fix tree — the seal, reorg, repair and webhook schedules firing at a
+cadence of 0, and the two-meanings summary — G1–G3 guards green on both
+trees), the mutation ladder `tools/mutation-ladder-scheduler-zero-cadence.sh`
+— **6/6 caught** (the `max(1)` collapse restored, both shutdown gates
+re-enabled at a zero, the webhook schedule still firing, the summary
+counting passes that never ran, and the schedules silenced for everyone),
+tree byte-identical after restore against the PRE-ladder snapshot, and the
+two-tree instrument `tools/measure-scheduler-zero-cadence.mjs`: baseline
+v0.7.37 **5 defect faces**, fixed tree **0**. Artifact pinned by
+`scheduler_zero_cadence_measurement.rs` (4 tests, host paths excluded).
+The v0.7.37 tag keeps the defect — tags are immutable.
+
 ## Repeated use
 
 ```bash
