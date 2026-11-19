@@ -2171,6 +2171,65 @@ against the tree the fix was written on records 6 open rows after one
 episode and `gaps_open: 7` after the second — the accumulation is in the
 tree, not in one published build.
 
+### A redirect is a refusal of THIS url, not a delivery (v0.7.36)
+
+The webhook pusher's contract is the one every delivery surface shares:
+a verdict names the **configured** url, and the signature header is a
+promise about ONE body. The HTTP client never learned the second half of
+that rule. It followed redirects with its library defaults — up to 10
+hops, custom headers preserved, 301/302/303 turning a POST into a GET
+with no body — so an endpoint that answered `3xx` produced this, measured
+live against the **v0.7.35 release binary** (sha256 `df2ea627…`, the bytes
+a stranger installs):
+
+* the configured endpoint received exactly one POST — its own refusal —
+  and then the **redirect target's host received a bodyless GET still
+  carrying the signature header** (research/webhook-redirect-two-tree-2026-11-19.json,
+  verdict `webhook-redirect-followed-and-recorded-delivered`, 5 defect faces);
+* the journal recorded the event as **delivered** — the attempt status 200
+  belonged to the hop, not to any endpoint the config named;
+* the cursor advanced past the seq, so the event could **never be
+  re-delivered**, and the exit code was 0.
+
+Three contracts broke at once: at-least-once to the configured sink (the
+cursor consumed the event on a verdict from a host the config never
+named); the signature-as-promise (a hop that drops the body invites the
+receiver to verify bytes that are not there); and the report's truthfulness
+(it described a delivery to the configured url that never happened there).
+
+The fix lives in ONE place — `HttpPoster`, which every CLI surface goes
+through (`webhook push`, `webhook dlq replay`, the daemon's payload
+worker): `max_redirects(0)`, and the classifier owns the rule that a 3xx
+is a **REFUSED verdict about this url**. The attempt records the
+endpoint's own 3xx status; the refusal reason comes from one mint
+(`refusal_reason`) naming the mechanism and the repair (repoint the
+target's url explicitly) instead of borrowing the flat 4xx wording; the
+target's queue holds the exit code (3); and the hop receives nothing —
+not even a bodyless signed request.
+
+Gate: `tests/webhook_redirect_domain.rs` (8 tests: D1–D4 written RED on
+the pre-fix tree — D1 one POST at the configured endpoint, D2 nothing at
+the hop, D3 the refusal carries the 3xx status, D4 the queued exit code —
+G1–G4 guards green on both trees), the mutation ladder
+`tools/mutation-ladder-webhook-redirect.sh` — **5/5 caught** (redirect
+allowed again, the hop's status recorded as the delivery, the cursor
+advanced on a 3xx, the refusal reason borrowed from the 4xx mint, 3xx
+classified as Delivered — the pre-fix report lie), tree byte-identical
+after restore, and the two-tree instrument
+`tools/measure-webhook-redirect.mjs`: baseline v0.7.35 **5 defect faces**,
+fixed tree **0**.
+
+The published v0.7.36 asset was measured with the same probe
+(archive sha256 `560fba19…` == what the Release API publishes, binary
+`12433146…` = `reeflog 0.7.36`;
+`research/webhook-redirect-published-v0736-2026-11-19.json`, verdict
+`webhook-redirect-refused-at-the-configured-endpoint`, **0 defect faces**):
+the configured endpoint receives exactly one request, the hop receives
+none, the refusal names the redirect and the repair, the cursor holds,
+and the exit code is 3. Artifacts pinned by
+`tests/webhook_redirect_measurement.rs` (7 tests, host paths excluded).
+The v0.7.35 tag keeps the defect — tags are immutable.
+
 ## Repeated use
 
 ```bash
