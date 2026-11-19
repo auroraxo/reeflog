@@ -1,0 +1,57 @@
+{
+ "commitment": "confirmed",
+ "compliant_server_mode": true,
+ "connection1_delivered_slots": [],
+ "defect_present": false,
+ "delivered_account_slots_by_conn": [],
+ "delivered_footer_slots_by_conn": [
+  [
+   0,
+   90
+  ],
+  [
+   0,
+   91
+  ],
+  [
+   0,
+   122
+  ],
+  [
+   1,
+   90
+  ],
+  [
+   1,
+   91
+  ],
+  [
+   1,
+   122
+  ],
+  [
+   2,
+   90
+  ],
+  [
+   2,
+   91
+  ],
+  [
+   2,
+   122
+  ]
+ ],
+ "expected_resume_slot": 92,
+ "footer_only_consumer": true,
+ "issue": "helius-labs/laserstream-sdk#115",
+ "mock_ignores_from_slot": true,
+ "payloads_delivered_after_reconnect": 0,
+ "reconnect_from_slot": null,
+ "script": "footer@90, footer@91, footer@122 (live head), stream end -> reconnect",
+ "sdk_source": "helius-laserstream 2.0.0 from crates.io (its client.rs cursor logic is byte-identical to main 379a6ba: tracked_slot = s.slot on any slot update, payload slots never advance the cursor)",
+ "server_behavior": "the mock replays its fixed script regardless of from_slot; reconnect_from_slot is the measurement",
+ "skipped_range_size": 30,
+ "slots_a_compliant_server_would_never_redeliver": [],
+ "variant": "E: FOOTER-ONLY subscription (footers 90, 91, live-head 122; no account payloads) \u2014 the live-head footer alone in the cursor"
+}

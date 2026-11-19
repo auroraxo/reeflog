@@ -1,0 +1,380 @@
+{
+ "schema": "laserstream-115-pr114-two-rule-matrix/1",
+ "date": "2026-11-19",
+ "question": "Does the cursor rule PR #114 proposes (replay_cursor_slot) fix the faces issue #115 reports, when the SERVER is compliant (reconnect serves from the requested from_slot inclusively)?",
+ "sdk_sources": {
+  "main_rule": "helius-laserstream 2.0.0 (crates.io), client.rs cursor logic byte-identical to laserstream-sdk main 379a6ba",
+  "pr114_rule": "2.0.0 + PR #114 diff (helius-labs/laserstream-sdk#114, branch bert/replay-cursor-from-delivered-update, head 708edd3) applied to src/client.rs; hunks 2-4 applied verbatim, import hunk applied by hand (identical content)"
+ },
+ "harness": "github.com/auroraxo/laserstream-cursor-measure (mock geyser, no network, no keys; compliant mode honors from_slot inclusively)",
+ "last_delivered_payload": 91,
+ "live_head_slot": 122,
+ "faces": [
+  {
+   "id": "A",
+   "shape": "user slot filter WITHOUT filter_by_commitment, PROCESSED tick @122 (#115 case 1)",
+   "main": "loss 92..121",
+   "pr114": "loss 92..121 (NOT fixed)"
+  },
+  {
+   "id": "B",
+   "shape": "user slot filter WITH filter_by_commitment, CONFIRMED tick @122 (#115 case 2)",
+   "main": "loss 92..121",
+   "pr114": "loss 92..121 (NOT fixed)"
+  },
+  {
+   "id": "C",
+   "shape": "tick tagged only with the SDK internal slot filter (what PR #114 addresses)",
+   "main": "loss 92..121",
+   "pr114": "fixed: from=91, one duplicate"
+  },
+  {
+   "id": "D",
+   "shape": "BLOCK FOOTER @122 on a user filter (main advances the cursor from it)",
+   "main": "loss 92..121",
+   "pr114": "fixed as a side effect (BlockFooter omitted from the rule)"
+  },
+  {
+   "id": "E",
+   "shape": "footer-only subscription (no slot updates at all)",
+   "main": "loss 90..121 (cursor rides live-head footer)",
+   "pr114": "zero loss BUT cursor never advances: every reconnect replays from first_available (permanent duplicates)"
+  },
+  {
+   "id": "control",
+   "shape": "payload-only stream",
+   "main": "ok: from=None, duplicates 90,91",
+   "pr114": "ok: from=91, duplicate 91"
+  }
+ ],
+ "key_findings": [
+  "PR #114 fixes the face its branch name/tests target (internal-only tick, C) and \u2014 as a side effect \u2014 the block-footer advance (D).",
+  "PR #114 does NOT fix the faces issue #115 is about: a USER slot update at live head (A without filter_by_commitment, B WITH filter_by_commitment \u2014 the documented correct usage) still advances the replay cursor to 122, and a compliant server then resumes at 122: slots 92..121 are never delivered. The rule is 'any non-internal-filter update advances', not 'only delivered payloads advance'.",
+  "PR #114's own tests cover exactly two cases (internal slot update ignored, delivered Block advances). The user-slot-tick face is untested in the PR.",
+  "New face on MAIN (not in #115): a BLOCK FOOTER at live head advances the cursor (footer_resume_slot), so a footer arriving ahead of payload replay also skips 92..121.",
+  "New face E: footer-only consumers lose their whole delivered range on MAIN; under PR #114 they keep at-least-once but the cursor never advances, so every reconnect replays from the server's first available slot."
+ ],
+ "honest_limits": [
+  "Mock geyser, Rust SDK only; frequency on real LaserStream infrastructure not measured.",
+  "PR #114 applied to the 2.0.0 crate, not a live checkout of the PR branch; the diff is the PR's own rust/src/client.rs change (hunks 2-4 verbatim).",
+  "defect_present in each cell means cursor jumped past slot 91; the compliant-server delivered-slot lists are the user-zero evidence.",
+  "The E duplicate verdict assumes a server that replays from first_available on from_slot=None \u2014 the retention window determines duplicate volume, not correctness."
+ ],
+ "matrix": [
+  {
+   "rule": "main",
+   "script": "variant-d",
+   "variant_label": "D: BLOCK FOOTER at 122 on a user filter (the non-slot update that advances the cursor on main; PR #114's replay_cursor_slot omits BlockFooter)",
+   "script_text": "payload@90, payload@91, BLOCK FOOTER@122 (user filter 'footers'), stream end -> reconnect",
+   "reconnect_from_slot": 122,
+   "cursor_jumped_past_last_delivered": true,
+   "conn1_accounts": [
+    90,
+    91
+   ],
+   "conn1_footers": [
+    122
+   ],
+   "conn2plus_accounts_served": [],
+   "conn2plus_footers_served": [],
+   "verdict": "loss-30-slots",
+   "explanation": "BLOCK FOOTER at live head advances the cursor to 122 (main's footer_resume_slot)"
+  },
+  {
+   "rule": "main",
+   "script": "variant-e",
+   "variant_label": "E: FOOTER-ONLY subscription (footers 90, 91, live-head 122; no account payloads) \u2014 the live-head footer alone in the cursor",
+   "script_text": "footer@90, footer@91, footer@122 (live head), stream end -> reconnect",
+   "reconnect_from_slot": 122,
+   "cursor_jumped_past_last_delivered": true,
+   "conn1_accounts": [],
+   "conn1_footers": [
+    90,
+    91,
+    122
+   ],
+   "conn2plus_accounts_served": [],
+   "conn2plus_footers_served": [
+    122
+   ],
+   "verdict": "loss-32-slots",
+   "explanation": "footer-only consumer: cursor rides the live-head footer 122; 90..121 lost"
+  },
+  {
+   "rule": "main",
+   "script": "variant-c",
+   "variant_label": "C: slot tick tagged ONLY with the SDK internal slot filter (the face PR #114 addresses)",
+   "script_text": "payload@90, payload@91, stream end -> reconnect",
+   "reconnect_from_slot": 122,
+   "cursor_jumped_past_last_delivered": true,
+   "conn1_accounts": [
+    90,
+    91
+   ],
+   "conn1_footers": [],
+   "conn2plus_accounts_served": [],
+   "conn2plus_footers_served": [],
+   "verdict": "loss-30-slots",
+   "explanation": "internal-only tick advances the cursor to 122"
+  },
+  {
+   "rule": "main",
+   "script": "variant-a",
+   "variant_label": "A: user slot filter without filter_by_commitment, tick status PROCESSED (issue #115 case 1)",
+   "script_text": "payload@90, payload@91, PROCESSED slot tick @122 (user filter), stream end -> reconnect",
+   "reconnect_from_slot": 122,
+   "cursor_jumped_past_last_delivered": true,
+   "conn1_accounts": [
+    90,
+    91
+   ],
+   "conn1_footers": [],
+   "conn2plus_accounts_served": [],
+   "conn2plus_footers_served": [],
+   "verdict": "loss-30-slots",
+   "explanation": "cursor at 122; compliant server resumes at 122; 92..121 never delivered"
+  },
+  {
+   "rule": "main",
+   "script": "variant-b",
+   "variant_label": "B: user slot filter with filter_by_commitment, tick status CONFIRMED == request commitment (issue #115 case 2)",
+   "script_text": "payload@90, payload@91, CONFIRMED slot tick @122 (status == request commitment), stream end -> reconnect",
+   "reconnect_from_slot": 122,
+   "cursor_jumped_past_last_delivered": true,
+   "conn1_accounts": [
+    90,
+    91
+   ],
+   "conn1_footers": [],
+   "conn2plus_accounts_served": [],
+   "conn2plus_footers_served": [],
+   "verdict": "loss-30-slots",
+   "explanation": "same as A with the DOCUMENTED filter_by_commitment usage"
+  },
+  {
+   "rule": "main",
+   "script": "control",
+   "variant_label": "CONTROL: no slot update delivered at all (payload-only stream)",
+   "script_text": "payload@90, payload@91, stream end -> reconnect",
+   "reconnect_from_slot": null,
+   "cursor_jumped_past_last_delivered": false,
+   "conn1_accounts": [
+    90,
+    91
+   ],
+   "conn1_footers": [],
+   "conn2plus_accounts_served": [
+    90,
+    91
+   ],
+   "conn2plus_footers_served": [],
+   "verdict": "no-cursor-jump",
+   "explanation": "payload-only reconnects with from_slot=None: duplicates only (90,91 re-served), zero loss"
+  },
+  {
+   "rule": "pr114",
+   "script": "variant-d",
+   "variant_label": "D: BLOCK FOOTER at 122 on a user filter (the non-slot update that advances the cursor on main; PR #114's replay_cursor_slot omits BlockFooter)",
+   "script_text": "payload@90, payload@91, BLOCK FOOTER@122 (user filter 'footers'), stream end -> reconnect",
+   "reconnect_from_slot": 91,
+   "cursor_jumped_past_last_delivered": false,
+   "conn1_accounts": [
+    90,
+    91
+   ],
+   "conn1_footers": [
+    122
+   ],
+   "conn2plus_accounts_served": [
+    91,
+    92,
+    93,
+    94,
+    95,
+    96,
+    97,
+    98,
+    99,
+    100,
+    101,
+    102,
+    103,
+    104,
+    105,
+    106,
+    107,
+    108,
+    109,
+    110,
+    111,
+    112,
+    113,
+    114,
+    115,
+    116,
+    117,
+    118,
+    119,
+    120,
+    121
+   ],
+   "conn2plus_footers_served": [],
+   "verdict": "ok-duplicate-1",
+   "explanation": "fixed as a side effect: BlockFooter omitted from replay_cursor_slot; from=91"
+  },
+  {
+   "rule": "pr114",
+   "script": "variant-c",
+   "variant_label": "C: slot tick tagged ONLY with the SDK internal slot filter (the face PR #114 addresses)",
+   "script_text": "payload@90, payload@91, stream end -> reconnect",
+   "reconnect_from_slot": 91,
+   "cursor_jumped_past_last_delivered": false,
+   "conn1_accounts": [
+    90,
+    91
+   ],
+   "conn1_footers": [],
+   "conn2plus_accounts_served": [
+    91,
+    92,
+    93,
+    94,
+    95,
+    96,
+    97,
+    98,
+    99,
+    100,
+    101,
+    102,
+    103,
+    104,
+    105,
+    106,
+    107,
+    108,
+    109,
+    110,
+    111,
+    112,
+    113,
+    114,
+    115,
+    116,
+    117,
+    118,
+    119,
+    120,
+    121
+   ],
+   "conn2plus_footers_served": [],
+   "verdict": "ok-duplicate-1",
+   "explanation": "PR #114's own claim, verified: internal-only tick ignored; from=91"
+  },
+  {
+   "rule": "pr114",
+   "script": "variant-b",
+   "variant_label": "B: user slot filter with filter_by_commitment, tick status CONFIRMED == request commitment (issue #115 case 2)",
+   "script_text": "payload@90, payload@91, CONFIRMED slot tick @122 (status == request commitment), stream end -> reconnect",
+   "reconnect_from_slot": 122,
+   "cursor_jumped_past_last_delivered": true,
+   "conn1_accounts": [
+    90,
+    91
+   ],
+   "conn1_footers": [],
+   "conn2plus_accounts_served": [],
+   "conn2plus_footers_served": [],
+   "verdict": "loss-30-slots",
+   "explanation": "user slot tick with filter_by_commitment STILL advances the cursor \u2014 the #115 case-2 face survives the fix"
+  },
+  {
+   "rule": "pr114",
+   "script": "variant-a",
+   "variant_label": "A: user slot filter without filter_by_commitment, tick status PROCESSED (issue #115 case 1)",
+   "script_text": "payload@90, payload@91, PROCESSED slot tick @122 (user filter), stream end -> reconnect",
+   "reconnect_from_slot": 122,
+   "cursor_jumped_past_last_delivered": true,
+   "conn1_accounts": [
+    90,
+    91
+   ],
+   "conn1_footers": [],
+   "conn2plus_accounts_served": [],
+   "conn2plus_footers_served": [],
+   "verdict": "loss-30-slots",
+   "explanation": "USER slot tick still advances the cursor under PR #114's rule (non-internal filters advance) \u2014 the #115 case-1 face survives the fix"
+  },
+  {
+   "rule": "pr114",
+   "script": "variant-e",
+   "variant_label": "E: FOOTER-ONLY subscription (footers 90, 91, live-head 122; no account payloads) \u2014 the live-head footer alone in the cursor",
+   "script_text": "footer@90, footer@91, footer@122 (live head), stream end -> reconnect",
+   "reconnect_from_slot": null,
+   "cursor_jumped_past_last_delivered": false,
+   "conn1_accounts": [],
+   "conn1_footers": [
+    90,
+    91,
+    122
+   ],
+   "conn2plus_accounts_served": [],
+   "conn2plus_footers_served": [
+    90,
+    91,
+    122
+   ],
+   "verdict": "duplicates-forever",
+   "explanation": "cursor never advances (footer-only, no slot updates): tracked_slot stays 0, from_slot=None on every reconnect; server replays from first_available \u2014 zero loss, permanent duplicates"
+  },
+  {
+   "rule": "pr114",
+   "script": "control",
+   "variant_label": "CONTROL: no slot update delivered at all (payload-only stream)",
+   "script_text": "payload@90, payload@91, stream end -> reconnect",
+   "reconnect_from_slot": 91,
+   "cursor_jumped_past_last_delivered": false,
+   "conn1_accounts": [
+    90,
+    91
+   ],
+   "conn1_footers": [],
+   "conn2plus_accounts_served": [
+    91,
+    92,
+    93,
+    94,
+    95,
+    96,
+    97,
+    98,
+    99,
+    100,
+    101,
+    102,
+    103,
+    104,
+    105,
+    106,
+    107,
+    108,
+    109,
+    110,
+    111,
+    112,
+    113,
+    114,
+    115,
+    116,
+    117,
+    118,
+    119,
+    120,
+    121
+   ],
+   "conn2plus_footers_served": [],
+   "verdict": "ok-duplicate-1",
+   "explanation": "from=91: payload slots now advance the cursor; one duplicate (91), zero loss"
+  }
+ ]
+}
