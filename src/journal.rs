@@ -1429,18 +1429,44 @@ impl Journal {
     }
 
     /// Forget a target's standing error at the START of its next delivery
-    /// pass. `last_error` is the reason the PREVIOUS pass stopped — carrying
-    /// it forward after a pass that no longer fails reports a target as
-    /// stuck when it is not (measured on the published v0.7.23 binary:
-    /// pass 1 refused (`http 500`), pass 2 delivered everything and exited 0,
-    /// and `webhook status` still said `http 500` — a monitoring caller
-    /// alarms forever on a failure that ended). The field is re-set by any
-    /// block in THIS pass, so a failure that stands is reported on every
-    /// pass it still happens; only a pass that gets through leaves it null.
-    pub fn webhook_clear_error(&self, target: &str) -> Result<(), String> {
+    /// pass — PER CHANNEL. `last_error` is the reason the PREVIOUS pass's
+    /// EVENT phase stopped, `last_reorg_error` the reason its RETRACTION
+    /// phase stopped. Carrying a verdict forward after a pass that no
+    /// longer fails reports a target as stuck when it is not (measured on
+    /// the published v0.7.23 binary: pass 1 refused (`http 500`), pass 2
+    /// delivered everything and exited 0, and `webhook status` still said
+    /// `http 500` — a monitoring caller alarms forever on a failure that
+    /// ended). The field is re-set by any block in THIS pass, so a failure
+    /// that stands is reported on every pass it still happens; only a pass
+    /// that gets through leaves it null.
+    ///
+    /// One clear per channel (PULS AW, 2026-11-19): the shared statement
+    /// that nulled BOTH columns erased a verdict a phase had not reached —
+    /// `push --limit 0`, the pass documented as sending zero bytes, wiped
+    /// the retraction verdict while the retraction phase examined no row,
+    /// and `webhook status` reported the held queue as healthy with exit 0
+    /// (`reorg-verdict-erased-by-idle-pass`, 5/6 faces red on the pre-fix
+    /// tree). A channel's verdict is a fact about THAT channel's most
+    /// recent phase: the event phase clears only `last_error`, the
+    /// retraction phase only `last_reorg_error`, and a phase that examines
+    /// no row leaves the verdict it finds standing.
+    pub fn webhook_clear_event_error(&self, target: &str) -> Result<(), String> {
         self.db
             .execute(
-                "UPDATE webhook_state SET last_error = NULL, last_reorg_error = NULL WHERE target = ?1",
+                "UPDATE webhook_state SET last_error = NULL WHERE target = ?1",
+                params![target],
+            )
+            .map_err(|e| e.to_string())?;
+        Ok(())
+    }
+
+    /// The RETRACTION channel's own clear — the mirror of
+    /// `webhook_clear_event_error`: the retraction phase forgets the
+    /// previous retraction verdict at its start, never the event channel's.
+    pub fn webhook_clear_reorg_error(&self, target: &str) -> Result<(), String> {
+        self.db
+            .execute(
+                "UPDATE webhook_state SET last_reorg_error = NULL WHERE target = ?1",
                 params![target],
             )
             .map_err(|e| e.to_string())?;

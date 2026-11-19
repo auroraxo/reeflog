@@ -107,17 +107,20 @@ with open(path, "w") as f:
 mutate "the event channel keeps the previous pass's error" \
     "a_recovered_target_stops_reporting_the_old_failure" \
     "src/webhook.rs" \
-    "    j.webhook_clear_error(&target.id)?;
-    let (next_seq, next_reorg_id) = j.webhook_state(&target.id)?.unwrap_or((0, 0));" \
-    "    let (next_seq, next_reorg_id) = j.webhook_state(&target.id)?.unwrap_or((0, 0));"
+    "    if limit > 0 {
+        // The queue was read: this phase's pass may now judge its own
+        // channel (and only its channel) — see the two rules above.
+        j.webhook_clear_event_error(&target.id)?;
+    }" \
+    "    let _ = &target.id;"
 
 # M2 — a pass that got through now reports a FAKE failure: the clear also
 #     writes a verdict, so a clean pass lies about being stuck.
 mutate "a clean pass invents a failure" \
     "a_clean_target_reports_no_error" \
     "src/webhook.rs" \
-    "    j.webhook_clear_error(&target.id)?;" \
-    "    j.webhook_set_error(&target.id, &target.url, Some(\"cleared\"))?;"
+    "    j.webhook_clear_event_error(&target.id)?;" \
+    "    j.webhook_set_error(&target.id, &target.url, Some(\"cleared\"))?; /* post-AW: the clear is per channel */"
 
 # M3 — a standing failure is forgotten BEFORE it can be reported: the hold
 #     block clears instead of records, so `webhook status` never carries the
@@ -133,7 +136,7 @@ mutate "the hold block stops reporting its own reason" \
             break;" \
     "        if r.logs.is_none() && r.payload_state.is_none() {
             let reason = \"the payload is still owed — run \`hydrate\`\".to_string();
-            j.webhook_clear_error(&target.id)?;
+            j.webhook_clear_event_error(&target.id)?;
             rep.blocked_seq = Some(r.seq);
             rep.blocked_error = Some(reason);
             break;"
@@ -147,6 +150,8 @@ mutate "the clear becomes a no-op" \
                 params![target]," \
     "                \"SELECT 1 WHERE 0\",
                 params![target],"
+    # (post-AW the function is webhook_clear_event_error; the pattern above
+    #  still matches its body, so M4 keeps killing the clear itself)
 
 cmp -s src/webhook.rs "$PRISTINE/src/webhook.rs" || {
     echo "LADDER BUG: webhook.rs not byte-identical after restore" >&2

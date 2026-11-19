@@ -618,7 +618,13 @@ pub fn deliver_events(
     // pass that gets through leaves `webhook status` with no error behind
     // (PULS AG). Cleared AFTER the binding: a target that refuses to run
     // keeps the verdict it already has.
-    j.webhook_clear_error(&target.id)?;
+    //
+    // TWO MORE RULES (PULS AW): (1) only THIS channel's column — the shared
+    // clear used to NULL `last_reorg_error` too, so an event phase erased a
+    // verdict the retraction phase had recorded; (2) only once the queue
+    // was actually read — a `--limit 0` pass reads no rows, so it may not
+    // decide what the journal remembers (a phase that examines no row
+    // leaves the verdict it finds standing).
     let (next_seq, next_reorg_id) = j.webhook_state(&target.id)?.unwrap_or((0, 0));
     rep.next_seq = next_seq;
     rep.next_reorg_id = next_reorg_id;
@@ -636,6 +642,11 @@ pub fn deliver_events(
     } else {
         j.events_after(rep.next_seq, limit)?
     };
+    if limit > 0 {
+        // The queue was read: this phase's pass may now judge its own
+        // channel (and only its channel) — see the two rules above.
+        j.webhook_clear_event_error(&target.id)?;
+    }
     for r in &rows {
         // The payload debt rule, shared with `tail` (PULS AE): a row whose
         // payload the journal still OWES (`logs` null AND no recorded
@@ -773,20 +784,28 @@ pub fn deliver_reorgs(
     // Same binding as `deliver_events`: refuse a repointed id before any
     // retraction follows the old endpoint's cursor.
     bind_endpoint(j, target)?;
-    let (next_seq, next_reorg_id) = j
-        .webhook_state(&target.id)?
-        .unwrap_or((0, 0));
-    rep.next_seq = next_seq;
-    rep.next_reorg_id = next_reorg_id;
-
     // Same budget rule as `deliver_events`: a zero limit attempts no
     // retraction either (measured on the published v0.7.25 binary, where
     // `limit.max(1)` sent one signed retraction per `--limit 0` pass).
     let rows = if limit <= 0 {
         Vec::new()
     } else {
+        let (next_seq, next_reorg_id) = j.webhook_state(&target.id)?.unwrap_or((0, 0));
+        rep.next_seq = next_seq;
+        rep.next_reorg_id = next_reorg_id;
+        // The queue was read: this phase's pass judges ITS OWN column and
+        // only its own — an event phase must not clear this one, and a
+        // `--limit 0` pass that read no row may not judge at all (PULS AW).
+        j.webhook_clear_reorg_error(&target.id)?;
         j.reorgs_after(next_reorg_id, limit)?
     };
+    if limit <= 0 {
+        // The budget forbids reading the queue: cursors are reported for
+        // the report's sake, no verdict is touched.
+        let (next_seq, next_reorg_id) = j.webhook_state(&target.id)?.unwrap_or((0, 0));
+        rep.next_seq = next_seq;
+        rep.next_reorg_id = next_reorg_id;
+    }
     for r in &rows {
         if j.webhook_delivered(&target.id, &target.url, "reorg", r.id)? {
             rep.next_reorg_id = r.id;
