@@ -2950,7 +2950,7 @@ fn run_webhook_dlq_replay(args: &[String]) {
                         &r.kind,
                         r.seq,
                         Some(status as i64),
-                        Some(&format!("refused with http {status}")),
+                        Some(&webhook::refusal_reason(status)),
                     )
                     .unwrap_or_else(|e| die(e));
                     target_failed += 1;

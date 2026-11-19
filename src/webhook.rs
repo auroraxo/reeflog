@@ -396,8 +396,16 @@ impl Poster for HttpPoster {
         // A webhook whose endpoint hangs must not hang the delivery pass: the
         // timeout turns "slow" into a transient failure the queue reports and
         // retries, instead of a stuck daemon.
+        //
+        // max_redirects(0): a delivery follows the url AS CONFIGURED. With
+        // ureq's defaults a redirecting endpoint silently re-sends the signed
+        // request elsewhere (measured 2026-11-19, PULS AS): the hop's own 200
+        // was recorded as the delivery verdict while the configured consumer
+        // got nothing, and a 301/302/303 hop carried the signature header on a
+        // bodyless GET. See the 3xx branch below.
         let cfg = ureq::Agent::config_builder()
             .timeout_global(Some(std::time::Duration::from_millis(self.timeout_ms.max(1))))
+            .max_redirects(0)
             .build();
         let agent = ureq::Agent::new_with_config(cfg);
         let mut req = agent.post(url);
@@ -413,6 +421,10 @@ impl Poster for HttpPoster {
             Err(ureq::Error::StatusCode(c)) => return Ok(c),
             Err(e) => return Err(e.to_string()),
         };
+        // A 3xx answer comes back as a normal response (ureq only turns
+        // 4xx/5xx into errors) and must reach the CLASSIFIER, which owns
+        // the rule that a redirect is a refusal of this url — see
+        // classify_status and refusal_reason.
         Ok(resp.status().as_u16())
     }
 }
@@ -442,10 +454,32 @@ pub fn classify_status(status: u16) -> Attempt {
         Attempt::Delivered(status)
     } else if status == 408 || status == 425 || status == 429 {
         Attempt::Transient(format!("http {status}"))
+    } else if (300..400).contains(&status) {
+        // A 3xx is the endpoint's VERDICT about this url: it did not accept
+        // the delivery, it sent it somewhere else. It is a refusal of THIS
+        // consumer, not an outage and not a delivery — and the redirect is
+        // never followed (measured 2026-11-19, PULS AS: with ureq's defaults
+        // the hop's own 200 was recorded as the delivery, the cursor moved on
+        // and the configured consumer received nothing). The reason names the
+        // mechanism and the repair: repoint the target's url EXPLICITLY.
+        Attempt::Refused(status)
     } else if (400..500).contains(&status) {
         Attempt::Refused(status)
     } else {
         Attempt::Transient(format!("http {status}"))
+    }
+}
+
+/// The reason a REFUSED status is recorded under — one place, so a 3xx
+/// never borrows the flat "refused with http 404" wording of a 4xx and
+/// never hides behind it.
+pub fn refusal_reason(status: u16) -> String {
+    if (300..400).contains(&status) {
+        format!(
+            "refused with http {status} redirect — the endpoint redirected the delivery; delivery follows the url AS CONFIGURED, never the redirect: repoint this target's url explicitly if the redirect destination is the real consumer"
+        )
+    } else {
+        format!("refused with http {status}")
     }
 }
 
@@ -660,8 +694,10 @@ pub fn deliver_events(
                 // refuse this event again. But one refusal can be an accident
                 // (mid-deploy, a config reload), so the attempt is counted
                 // first and only a refusal that keeps repeating is treated as
-                // the verdict it is.
-                let reason = format!("refused with http {status}");
+                // the verdict it is. The reason comes from ONE mint so a 3xx
+                // names its redirect (and its repair) instead of borrowing
+                // the flat 4xx wording.
+                let reason = refusal_reason(status);
                 j.webhook_record_attempt(
                     &target.id,
                     "event",
