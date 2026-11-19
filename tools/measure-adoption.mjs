@@ -17,7 +17,15 @@
 //  6. Placement channel state — the distribution PR is fetched LIVE from
 //     the upstream list (MERGED means the channel delivered; it is NOT
 //     adoption by itself and the verdict says so).
-//  7. Classification, derived only from 1-6:
+//  7. npm downloads (the distribution card requires weekly npm numbers):
+//     recorded WITH their attribution — npm counts every install and this
+//     project's own CI installs the client on every run (client.test,
+//     npm-self-dependency, registry-channel, live registry harness), so
+//     downloads are owner-context, NEVER adoption. The structural guard:
+//     downloads before the first publish must be 0, the owner's CI run
+//     count for the same 7-day window is recorded next to the downloads,
+//     and the verdict classes never read a download.
+//  8. Classification, derived only from 1-6:
 //       user-one evidence : any non-owner star/fork, or a non-owner
 //           issue/PR that is USAGE evidence — unsolicited outreach and
 //           invitation issues are classified separately and never count
@@ -135,7 +143,113 @@ checks.referrers = {
   ok: true,
 };
 
-// ---- 6. placement channel, fetched live ------------------------------------
+// ---- 7. npm downloads, attributed (owner harness inflates them) ------------
+function curlJson(url, optional = false) {
+  try {
+    return JSON.parse(
+      execFileSync('curl', ['-sf', '--max-time', '30', url], { encoding: 'utf8' })
+    );
+  } catch (err) {
+    const msg = `npm downloads api ${url} failed: ${String(err.message).split('\n')[0]}`;
+    if (optional) {
+      failures.push(msg);
+      return null;
+    }
+    console.error('FATAL ' + msg);
+    process.exit(3);
+  }
+}
+
+const NPM_PKG = process.env.ADOPTION_NPM_PKG || 'reeflog-client';
+const firstPublishAt = JSON.parse(
+  execFileSync('npm', ['view', NPM_PKG, 'time.created', '--json'], {
+    encoding: 'utf8',
+    timeout: 60000,
+  })
+);
+const today = new Date().toISOString().slice(0, 10);
+const rangeFrom = new Date(Date.parse(firstPublishAt) - 14 * 86400e3).toISOString().slice(0, 10);
+const npmWeek = curlJson(`https://api.npmjs.org/downloads/point/last-week/${NPM_PKG}`, true);
+const npmRange = curlJson(
+  `https://api.npmjs.org/downloads/range/${rangeFrom}:${today}/${NPM_PKG}`,
+  true
+);
+let downloadsBeforeFirstPublish = null;
+let byDay = null;
+if (npmRange) {
+  byDay = npmRange.downloads.map((d) => ({ day: d.day, downloads: d.downloads }));
+  downloadsBeforeFirstPublish = byDay
+    .filter((d) => d.day < firstPublishAt.slice(0, 10))
+    .reduce((s, d) => s + d.downloads, 0);
+  if (downloadsBeforeFirstPublish !== 0) {
+    failures.push(
+      `npm downloads before first publish (${firstPublishAt}) = ${downloadsBeforeFirstPublish} — the package name was in use before this project; attribution is broken, no verdict`
+    );
+  }
+}
+
+// Owner CI runs over the same trailing 7 days: the lower bound of the
+// harness activity that legitimately produces npm installs.
+const OWNER_REPOS = (
+  process.env.ADOPTION_OWNER_REPOS ||
+  'auroraxo/reeflog,auroraxo/sememe,auroraxo/signerd,auroraxo/whirlpool-watcher'
+).split(',');
+const runWindowStart = new Date(Date.now() - 7 * 86400e3).toISOString();
+const ownerCiRuns = OWNER_REPOS.map((r) => r.trim()).map((repo) => {
+  let page = 1;
+  let total = 0;
+  let capped = false;
+  for (;;) {
+    let dates;
+    try {
+      // --jq projects to timestamps only: the full run objects exceed
+      // execFileSync's default 1 MB buffer (ENOBUFS on page 1).
+      dates = JSON.parse(
+        execFileSync(
+          'gh',
+          [
+            'api',
+            `repos/${repo}/actions/runs?per_page=100&page=${page}`,
+            '--jq',
+            '[.workflow_runs[].created_at]',
+          ],
+          { encoding: 'utf8', timeout: 60000, maxBuffer: 16 * 1024 * 1024 }
+        )
+      );
+    } catch (err) {
+      failures.push(
+        `owner ci runs for ${repo} (page ${page}) failed: ${String(err.message).split('\n')[0]}`
+      );
+      return { repo, error: true };
+    }
+    const inWindow = dates.filter((d) => d >= runWindowStart);
+    total += inWindow.length;
+    if (dates.length < 100 || page >= 5) {
+      capped = dates.length >= 100 && page >= 5;
+      break;
+    }
+    page += 1;
+  }
+  return { repo, runs: total, since: runWindowStart, ...(capped ? { capped } : {}) };
+});
+
+checks.npmDownloads = {
+  package: NPM_PKG,
+  registry: 'api.npmjs.org/downloads',
+  firstPublishAt,
+  lastWeek: npmWeek
+    ? { downloads: npmWeek.downloads, window: `${npmWeek.start}..${npmWeek.end}` }
+    : null,
+  byDay,
+  downloadsBeforeFirstPublish,
+  countsAsAdoption: false,
+  meaning:
+    'npm counts every install; this project’s own CI installs the package (client.test, npm-self-dependency, registry-channel, live registry harness) — downloads measure OWNER ACTIVITY unless a foreign consumer is proven elsewhere; adoption signals stay stars/forks/usage-issues/referrers',
+  ownerCiRunsSameWeek: ownerCiRuns,
+  ok: Boolean(npmWeek && npmRange && downloadsBeforeFirstPublish === 0),
+};
+
+// ---- 8. placement channel, fetched live ------------------------------------
 let placement;
 if (PLACEMENT_PR > 0) {
   const pr = gh([`repos/${UPSTREAM}/pulls/${PLACEMENT_PR}`], true);
@@ -191,6 +305,7 @@ if (userOneSignals.length > 0) {
 
 // ---- report ----------------------------------------------------------------
 const failedSources = failures.length;
+const npmOk = Boolean(checks.npmDownloads.ok);
 const report = {
   measuredAt: startedAt,
   repo: REPO,
@@ -198,7 +313,7 @@ const report = {
   placement,
   verdict,
   dataSourcesFailed: failedSources,
-  complete: failedSources === 0 && checks.repoMetadata.ok && checks.traffic.ok,
+  complete: failedSources === 0 && checks.repoMetadata.ok && checks.traffic.ok && npmOk,
 };
 
 const lines = [];
@@ -219,13 +334,17 @@ lines.push(
 );
 lines.push(`  external referrers: ${checks.referrers.external.length ? checks.referrers.external.join(', ') : 'none'}`);
 lines.push(
+  `  npm ${NPM_PKG}: last-week=${checks.npmDownloads.lastWeek ? checks.npmDownloads.lastWeek.downloads : '?'} (window ${checks.npmDownloads.lastWeek ? checks.npmDownloads.lastWeek.window : '?'}, first publish ${firstPublishAt}) — owner CI runs same week: ${ownerCiRuns.map((r) => `${r.repo}=${r.runs ?? 'err'}`).join(' ')}; downloads are NOT adoption`
+);
+lines.push(
   `  placement: ${UPSTREAM}#${placement.pr} state=${placement.state}${placement.merged ? ` MERGED by ${placement.mergedBy}` : ''}`
 );
-if (failedSources || !checks.repoMetadata.ok || !checks.traffic.ok) {
+if (failedSources || !checks.repoMetadata.ok || !checks.traffic.ok || !npmOk) {
   lines.push(
     `  NO VERDICT — incomplete evidence (${failedSources} data source failure(s)` +
       `${!checks.repoMetadata.ok ? '; repo metadata not as claimed' : ''}` +
-      `${!checks.traffic.ok ? '; traffic unavailable' : ''}):`
+      `${!checks.traffic.ok ? '; traffic unavailable' : ''}` +
+      `${!npmOk ? '; npm downloads unavailable or attribution broken' : ''}):`
   );
   for (const f of failures) lines.push(`    ! ${f}`);
   lines.push('    (partial censuses above are context only, not an adoption claim)');
