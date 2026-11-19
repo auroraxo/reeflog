@@ -1,0 +1,1590 @@
+{
+  "verdict": "scheduler-zero-cadence-busy",
+  "baselineDefectFaces": 5,
+  "fixedDefectFaces": 0,
+  "baseline": {
+    "label": "published v0.7.37",
+    "binVersion": "reeflog 0.7.37",
+    "binSha256": "ddba950633d1ffd5e283ae5b477bc720e611ac83bdaaafff84dee0bdd275074e",
+    "d1": {
+      "exit": 0,
+      "summary": {
+        "backfill_new": 0,
+        "disconnects": 0,
+        "final_reorg": {
+          "complete": true,
+          "considered": 1,
+          "error": null,
+          "incomplete": 0,
+          "intact": 0,
+          "invalid": 0,
+          "min_slot": -199,
+          "more": false,
+          "reverted": 1,
+          "reverted_sample": [
+            "Sealed1"
+          ]
+        },
+        "final_repair": {
+          "anchor": null,
+          "anchor_error": null,
+          "complete": false,
+          "error": null,
+          "filled": 0,
+          "found_missing": 0,
+          "missing_sample": [],
+          "pages": 0,
+          "scanned_from_slot": null,
+          "since_slot": -1699,
+          "truncated": true
+        },
+        "hydrate": {
+          "complete": true,
+          "considered": 0,
+          "error": null,
+          "failed": 0,
+          "hydrated": 0,
+          "invalid": 0,
+          "pending_left": 0,
+          "unavailable": 0,
+          "worker": {
+            "error": null,
+            "failed": 0,
+            "hydrated": 0,
+            "invalid": 0,
+            "pending_left": 0,
+            "unavailable": 0
+          }
+        },
+        "journal": {
+          "backfilled": 0,
+          "blind_window_ms": 22,
+          "confirmed": 0,
+          "error": 0,
+          "events": 2,
+          "finalized": 0,
+          "gaps": 1,
+          "gaps_open": 0,
+          "missing": 1,
+          "payload_invalid": 0,
+          "payload_pending": 0,
+          "payload_unavailable": 0,
+          "reverted": 1,
+          "unsealed": 0,
+          "with_err": 0
+        },
+        "program": "whirLbMiicVdio4qvUfM5KAg6Ct8VwpYzGff3uctyCc",
+        "reconnects": 0,
+        "reorg_considered": 1,
+        "reorg_incomplete": 0,
+        "reorg_incomplete_passes": 0,
+        "reorg_passes": 1,
+        "reorg_reverted": 1,
+        "repair_filled": 0,
+        "repair_passes": 1,
+        "seal_pass": {
+          "confirmed": 0,
+          "error": 0,
+          "finalized": 0,
+          "missing": 0,
+          "undecided": 0
+        },
+        "seal_passes": 2,
+        "seal_promoted": 1,
+        "seconds": 6,
+        "webhook": {
+          "blocked_passes": 0,
+          "configured": false,
+          "dead_lettered": 0,
+          "delivered": 0,
+          "passes": 0
+        },
+        "ws_dupes": 0,
+        "ws_new": 0
+      },
+      "rpc": {
+        "getSignaturesForAddress": 2,
+        "getSignatureStatuses": 2,
+        "getTransaction": 2
+      },
+      "posts": 0,
+      "stderr": [
+        "reeflog: 1 event(s) REVERTED at shutdown — read them from `reeflog reorg tail`"
+      ]
+    },
+    "d2": {
+      "exit": 0,
+      "summary": {
+        "backfill_new": 0,
+        "disconnects": 0,
+        "final_reorg": {
+          "skipped": true
+        },
+        "final_repair": {
+          "anchor": null,
+          "anchor_error": null,
+          "complete": false,
+          "error": null,
+          "filled": 0,
+          "found_missing": 0,
+          "missing_sample": [],
+          "pages": 0,
+          "scanned_from_slot": null,
+          "since_slot": -1699,
+          "truncated": true
+        },
+        "hydrate": {
+          "complete": true,
+          "considered": 0,
+          "error": null,
+          "failed": 0,
+          "hydrated": 0,
+          "invalid": 0,
+          "pending_left": 0,
+          "unavailable": 0,
+          "worker": {
+            "error": null,
+            "failed": 0,
+            "hydrated": 0,
+            "invalid": 0,
+            "pending_left": 0,
+            "unavailable": 0
+          }
+        },
+        "journal": {
+          "backfilled": 0,
+          "blind_window_ms": 6,
+          "confirmed": 0,
+          "error": 0,
+          "events": 2,
+          "finalized": 2,
+          "gaps": 1,
+          "gaps_open": 0,
+          "missing": 0,
+          "payload_invalid": 0,
+          "payload_pending": 0,
+          "payload_unavailable": 0,
+          "reverted": 0,
+          "unsealed": 0,
+          "with_err": 0
+        },
+        "program": "whirLbMiicVdio4qvUfM5KAg6Ct8VwpYzGff3uctyCc",
+        "reconnects": 0,
+        "reorg_considered": 2,
+        "reorg_incomplete": 0,
+        "reorg_incomplete_passes": 0,
+        "reorg_passes": 2,
+        "reorg_reverted": 0,
+        "repair_filled": 0,
+        "repair_passes": 1,
+        "seal_pass": {
+          "confirmed": 0,
+          "error": 0,
+          "finalized": 1,
+          "missing": 0,
+          "undecided": 0
+        },
+        "seal_passes": 0,
+        "seal_promoted": 0,
+        "seconds": 6,
+        "webhook": {
+          "blocked_passes": 0,
+          "configured": false,
+          "dead_lettered": 0,
+          "delivered": 0,
+          "passes": 0
+        },
+        "ws_dupes": 0,
+        "ws_new": 0
+      },
+      "rpc": {
+        "getSignaturesForAddress": 2,
+        "getSignatureStatuses": 3
+      },
+      "posts": 0,
+      "stderr": []
+    },
+    "d3": {
+      "exit": 0,
+      "summary": {
+        "backfill_new": 0,
+        "disconnects": 0,
+        "final_reorg": {
+          "complete": true,
+          "considered": 1,
+          "error": null,
+          "incomplete": 0,
+          "intact": 0,
+          "invalid": 0,
+          "min_slot": -199,
+          "more": false,
+          "reverted": 1,
+          "reverted_sample": [
+            "Sealed1"
+          ]
+        },
+        "final_repair": {
+          "skipped": true
+        },
+        "hydrate": {
+          "complete": true,
+          "considered": 0,
+          "error": null,
+          "failed": 0,
+          "hydrated": 0,
+          "invalid": 0,
+          "pending_left": 0,
+          "unavailable": 0,
+          "worker": {
+            "error": null,
+            "failed": 0,
+            "hydrated": 0,
+            "invalid": 0,
+            "pending_left": 0,
+            "unavailable": 0
+          }
+        },
+        "journal": {
+          "backfilled": 0,
+          "blind_window_ms": 6,
+          "confirmed": 0,
+          "error": 0,
+          "events": 2,
+          "finalized": 0,
+          "gaps": 1,
+          "gaps_open": 0,
+          "missing": 1,
+          "payload_invalid": 0,
+          "payload_pending": 0,
+          "payload_unavailable": 0,
+          "reverted": 1,
+          "unsealed": 0,
+          "with_err": 0
+        },
+        "program": "whirLbMiicVdio4qvUfM5KAg6Ct8VwpYzGff3uctyCc",
+        "reconnects": 0,
+        "reorg_considered": 1,
+        "reorg_incomplete": 0,
+        "reorg_incomplete_passes": 0,
+        "reorg_passes": 1,
+        "reorg_reverted": 1,
+        "repair_filled": 0,
+        "repair_passes": 2,
+        "seal_pass": {
+          "confirmed": 0,
+          "error": 0,
+          "finalized": 0,
+          "missing": 1,
+          "undecided": 0
+        },
+        "seal_passes": 0,
+        "seal_promoted": 0,
+        "seconds": 6,
+        "webhook": {
+          "blocked_passes": 0,
+          "configured": false,
+          "dead_lettered": 0,
+          "delivered": 0,
+          "passes": 0
+        },
+        "ws_dupes": 0,
+        "ws_new": 0
+      },
+      "rpc": {
+        "getSignaturesForAddress": 3,
+        "getSignatureStatuses": 2,
+        "getTransaction": 2
+      },
+      "posts": 0,
+      "stderr": [
+        "reeflog: repair pass {\"anchor\":null,\"anchor_error\":null,\"complete\":false,\"error\":null,\"filled\":0,\"found_missing\":0,\"missing_sample\":[],\"pages\":0,\"scanned_from_slot\":null,\"since_slot\":-1699,\"truncated\":true}",
+        "reeflog: repair pass {\"anchor\":null,\"anchor_error\":null,\"complete\":false,\"error\":null,\"filled\":0,\"found_missing\":0,\"missing_sample\":[],\"pages\":0,\"scanned_from_slot\":null,\"since_slot\":-1699,\"truncated\":true}",
+        "reeflog: 1 event(s) REVERTED at shutdown — read them from `reeflog reorg tail`"
+      ]
+    },
+    "d4": {
+      "exit": 0,
+      "summary": {
+        "backfill_new": 0,
+        "disconnects": 0,
+        "final_reorg": {
+          "complete": true,
+          "considered": 2,
+          "error": null,
+          "incomplete": 0,
+          "intact": 2,
+          "invalid": 0,
+          "min_slot": -199,
+          "more": false,
+          "reverted": 0,
+          "reverted_sample": []
+        },
+        "final_repair": {
+          "anchor": null,
+          "anchor_error": null,
+          "complete": false,
+          "error": null,
+          "filled": 0,
+          "found_missing": 0,
+          "missing_sample": [],
+          "pages": 0,
+          "scanned_from_slot": null,
+          "since_slot": -1699,
+          "truncated": true
+        },
+        "hydrate": {
+          "complete": true,
+          "considered": 0,
+          "error": null,
+          "failed": 0,
+          "hydrated": 0,
+          "invalid": 0,
+          "pending_left": 0,
+          "unavailable": 0,
+          "worker": {
+            "error": null,
+            "failed": 0,
+            "hydrated": 0,
+            "invalid": 0,
+            "pending_left": 0,
+            "unavailable": 0
+          }
+        },
+        "journal": {
+          "backfilled": 0,
+          "blind_window_ms": 8,
+          "confirmed": 0,
+          "error": 0,
+          "events": 2,
+          "finalized": 2,
+          "gaps": 1,
+          "gaps_open": 0,
+          "missing": 0,
+          "payload_invalid": 0,
+          "payload_pending": 0,
+          "payload_unavailable": 0,
+          "reverted": 0,
+          "unsealed": 0,
+          "with_err": 0
+        },
+        "program": "whirLbMiicVdio4qvUfM5KAg6Ct8VwpYzGff3uctyCc",
+        "reconnects": 0,
+        "reorg_considered": 2,
+        "reorg_incomplete": 0,
+        "reorg_incomplete_passes": 0,
+        "reorg_passes": 1,
+        "reorg_reverted": 0,
+        "repair_filled": 0,
+        "repair_passes": 1,
+        "seal_pass": {
+          "confirmed": 0,
+          "error": 0,
+          "finalized": 1,
+          "missing": 0,
+          "undecided": 0
+        },
+        "seal_passes": 0,
+        "seal_promoted": 0,
+        "seconds": 6,
+        "webhook": {
+          "blocked_passes": 0,
+          "configured": true,
+          "dead_lettered": 0,
+          "delivered": 2,
+          "passes": 2
+        },
+        "ws_dupes": 0,
+        "ws_new": 0
+      },
+      "rpc": {
+        "getSignaturesForAddress": 2,
+        "getSignatureStatuses": 2
+      },
+      "posts": 2,
+      "stderr": []
+    },
+    "d5": {
+      "exit": 0,
+      "summary": {
+        "backfill_new": 0,
+        "disconnects": 0,
+        "final_reorg": {
+          "skipped": true
+        },
+        "final_repair": {
+          "skipped": true
+        },
+        "hydrate": {
+          "complete": true,
+          "considered": 0,
+          "error": null,
+          "failed": 0,
+          "hydrated": 0,
+          "invalid": 0,
+          "pending_left": 0,
+          "unavailable": 0,
+          "worker": {
+            "error": null,
+            "failed": 0,
+            "hydrated": 0,
+            "invalid": 0,
+            "pending_left": 0,
+            "unavailable": 0
+          }
+        },
+        "journal": {
+          "backfilled": 0,
+          "blind_window_ms": 9,
+          "confirmed": 0,
+          "error": 0,
+          "events": 2,
+          "finalized": 0,
+          "gaps": 1,
+          "gaps_open": 0,
+          "missing": 1,
+          "payload_invalid": 0,
+          "payload_pending": 0,
+          "payload_unavailable": 0,
+          "reverted": 1,
+          "unsealed": 0,
+          "with_err": 0
+        },
+        "program": "whirLbMiicVdio4qvUfM5KAg6Ct8VwpYzGff3uctyCc",
+        "reconnects": 0,
+        "reorg_considered": 1,
+        "reorg_incomplete": 0,
+        "reorg_incomplete_passes": 0,
+        "reorg_passes": 2,
+        "reorg_reverted": 1,
+        "repair_filled": 0,
+        "repair_passes": 2,
+        "seal_pass": {
+          "confirmed": 0,
+          "error": 0,
+          "finalized": 0,
+          "missing": 0,
+          "undecided": 0
+        },
+        "seal_passes": 2,
+        "seal_promoted": 1,
+        "seconds": 6,
+        "webhook": {
+          "blocked_passes": 0,
+          "configured": false,
+          "dead_lettered": 0,
+          "delivered": 0,
+          "passes": 0
+        },
+        "ws_dupes": 0,
+        "ws_new": 0
+      },
+      "rpc": {
+        "getSignaturesForAddress": 3,
+        "getSignatureStatuses": 2,
+        "getTransaction": 2
+      },
+      "posts": 0,
+      "stderr": [
+        "reeflog: repair pass {\"anchor\":null,\"anchor_error\":null,\"complete\":false,\"error\":null,\"filled\":0,\"found_missing\":0,\"missing_sample\":[],\"pages\":0,\"scanned_from_slot\":null,\"since_slot\":-1699,\"truncated\":true}",
+        "reeflog: 1 event(s) REVERTED — the chain no longer knows them; consumers read them from `reeflog reorg tail`",
+        "reeflog: repair pass {\"anchor\":null,\"anchor_error\":null,\"complete\":false,\"error\":null,\"filled\":0,\"found_missing\":0,\"missing_sample\":[],\"pages\":0,\"scanned_from_slot\":null,\"since_slot\":-1699,\"truncated\":true}"
+      ]
+    },
+    "g1": {
+      "exit": 0,
+      "summary": {
+        "backfill_new": 0,
+        "disconnects": 0,
+        "final_reorg": {
+          "complete": true,
+          "considered": 2,
+          "error": null,
+          "incomplete": 0,
+          "intact": 2,
+          "invalid": 0,
+          "min_slot": -199,
+          "more": false,
+          "reverted": 0,
+          "reverted_sample": []
+        },
+        "final_repair": {
+          "anchor": null,
+          "anchor_error": null,
+          "complete": false,
+          "error": null,
+          "filled": 0,
+          "found_missing": 0,
+          "missing_sample": [],
+          "pages": 0,
+          "scanned_from_slot": null,
+          "since_slot": -1699,
+          "truncated": true
+        },
+        "hydrate": {
+          "complete": true,
+          "considered": 0,
+          "error": null,
+          "failed": 0,
+          "hydrated": 0,
+          "invalid": 0,
+          "pending_left": 0,
+          "unavailable": 0,
+          "worker": {
+            "error": null,
+            "failed": 0,
+            "hydrated": 0,
+            "invalid": 0,
+            "pending_left": 0,
+            "unavailable": 0
+          }
+        },
+        "journal": {
+          "backfilled": 0,
+          "blind_window_ms": 7,
+          "confirmed": 0,
+          "error": 0,
+          "events": 2,
+          "finalized": 2,
+          "gaps": 1,
+          "gaps_open": 0,
+          "missing": 0,
+          "payload_invalid": 0,
+          "payload_pending": 0,
+          "payload_unavailable": 0,
+          "reverted": 0,
+          "unsealed": 0,
+          "with_err": 0
+        },
+        "program": "whirLbMiicVdio4qvUfM5KAg6Ct8VwpYzGff3uctyCc",
+        "reconnects": 0,
+        "reorg_considered": 2,
+        "reorg_incomplete": 0,
+        "reorg_incomplete_passes": 0,
+        "reorg_passes": 1,
+        "reorg_reverted": 0,
+        "repair_filled": 0,
+        "repair_passes": 1,
+        "seal_pass": {
+          "confirmed": 0,
+          "error": 0,
+          "finalized": 1,
+          "missing": 0,
+          "undecided": 0
+        },
+        "seal_passes": 0,
+        "seal_promoted": 0,
+        "seconds": 6,
+        "webhook": {
+          "blocked_passes": 0,
+          "configured": true,
+          "dead_lettered": 0,
+          "delivered": 0,
+          "passes": 0
+        },
+        "ws_dupes": 0,
+        "ws_new": 0
+      },
+      "rpc": {
+        "getSignaturesForAddress": 2,
+        "getSignatureStatuses": 2
+      },
+      "posts": 0,
+      "stderr": []
+    },
+    "g2": {
+      "exit": 0,
+      "summary": {
+        "backfill_new": 0,
+        "disconnects": 0,
+        "final_reorg": {
+          "complete": true,
+          "considered": 2,
+          "error": null,
+          "incomplete": 0,
+          "intact": 2,
+          "invalid": 0,
+          "min_slot": -199,
+          "more": false,
+          "reverted": 0,
+          "reverted_sample": []
+        },
+        "final_repair": {
+          "anchor": null,
+          "anchor_error": null,
+          "complete": false,
+          "error": null,
+          "filled": 0,
+          "found_missing": 0,
+          "missing_sample": [],
+          "pages": 0,
+          "scanned_from_slot": null,
+          "since_slot": -1699,
+          "truncated": true
+        },
+        "hydrate": {
+          "complete": true,
+          "considered": 0,
+          "error": null,
+          "failed": 0,
+          "hydrated": 0,
+          "invalid": 0,
+          "pending_left": 0,
+          "unavailable": 0,
+          "worker": {
+            "error": null,
+            "failed": 0,
+            "hydrated": 0,
+            "invalid": 0,
+            "pending_left": 0,
+            "unavailable": 0
+          }
+        },
+        "journal": {
+          "backfilled": 0,
+          "blind_window_ms": 7,
+          "confirmed": 0,
+          "error": 0,
+          "events": 2,
+          "finalized": 2,
+          "gaps": 1,
+          "gaps_open": 0,
+          "missing": 0,
+          "payload_invalid": 0,
+          "payload_pending": 0,
+          "payload_unavailable": 0,
+          "reverted": 0,
+          "unsealed": 0,
+          "with_err": 0
+        },
+        "program": "whirLbMiicVdio4qvUfM5KAg6Ct8VwpYzGff3uctyCc",
+        "reconnects": 0,
+        "reorg_considered": 6,
+        "reorg_incomplete": 0,
+        "reorg_incomplete_passes": 0,
+        "reorg_passes": 3,
+        "reorg_reverted": 0,
+        "repair_filled": 0,
+        "repair_passes": 3,
+        "seal_pass": {
+          "confirmed": 0,
+          "error": 0,
+          "finalized": 0,
+          "missing": 0,
+          "undecided": 0
+        },
+        "seal_passes": 2,
+        "seal_promoted": 1,
+        "seconds": 6,
+        "webhook": {
+          "blocked_passes": 0,
+          "configured": false,
+          "dead_lettered": 0,
+          "delivered": 0,
+          "passes": 0
+        },
+        "ws_dupes": 0,
+        "ws_new": 0
+      },
+      "rpc": {
+        "getSignaturesForAddress": 4,
+        "getSignatureStatuses": 4
+      },
+      "posts": 0,
+      "stderr": [
+        "reeflog: repair pass {\"anchor\":null,\"anchor_error\":null,\"complete\":false,\"error\":null,\"filled\":0,\"found_missing\":0,\"missing_sample\":[],\"pages\":0,\"scanned_from_slot\":null,\"since_slot\":-1699,\"truncated\":true}",
+        "reeflog: repair pass {\"anchor\":null,\"anchor_error\":null,\"complete\":false,\"error\":null,\"filled\":0,\"found_missing\":0,\"missing_sample\":[],\"pages\":0,\"scanned_from_slot\":null,\"since_slot\":-1699,\"truncated\":true}"
+      ]
+    }
+  },
+  "fixed": {
+    "label": "published v0.7.38",
+    "binVersion": "reeflog 0.7.38",
+    "binSha256": "0f937457a21e2128318b39fa0fa120b03668b1097be639e7c0f408533d788167",
+    "d1": {
+      "exit": 0,
+      "summary": {
+        "backfill_new": 0,
+        "disconnects": 0,
+        "final_reorg": {
+          "complete": true,
+          "considered": 1,
+          "error": null,
+          "incomplete": 0,
+          "intact": 0,
+          "invalid": 0,
+          "min_slot": -199,
+          "more": false,
+          "reverted": 1,
+          "reverted_sample": [
+            "Sealed1"
+          ]
+        },
+        "final_repair": {
+          "anchor": null,
+          "anchor_error": null,
+          "complete": false,
+          "error": null,
+          "filled": 0,
+          "found_missing": 0,
+          "missing_sample": [],
+          "pages": 0,
+          "scanned_from_slot": null,
+          "since_slot": -1699,
+          "truncated": true
+        },
+        "hydrate": {
+          "complete": true,
+          "considered": 0,
+          "error": null,
+          "failed": 0,
+          "hydrated": 0,
+          "invalid": 0,
+          "pending_left": 0,
+          "unavailable": 0,
+          "worker": {
+            "error": null,
+            "failed": 0,
+            "hydrated": 0,
+            "invalid": 0,
+            "pending_left": 0,
+            "unavailable": 0
+          }
+        },
+        "journal": {
+          "backfilled": 0,
+          "blind_window_ms": 6,
+          "confirmed": 0,
+          "error": 0,
+          "events": 2,
+          "finalized": 0,
+          "gaps": 1,
+          "gaps_open": 0,
+          "missing": 1,
+          "payload_invalid": 0,
+          "payload_pending": 0,
+          "payload_unavailable": 0,
+          "reverted": 1,
+          "unsealed": 0,
+          "with_err": 0
+        },
+        "program": "whirLbMiicVdio4qvUfM5KAg6Ct8VwpYzGff3uctyCc",
+        "reconnects": 0,
+        "reorg_considered": 1,
+        "reorg_incomplete": 0,
+        "reorg_incomplete_passes": 0,
+        "reorg_passes": 1,
+        "reorg_reverted": 1,
+        "repair_filled": 0,
+        "repair_passes": 1,
+        "seal_pass": {
+          "confirmed": 0,
+          "error": 0,
+          "finalized": 0,
+          "missing": 1,
+          "undecided": 0
+        },
+        "seal_passes": 0,
+        "seal_promoted": 0,
+        "seconds": 6,
+        "webhook": {
+          "blocked_passes": 0,
+          "configured": false,
+          "dead_lettered": 0,
+          "delivered": 0,
+          "passes": 0
+        },
+        "ws_dupes": 0,
+        "ws_new": 0
+      },
+      "rpc": {
+        "getSignaturesForAddress": 2,
+        "getSignatureStatuses": 2,
+        "getTransaction": 2
+      },
+      "posts": 0,
+      "stderr": [
+        "reeflog: 1 event(s) REVERTED at shutdown — read them from `reeflog reorg tail`"
+      ]
+    },
+    "d2": {
+      "exit": 0,
+      "summary": {
+        "backfill_new": 0,
+        "disconnects": 0,
+        "final_reorg": {
+          "skipped": true
+        },
+        "final_repair": {
+          "anchor": null,
+          "anchor_error": null,
+          "complete": false,
+          "error": null,
+          "filled": 0,
+          "found_missing": 0,
+          "missing_sample": [],
+          "pages": 0,
+          "scanned_from_slot": null,
+          "since_slot": -1699,
+          "truncated": true
+        },
+        "hydrate": {
+          "complete": true,
+          "considered": 0,
+          "error": null,
+          "failed": 0,
+          "hydrated": 0,
+          "invalid": 0,
+          "pending_left": 0,
+          "unavailable": 0,
+          "worker": {
+            "error": null,
+            "failed": 0,
+            "hydrated": 0,
+            "invalid": 0,
+            "pending_left": 0,
+            "unavailable": 0
+          }
+        },
+        "journal": {
+          "backfilled": 0,
+          "blind_window_ms": 8,
+          "confirmed": 0,
+          "error": 0,
+          "events": 2,
+          "finalized": 2,
+          "gaps": 1,
+          "gaps_open": 0,
+          "missing": 0,
+          "payload_invalid": 0,
+          "payload_pending": 0,
+          "payload_unavailable": 0,
+          "reverted": 0,
+          "unsealed": 0,
+          "with_err": 0
+        },
+        "program": "whirLbMiicVdio4qvUfM5KAg6Ct8VwpYzGff3uctyCc",
+        "reconnects": 0,
+        "reorg_considered": 0,
+        "reorg_incomplete": 0,
+        "reorg_incomplete_passes": 0,
+        "reorg_passes": 0,
+        "reorg_reverted": 0,
+        "repair_filled": 0,
+        "repair_passes": 1,
+        "seal_pass": {
+          "confirmed": 0,
+          "error": 0,
+          "finalized": 1,
+          "missing": 0,
+          "undecided": 0
+        },
+        "seal_passes": 0,
+        "seal_promoted": 0,
+        "seconds": 6,
+        "webhook": {
+          "blocked_passes": 0,
+          "configured": false,
+          "dead_lettered": 0,
+          "delivered": 0,
+          "passes": 0
+        },
+        "ws_dupes": 0,
+        "ws_new": 0
+      },
+      "rpc": {
+        "getSignaturesForAddress": 2,
+        "getSignatureStatuses": 1
+      },
+      "posts": 0,
+      "stderr": []
+    },
+    "d3": {
+      "exit": 0,
+      "summary": {
+        "backfill_new": 0,
+        "disconnects": 0,
+        "final_reorg": {
+          "complete": true,
+          "considered": 1,
+          "error": null,
+          "incomplete": 0,
+          "intact": 0,
+          "invalid": 0,
+          "min_slot": -199,
+          "more": false,
+          "reverted": 1,
+          "reverted_sample": [
+            "Sealed1"
+          ]
+        },
+        "final_repair": {
+          "skipped": true
+        },
+        "hydrate": {
+          "complete": true,
+          "considered": 0,
+          "error": null,
+          "failed": 0,
+          "hydrated": 0,
+          "invalid": 0,
+          "pending_left": 0,
+          "unavailable": 0,
+          "worker": {
+            "error": null,
+            "failed": 0,
+            "hydrated": 0,
+            "invalid": 0,
+            "pending_left": 0,
+            "unavailable": 0
+          }
+        },
+        "journal": {
+          "backfilled": 0,
+          "blind_window_ms": 8,
+          "confirmed": 0,
+          "error": 0,
+          "events": 2,
+          "finalized": 0,
+          "gaps": 1,
+          "gaps_open": 0,
+          "missing": 1,
+          "payload_invalid": 0,
+          "payload_pending": 0,
+          "payload_unavailable": 0,
+          "reverted": 1,
+          "unsealed": 0,
+          "with_err": 0
+        },
+        "program": "whirLbMiicVdio4qvUfM5KAg6Ct8VwpYzGff3uctyCc",
+        "reconnects": 0,
+        "reorg_considered": 1,
+        "reorg_incomplete": 0,
+        "reorg_incomplete_passes": 0,
+        "reorg_passes": 1,
+        "reorg_reverted": 1,
+        "repair_filled": 0,
+        "repair_passes": 0,
+        "seal_pass": {
+          "confirmed": 0,
+          "error": 0,
+          "finalized": 0,
+          "missing": 1,
+          "undecided": 0
+        },
+        "seal_passes": 0,
+        "seal_promoted": 0,
+        "seconds": 6,
+        "webhook": {
+          "blocked_passes": 0,
+          "configured": false,
+          "dead_lettered": 0,
+          "delivered": 0,
+          "passes": 0
+        },
+        "ws_dupes": 0,
+        "ws_new": 0
+      },
+      "rpc": {
+        "getSignaturesForAddress": 1,
+        "getSignatureStatuses": 2,
+        "getTransaction": 2
+      },
+      "posts": 0,
+      "stderr": [
+        "reeflog: 1 event(s) REVERTED at shutdown — read them from `reeflog reorg tail`"
+      ]
+    },
+    "d4": {
+      "exit": 0,
+      "summary": {
+        "backfill_new": 0,
+        "disconnects": 0,
+        "final_reorg": {
+          "complete": true,
+          "considered": 2,
+          "error": null,
+          "incomplete": 0,
+          "intact": 2,
+          "invalid": 0,
+          "min_slot": -199,
+          "more": false,
+          "reverted": 0,
+          "reverted_sample": []
+        },
+        "final_repair": {
+          "anchor": null,
+          "anchor_error": null,
+          "complete": false,
+          "error": null,
+          "filled": 0,
+          "found_missing": 0,
+          "missing_sample": [],
+          "pages": 0,
+          "scanned_from_slot": null,
+          "since_slot": -1699,
+          "truncated": true
+        },
+        "hydrate": {
+          "complete": true,
+          "considered": 0,
+          "error": null,
+          "failed": 0,
+          "hydrated": 0,
+          "invalid": 0,
+          "pending_left": 0,
+          "unavailable": 0,
+          "worker": {
+            "error": null,
+            "failed": 0,
+            "hydrated": 0,
+            "invalid": 0,
+            "pending_left": 0,
+            "unavailable": 0
+          }
+        },
+        "journal": {
+          "backfilled": 0,
+          "blind_window_ms": 5,
+          "confirmed": 0,
+          "error": 0,
+          "events": 2,
+          "finalized": 2,
+          "gaps": 1,
+          "gaps_open": 0,
+          "missing": 0,
+          "payload_invalid": 0,
+          "payload_pending": 0,
+          "payload_unavailable": 0,
+          "reverted": 0,
+          "unsealed": 0,
+          "with_err": 0
+        },
+        "program": "whirLbMiicVdio4qvUfM5KAg6Ct8VwpYzGff3uctyCc",
+        "reconnects": 0,
+        "reorg_considered": 2,
+        "reorg_incomplete": 0,
+        "reorg_incomplete_passes": 0,
+        "reorg_passes": 1,
+        "reorg_reverted": 0,
+        "repair_filled": 0,
+        "repair_passes": 1,
+        "seal_pass": {
+          "confirmed": 0,
+          "error": 0,
+          "finalized": 1,
+          "missing": 0,
+          "undecided": 0
+        },
+        "seal_passes": 0,
+        "seal_promoted": 0,
+        "seconds": 6,
+        "webhook": {
+          "blocked_passes": 0,
+          "configured": true,
+          "dead_lettered": 0,
+          "delivered": 0,
+          "passes": 0
+        },
+        "ws_dupes": 0,
+        "ws_new": 0
+      },
+      "rpc": {
+        "getSignaturesForAddress": 2,
+        "getSignatureStatuses": 2
+      },
+      "posts": 0,
+      "stderr": []
+    },
+    "d5": {
+      "exit": 0,
+      "summary": {
+        "backfill_new": 0,
+        "disconnects": 0,
+        "final_reorg": {
+          "skipped": true
+        },
+        "final_repair": {
+          "skipped": true
+        },
+        "hydrate": {
+          "complete": true,
+          "considered": 0,
+          "error": null,
+          "failed": 0,
+          "hydrated": 0,
+          "invalid": 0,
+          "pending_left": 0,
+          "unavailable": 0,
+          "worker": {
+            "error": null,
+            "failed": 0,
+            "hydrated": 0,
+            "invalid": 0,
+            "pending_left": 0,
+            "unavailable": 0
+          }
+        },
+        "journal": {
+          "backfilled": 0,
+          "blind_window_ms": 6,
+          "confirmed": 0,
+          "error": 0,
+          "events": 2,
+          "finalized": 1,
+          "gaps": 1,
+          "gaps_open": 0,
+          "missing": 1,
+          "payload_invalid": 0,
+          "payload_pending": 0,
+          "payload_unavailable": 0,
+          "reverted": 0,
+          "unsealed": 0,
+          "with_err": 0
+        },
+        "program": "whirLbMiicVdio4qvUfM5KAg6Ct8VwpYzGff3uctyCc",
+        "reconnects": 0,
+        "reorg_considered": 0,
+        "reorg_incomplete": 0,
+        "reorg_incomplete_passes": 0,
+        "reorg_passes": 0,
+        "reorg_reverted": 0,
+        "repair_filled": 0,
+        "repair_passes": 0,
+        "seal_pass": {
+          "confirmed": 0,
+          "error": 0,
+          "finalized": 0,
+          "missing": 1,
+          "undecided": 0
+        },
+        "seal_passes": 0,
+        "seal_promoted": 0,
+        "seconds": 6,
+        "webhook": {
+          "blocked_passes": 0,
+          "configured": false,
+          "dead_lettered": 0,
+          "delivered": 0,
+          "passes": 0
+        },
+        "ws_dupes": 0,
+        "ws_new": 0
+      },
+      "rpc": {
+        "getSignaturesForAddress": 1,
+        "getSignatureStatuses": 1,
+        "getTransaction": 1
+      },
+      "posts": 0,
+      "stderr": []
+    },
+    "g1": {
+      "exit": 0,
+      "summary": {
+        "backfill_new": 0,
+        "disconnects": 0,
+        "final_reorg": {
+          "complete": true,
+          "considered": 2,
+          "error": null,
+          "incomplete": 0,
+          "intact": 2,
+          "invalid": 0,
+          "min_slot": -199,
+          "more": false,
+          "reverted": 0,
+          "reverted_sample": []
+        },
+        "final_repair": {
+          "anchor": null,
+          "anchor_error": null,
+          "complete": false,
+          "error": null,
+          "filled": 0,
+          "found_missing": 0,
+          "missing_sample": [],
+          "pages": 0,
+          "scanned_from_slot": null,
+          "since_slot": -1699,
+          "truncated": true
+        },
+        "hydrate": {
+          "complete": true,
+          "considered": 0,
+          "error": null,
+          "failed": 0,
+          "hydrated": 0,
+          "invalid": 0,
+          "pending_left": 0,
+          "unavailable": 0,
+          "worker": {
+            "error": null,
+            "failed": 0,
+            "hydrated": 0,
+            "invalid": 0,
+            "pending_left": 0,
+            "unavailable": 0
+          }
+        },
+        "journal": {
+          "backfilled": 0,
+          "blind_window_ms": 7,
+          "confirmed": 0,
+          "error": 0,
+          "events": 2,
+          "finalized": 2,
+          "gaps": 1,
+          "gaps_open": 0,
+          "missing": 0,
+          "payload_invalid": 0,
+          "payload_pending": 0,
+          "payload_unavailable": 0,
+          "reverted": 0,
+          "unsealed": 0,
+          "with_err": 0
+        },
+        "program": "whirLbMiicVdio4qvUfM5KAg6Ct8VwpYzGff3uctyCc",
+        "reconnects": 0,
+        "reorg_considered": 2,
+        "reorg_incomplete": 0,
+        "reorg_incomplete_passes": 0,
+        "reorg_passes": 1,
+        "reorg_reverted": 0,
+        "repair_filled": 0,
+        "repair_passes": 1,
+        "seal_pass": {
+          "confirmed": 0,
+          "error": 0,
+          "finalized": 1,
+          "missing": 0,
+          "undecided": 0
+        },
+        "seal_passes": 0,
+        "seal_promoted": 0,
+        "seconds": 6,
+        "webhook": {
+          "blocked_passes": 0,
+          "configured": true,
+          "dead_lettered": 0,
+          "delivered": 0,
+          "passes": 0
+        },
+        "ws_dupes": 0,
+        "ws_new": 0
+      },
+      "rpc": {
+        "getSignaturesForAddress": 2,
+        "getSignatureStatuses": 2
+      },
+      "posts": 0,
+      "stderr": []
+    },
+    "g2": {
+      "exit": 0,
+      "summary": {
+        "backfill_new": 0,
+        "disconnects": 0,
+        "final_reorg": {
+          "complete": true,
+          "considered": 2,
+          "error": null,
+          "incomplete": 0,
+          "intact": 2,
+          "invalid": 0,
+          "min_slot": -199,
+          "more": false,
+          "reverted": 0,
+          "reverted_sample": []
+        },
+        "final_repair": {
+          "anchor": null,
+          "anchor_error": null,
+          "complete": false,
+          "error": null,
+          "filled": 0,
+          "found_missing": 0,
+          "missing_sample": [],
+          "pages": 0,
+          "scanned_from_slot": null,
+          "since_slot": -1699,
+          "truncated": true
+        },
+        "hydrate": {
+          "complete": true,
+          "considered": 0,
+          "error": null,
+          "failed": 0,
+          "hydrated": 0,
+          "invalid": 0,
+          "pending_left": 0,
+          "unavailable": 0,
+          "worker": {
+            "error": null,
+            "failed": 0,
+            "hydrated": 0,
+            "invalid": 0,
+            "pending_left": 0,
+            "unavailable": 0
+          }
+        },
+        "journal": {
+          "backfilled": 0,
+          "blind_window_ms": 9,
+          "confirmed": 0,
+          "error": 0,
+          "events": 2,
+          "finalized": 2,
+          "gaps": 1,
+          "gaps_open": 0,
+          "missing": 0,
+          "payload_invalid": 0,
+          "payload_pending": 0,
+          "payload_unavailable": 0,
+          "reverted": 0,
+          "unsealed": 0,
+          "with_err": 0
+        },
+        "program": "whirLbMiicVdio4qvUfM5KAg6Ct8VwpYzGff3uctyCc",
+        "reconnects": 0,
+        "reorg_considered": 6,
+        "reorg_incomplete": 0,
+        "reorg_incomplete_passes": 0,
+        "reorg_passes": 3,
+        "reorg_reverted": 0,
+        "repair_filled": 0,
+        "repair_passes": 3,
+        "seal_pass": {
+          "confirmed": 0,
+          "error": 0,
+          "finalized": 0,
+          "missing": 0,
+          "undecided": 0
+        },
+        "seal_passes": 2,
+        "seal_promoted": 1,
+        "seconds": 6,
+        "webhook": {
+          "blocked_passes": 0,
+          "configured": false,
+          "dead_lettered": 0,
+          "delivered": 0,
+          "passes": 0
+        },
+        "ws_dupes": 0,
+        "ws_new": 0
+      },
+      "rpc": {
+        "getSignaturesForAddress": 4,
+        "getSignatureStatuses": 4
+      },
+      "posts": 0,
+      "stderr": [
+        "reeflog: repair pass {\"anchor\":null,\"anchor_error\":null,\"complete\":false,\"error\":null,\"filled\":0,\"found_missing\":0,\"missing_sample\":[],\"pages\":0,\"scanned_from_slot\":null,\"since_slot\":-1699,\"truncated\":true}",
+        "reeflog: repair pass {\"anchor\":null,\"anchor_error\":null,\"complete\":false,\"error\":null,\"filled\":0,\"found_missing\":0,\"missing_sample\":[],\"pages\":0,\"scanned_from_slot\":null,\"since_slot\":-1699,\"truncated\":true}"
+      ]
+    }
+  },
+  "faces": [
+    {
+      "name": "D1 --seal-every 0 schedules no seal pass",
+      "baseline": false,
+      "fixed": true,
+      "detail": {
+        "base": {
+          "rpc": {
+            "getSignaturesForAddress": 2,
+            "getSignatureStatuses": 2,
+            "getTransaction": 2
+          },
+          "seal_passes": 2
+        },
+        "fixed": {
+          "rpc": {
+            "getSignaturesForAddress": 2,
+            "getSignatureStatuses": 2,
+            "getTransaction": 2
+          },
+          "seal_passes": 0
+        }
+      }
+    },
+    {
+      "name": "D2 --reorg-every 0 schedules no reorg pass (and the final gate says never)",
+      "baseline": false,
+      "fixed": true,
+      "detail": {
+        "base": {
+          "reorg_passes": 2,
+          "final_reorg": {
+            "skipped": true
+          },
+          "rpc": {
+            "getSignaturesForAddress": 2,
+            "getSignatureStatuses": 3
+          }
+        },
+        "fixed": {
+          "reorg_passes": 0,
+          "final_reorg": {
+            "skipped": true
+          },
+          "rpc": {
+            "getSignaturesForAddress": 2,
+            "getSignatureStatuses": 1
+          }
+        }
+      }
+    },
+    {
+      "name": "D3 --repair-every 0 schedules no repair pass (and the final gate says never)",
+      "baseline": false,
+      "fixed": true,
+      "detail": {
+        "base": {
+          "repair_passes": 2,
+          "final_repair": {
+            "skipped": true
+          },
+          "rpc": {
+            "getSignaturesForAddress": 3,
+            "getSignatureStatuses": 2,
+            "getTransaction": 2
+          }
+        },
+        "fixed": {
+          "repair_passes": 0,
+          "final_repair": {
+            "skipped": true
+          },
+          "rpc": {
+            "getSignaturesForAddress": 1,
+            "getSignatureStatuses": 2,
+            "getTransaction": 2
+          }
+        }
+      }
+    },
+    {
+      "name": "D4 --webhook-every 0 delivers no signed bodies",
+      "baseline": false,
+      "fixed": true,
+      "detail": {
+        "base": {
+          "posts": 2,
+          "webhook_passes": 2
+        },
+        "fixed": {
+          "posts": 0,
+          "webhook_passes": 0
+        }
+      }
+    },
+    {
+      "name": "D5 with every cadence 0, ONE value means ONE thing (nothing scheduled, both gates never)",
+      "baseline": false,
+      "fixed": true,
+      "detail": {
+        "base": {
+          "reorg_passes": 2,
+          "repair_passes": 2,
+          "final_reorg": {
+            "skipped": true
+          },
+          "final_repair": {
+            "skipped": true
+          }
+        },
+        "fixed": {
+          "reorg_passes": 0,
+          "repair_passes": 0,
+          "final_reorg": {
+            "skipped": true
+          },
+          "final_repair": {
+            "skipped": true
+          }
+        }
+      }
+    },
+    {
+      "name": "G1 a never-due cadence schedules nothing and the final gates keep their meaning (unchanged)",
+      "baseline": true,
+      "fixed": true,
+      "detail": {
+        "base": {
+          "seal_passes": 0,
+          "posts": 0,
+          "final_reorg": {
+            "complete": true,
+            "considered": 2,
+            "error": null,
+            "incomplete": 0,
+            "intact": 2,
+            "invalid": 0,
+            "min_slot": -199,
+            "more": false,
+            "reverted": 0,
+            "reverted_sample": []
+          }
+        },
+        "fixed": {
+          "seal_passes": 0,
+          "posts": 0,
+          "final_reorg": {
+            "complete": true,
+            "considered": 2,
+            "error": null,
+            "incomplete": 0,
+            "intact": 2,
+            "invalid": 0,
+            "min_slot": -199,
+            "more": false,
+            "reverted": 0,
+            "reverted_sample": []
+          }
+        }
+      }
+    },
+    {
+      "name": "G2 a tight positive cadence still runs (unchanged)",
+      "baseline": true,
+      "fixed": true,
+      "detail": {
+        "base": {
+          "seal_passes": 2,
+          "reorg_passes": 3,
+          "final_reorg": {
+            "complete": true,
+            "considered": 2,
+            "error": null,
+            "incomplete": 0,
+            "intact": 2,
+            "invalid": 0,
+            "min_slot": -199,
+            "more": false,
+            "reverted": 0,
+            "reverted_sample": []
+          }
+        },
+        "fixed": {
+          "seal_passes": 2,
+          "reorg_passes": 3,
+          "final_reorg": {
+            "complete": true,
+            "considered": 2,
+            "error": null,
+            "incomplete": 0,
+            "intact": 2,
+            "invalid": 0,
+            "min_slot": -199,
+            "more": false,
+            "reverted": 0,
+            "reverted_sample": []
+          }
+        }
+      }
+    }
+  ],
+  "at": "2026-11-19T14:09:07.904Z",
+  "dir": "<tmp>/"
+}
