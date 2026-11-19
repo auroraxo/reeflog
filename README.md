@@ -10,11 +10,11 @@ durable cursor, no catch-up. Every project rebuilds reconnect, dedup,
 gap-fill, and reorg handling, or silently loses events. reeflog makes that
 one daemon, one file, one cursor.
 
-**Status: v0.7.37 (2026-11-19), live against mainnet-beta — no Rust toolchain needed: `npm install reeflog-client`, then `import { bootstrap } from 'reeflog-client'; await bootstrap()` (downloads the prebuilt release archive and verifies its sha256 against what the GitHub release API publishes). The client itself is zero-dependency: one package, no `node_modules` of its own, and it installs without `git` on the machine.**
+**Status: v0.7.38 (2026-11-19), live against mainnet-beta — no Rust toolchain needed: `npm install reeflog-client`, then `import { bootstrap } from 'reeflog-client'; await bootstrap()` (downloads the prebuilt release archive and verifies its sha256 against what the GitHub release API publishes). The client itself is zero-dependency: one package, no `node_modules` of its own, and it installs without `git` on the machine.**
 
 The same client from the tagged release:
-`npm install github:auroraxo/reeflog#v0.7.37`. Or from source:
-`cargo install --git https://github.com/auroraxo/reeflog --tag v0.7.37`.
+`npm install github:auroraxo/reeflog#v0.7.38`. Or from source:
+`cargo install --git https://github.com/auroraxo/reeflog --tag v0.7.38`.
 
 **Honest state:** it works, and it is measured — but so far every real
 consumer belongs to the project itself. There is no unaffiliated third-party
@@ -166,6 +166,7 @@ detail and every raw number in
 | Disconnect episodes | ONE outage left one OPEN gap row per refused connect attempt and healed only the last: a journal whose stream had returned reported `gaps_open: 6` forever, and every nightly network switch re-opened the alarm; measured on the published v0.7.34 asset, fixed in v0.7.35 |
 | Webhook redirect | the poster followed HTTP redirects: a redirecting endpoint recorded every event as delivered (attempt status = the hop's own 200) while the configured consumer received ZERO event bodies and a bodyless GET carried the signature header to a host the config never named — the cursor advanced past the event, so it could never be re-delivered; measured on the published v0.7.35 asset, fixed in v0.7.36 |
 | Two-queue reason | the two delivery queues kept ONE standing reason: a blocked event queue written after a blocked retraction queue OVERWROTE it, so `webhook status` showed the retraction's 404 where the event queue's repair (`hydrate`) belonged — the report a monitoring caller polls named the wrong queue's repair; measured on the published v0.7.36 asset, fixed in v0.7.37 |
+| Zero cadence | the four cadence flags (`--seal-every`/`--reorg-every`/`--repair-every`/`--webhook-every`) turned a documented 0 into ONE SECOND: every pass ran at 1 Hz while the SAME run's shutdown gates read the same zero as "never" — and `--webhook-every 0` delivered signed bodies at 1 Hz; measured on the published v0.7.37 asset, fixed in v0.7.38 |
 
 ## Conditions and limits — the honest part
 
@@ -363,6 +364,20 @@ detail and every raw number in
   channel they belong to. Measured on the published v0.7.36 asset
   ([3 defect faces](research/status-two-queue-reason-2026-11-19.json),
   verdict `status-two-queue-reason-one-field`) and re-measured on this tree
+  (held, 0 defect faces).
+- **A cadence of 0 means OFF, not every second (v0.7.38).** `reeflog
+  start` takes four cadence flags (`--seal-every`, `--reorg-every`,
+  `--repair-every`, `--webhook-every`), and the scheduler seeded its
+  next-due instants as `now + max(cadence, 1)`: a documented 0 collapsed to
+  ONE SECOND, every pass ran at 1 Hz — while the SAME run's shutdown gates
+  read the same zero as "never" (`final_reorg: {skipped: true}`). One flag
+  value, two contradictory meanings in one run, and the expensive one was
+  the 1 Hz one: `--webhook-every 0` delivered signed bodies at 1 Hz. A
+  cadence of 0 is now `None` as its next-due instant — never on a tick,
+  never at a gate; positive cadences keep their old meaning (including the
+  1 s floor). Measured on the published v0.7.37 asset
+  ([5 defect faces](research/scheduler-zero-cadence-2026-11-19.json),
+  verdict `scheduler-zero-cadence-busy`) and re-measured on this tree
   (held, 0 defect faces).
 - **The client is zero-dependency since v0.7.25.** Until then the npm
   manifest named *itself* as a dependency on github:, so every
