@@ -108,3 +108,54 @@ fn the_two_sides_measure_different_binaries() {
         "the two sides must be two different binaries, not one binary measured twice"
     );
 }
+
+/// The RELEASE verification: the artifact published alongside v0.7.40 must
+/// carry the fix, and it must be a DIFFERENT binary than the two tree
+/// sides. If the tag shipped something other than what was measured, the
+/// release claim would be empty — this pins the shipped bytes to a
+/// measurement.
+const PUBLISHED_V0740: &str = "reorg-verdict-survival-published-v0740-2026-11-19.json";
+
+#[test]
+fn the_published_v0740_asset_carries_the_fix() {
+    let text = artifact(PUBLISHED_V0740);
+    assert_contains(
+        &text,
+        "\"verdict\": \"reorg-verdict-survives\"",
+        "the published v0.7.40 verdict",
+    );
+    assert_contains(&text, "\"faces_count\": 6", "all faces green on the shipped asset");
+    assert_contains(&text, "\"guards_green\": 4", "the guards green on the shipped asset");
+    assert_contains(
+        &text,
+        "\"f1_row\": {\n      \"last_error\": null,\n      \"last_reorg_error\": \"refused with http 404\"",
+        "the surviving verdict in the shipped asset's journal",
+    );
+    // The label names the release digest the Release API published, so the
+    // artifact points at the exact bytes a stranger downloads.
+    assert_contains(
+        &text,
+        "\"label\": \"published-v0.7.40-sha87cebcb4\"",
+        "the shipped asset's release digest",
+    );
+    assert!(!text.contains("/tmp/"), "no host path in the committed artifact");
+    assert!(!text.contains("/home/"), "no host path in the committed artifact");
+}
+
+#[test]
+fn the_shipped_asset_is_a_third_binary() {
+    let prefix = artifact(PREFIX);
+    let fixed = artifact(FIXED);
+    let published = artifact(PUBLISHED_V0740);
+    let sha = |t: &str| {
+        t.split("\"bin_sha256\": \"")
+            .nth(1)
+            .and_then(|s| s.split('"').next())
+            .expect("sha")
+            .to_string()
+    };
+    let (p, f, s) = (sha(&prefix), sha(&fixed), sha(&published));
+    assert_ne!(p, f, "the two tree sides must differ");
+    assert_ne!(p, s, "the shipped asset must differ from the pre-fix tree");
+    assert_ne!(f, s, "the shipped asset must differ from the local fix build");
+}

@@ -1,0 +1,86 @@
+{
+  "label": "published-v0.7.40-sha87cebcb4",
+  "bin": "(host-path)",
+  "faces": {
+    "F1_verdict_survives_idle_pass": true,
+    "F2_status_reports_reorg_error_exit3": true,
+    "F3_held_verdict_survives_idle_pass": true,
+    "F3_status_exit3": true,
+    "F4_new_retraction_delivered": true,
+    "F5_event_verdict_survives_idle_pass": true
+  },
+  "guards": {
+    "G3_limit0_zero_bytes": true,
+    "G4_through_pass_clears_both": true,
+    "G1_event_write_names_refusal": true,
+    "G2_reorg_column_holds_own_verdict": true
+  },
+  "raw": {
+    "f1_row": {
+      "last_error": null,
+      "last_reorg_error": "refused with http 404",
+      "next_seq": 1,
+      "next_reorg_id": 1
+    },
+    "f1_status": {
+      "exit": 3,
+      "last_error": null,
+      "reorg_error": "refused with http 404"
+    },
+    "f1_push": {
+      "exit": 0,
+      "stderr": ""
+    },
+    "f3_row": {
+      "last_error": null,
+      "last_reorg_error": "refused with http 404",
+      "next_seq": 1,
+      "next_reorg_id": 1
+    },
+    "f3_status": {
+      "exit": 3,
+      "last_error": null,
+      "reorg_error": "refused with http 404"
+    },
+    "f3_push": {
+      "exit": 0,
+      "stderr": ""
+    },
+    "f4_row": {
+      "last_error": null,
+      "last_reorg_error": null,
+      "next_seq": 1,
+      "next_reorg_id": 2
+    },
+    "f4_push": {
+      "exit": 0,
+      "stderr": ""
+    },
+    "f5_row": {
+      "last_error": "the payload is still owed — run `hydrate`",
+      "last_reorg_error": null,
+      "next_seq": 1,
+      "next_reorg_id": 0
+    },
+    "f5_push": {
+      "exit": 0,
+      "stderr": ""
+    },
+    "g12_row1": {
+      "last_error": "refused with http 404",
+      "last_reorg_error": "refused with http 404",
+      "next_seq": 1,
+      "next_reorg_id": 0
+    },
+    "g12_push1": {
+      "exit": 3,
+      "stderr": "reeflog: 1 target(s) blocked — delivery is at-least-once and in order, so the queue stops at the first failure; the failure is recorded, not swallowed\nreeflog: blocked — t1 at seq 2: refused with http 404\nreeflog: blocked — t1 at reorg 1: refused with http 404 — the RETRACTION is still owed, the consumer has not been told that the chain unmade it"
+    }
+  },
+  "bin_sha256": "a332e39ce7a9de658827fbec49fd4dedc93bd4349bc2abb71dda2001d6fc4f1b",
+  "faces_count": 6,
+  "faces_total": 6,
+  "guards_green": 4,
+  "guards_total": 4,
+  "verdict": "reorg-verdict-survives"
+}
