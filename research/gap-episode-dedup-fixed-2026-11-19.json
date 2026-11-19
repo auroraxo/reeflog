@@ -2,10 +2,10 @@
   "verdict": "gap-episode-dedup-held",
   "defects": 0,
   "bin": "reeflog",
-  "binSha256": "2272a7c344ba071bd83d5d5632a234fc2e37180756d137858243a35f5cfbd16a",
-  "binVersion": "reeflog 0.7.39",
+  "binSha256": "d2e0cfb05fd24ca4ab16c8e3bcfc71563031fd55f2ab15425235d2aabc28a343",
+  "binVersion": "reeflog 0.7.40",
   "label": "fixed",
-  "at": "2026-11-19T19:51:25.711Z",
+  "at": "2026-11-19T23:37:30.274Z",
   "dir": "<tmp>/",
   "attemptsPerEpisode": 6,
   "results": [
