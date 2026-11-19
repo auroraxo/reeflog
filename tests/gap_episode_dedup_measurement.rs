@@ -86,7 +86,7 @@ fn the_published_v0734_artifact_records_the_accumulation() {
 
 #[test]
 fn the_fixed_artifact_records_the_dedup_and_the_heal() {
-    let text = artifact("gap-episode-dedup-fixed-2026-11-18.json");
+    let text = artifact("gap-episode-dedup-fixed-2026-11-19.json");
 
     assert_contains(&text, "\"verdict\": \"gap-episode-dedup-held\"", "the verdict");
     assert_contains(&text, "\"defects\": 0", "no defect faces on the fixed tree");
@@ -166,7 +166,7 @@ fn no_artifact_carries_a_host_path() {
         "gap-episode-dedup-published-v0734-2026-11-18.json",
         "gap-episode-dedup-published-v0735-2026-11-18.json",
         "gap-episode-dedup-prefix-2026-11-18.json",
-        "gap-episode-dedup-fixed-2026-11-18.json",
+        "gap-episode-dedup-fixed-2026-11-19.json",
     ] {
         let text = artifact(name);
         for marker in ["/home/", "/tmp/", "/Users/", "C:\\"] {

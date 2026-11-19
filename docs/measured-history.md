@@ -2149,7 +2149,7 @@ Gate: `tests/gap_episode_dedup.rs` (5 tests: D1/D2 written red-first
 against the pre-fix tree — the fake sink performs a REAL RFC 6455
 upgrade, because the daemon only resumes after a real one — G guards
 green on both trees), the instrument re-run on the fixed tree
-(`research/gap-episode-dedup-fixed-2026-11-18.json`, verdict
+(`research/gap-episode-dedup-fixed-2026-11-19.json`, verdict
 `gap-episode-dedup-held`, 8/8 faces) AND on the **published v0.7.35
 asset** (archive from the Release API, binary sha256 `c6fcc5b0…`;
 `research/gap-episode-dedup-published-v0735-2026-11-18.json`, same

@@ -150,3 +150,45 @@ fn no_face_holds_on_the_baseline_but_fails_on_the_fix_side_of_the_record() {
         );
     }
 }
+
+/// The PUBLISHED v0.7.36 asset must carry the fix: the tree carrying it is
+/// not the same claim as the BYTES a stranger installs carrying it.
+#[test]
+fn the_published_v0736_asset_carries_the_fix() {
+    let text = artifact("webhook-redirect-published-v0736-2026-11-19.json");
+    assert_contains(
+        &text,
+        "\"label\": \"published-v0736\"",
+        "which binary was measured (label)",
+    );
+    assert_contains(
+        &text,
+        "\"binVersion\": \"reeflog 0.7.36\"",
+        "the measured binary's own version",
+    );
+    assert_contains(
+        &text,
+        "\"verdict\": \"webhook-redirect-refused-at-the-configured-endpoint\"",
+        "the verdict",
+    );
+    assert_contains(&text, "\"baselineDefectFaces\": 5", "the baseline defect count");
+    assert_contains(&text, "\"fixedDefectFaces\": 0", "no defect face on the published bytes");
+    // The published side records the endpoint's own answer, not the hop's.
+    assert_contains(&text, "\"attemptStatus\": 302", "the published side's own answer");
+}
+
+#[test]
+fn no_committed_redirect_artifact_carries_a_host_path() {
+    for name in [
+        "webhook-redirect-two-tree-2026-11-19.json",
+        "webhook-redirect-published-v0736-2026-11-19.json",
+    ] {
+        let text = artifact(name);
+        for marker in ["/home/", "/tmp/", "/Users/", "C:\\"] {
+            assert!(
+                !text.contains(marker),
+                "{name} must not carry a host path (found {marker})"
+            );
+        }
+    }
+}
