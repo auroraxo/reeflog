@@ -10,11 +10,11 @@ durable cursor, no catch-up. Every project rebuilds reconnect, dedup,
 gap-fill, and reorg handling, or silently loses events. reeflog makes that
 one daemon, one file, one cursor.
 
-**Status: v0.7.35 (2026-11-18), live against mainnet-beta — no Rust toolchain needed: `npm install reeflog-client`, then `import { bootstrap } from 'reeflog-client'; await bootstrap()` (downloads the prebuilt release archive and verifies its sha256 against what the GitHub release API publishes). The client itself is zero-dependency: one package, no `node_modules` of its own, and it installs without `git` on the machine.**
+**Status: v0.7.36 (2026-11-19), live against mainnet-beta — no Rust toolchain needed: `npm install reeflog-client`, then `import { bootstrap } from 'reeflog-client'; await bootstrap()` (downloads the prebuilt release archive and verifies its sha256 against what the GitHub release API publishes). The client itself is zero-dependency: one package, no `node_modules` of its own, and it installs without `git` on the machine.**
 
 The same client from the tagged release:
-`npm install github:auroraxo/reeflog#v0.7.35`. Or from source:
-`cargo install --git https://github.com/auroraxo/reeflog --tag v0.7.35`.
+`npm install github:auroraxo/reeflog#v0.7.36`. Or from source:
+`cargo install --git https://github.com/auroraxo/reeflog --tag v0.7.36`.
 
 **Honest state:** it works, and it is measured — but so far every real
 consumer belongs to the project itself. There is no unaffiliated third-party
@@ -164,6 +164,7 @@ detail and every raw number in
 | Retraction block | a refused retraction was reported as a phantom event position (`at seq None`) on the event channel, the operator's line leaked Rust debug formatting, and the retraction's reason shared the event channel's `blocked_error` — the operator could not tell which queue was stuck; measured on the published v0.7.32 asset, fixed in v0.7.33 |
 | Fan-out isolation | ONE target whose delivery state is bound to another endpoint aborted the whole webhook command: `push`/`status`/`dlq replay` exited 1 with NO report, the healthy sink starved (3 of 5 bodies), the reports a monitoring caller polls went dark; measured on the published v0.7.33 asset, fixed in v0.7.34 |
 | Disconnect episodes | ONE outage left one OPEN gap row per refused connect attempt and healed only the last: a journal whose stream had returned reported `gaps_open: 6` forever, and every nightly network switch re-opened the alarm; measured on the published v0.7.34 asset, fixed in v0.7.35 |
+| Webhook redirect | the poster followed HTTP redirects: a redirecting endpoint recorded every event as delivered (attempt status = the hop's own 200) while the configured consumer received ZERO event bodies and a bodyless GET carried the signature header to a host the config never named — the cursor advanced past the event, so it could never be re-delivered; measured on the published v0.7.35 asset, fixed in v0.7.36 |
 
 ## Conditions and limits — the honest part
 
@@ -328,6 +329,23 @@ detail and every raw number in
   ([held](research/gap-episode-dedup-published-v0735-2026-11-18.json), 8/8
   faces, verdict `gap-episode-dedup-held` — the fix is in the bytes a
   stranger installs).
+- **A redirect is a refusal of THIS url, not a delivery (v0.7.36).** The
+  webhook poster followed HTTP redirects: a redirecting endpoint recorded
+  every event as delivered — the attempt status was the HOP's own 200 —
+  while the configured consumer received zero event bodies, the cursor
+  advanced past the event (so it could never be re-delivered), and a
+  301/302/303 hop carried the signature header on a bodyless GET to a
+  host the config never named. Delivery is bound to the url the config
+  names: the redirect is now answered as a REFUSED verdict (its own 3xx
+  status recorded), the hop is never followed, the refusal names the
+  mechanism and the repair (repoint the target's url explicitly), and the
+  target's queue holds the exit code (3). Measured on the published
+  v0.7.35 asset
+  ([5 defect faces](research/webhook-redirect-two-tree-2026-11-19.json),
+  verdict `webhook-redirect-followed-and-recorded-delivered`) and
+  re-measured on this tree
+  ([held](research/webhook-redirect-two-tree-2026-11-19.json), 0 defect
+  faces, verdict `webhook-redirect-refused-at-the-configured-endpoint`).
 - **The client is zero-dependency since v0.7.25.** Until then the npm
   manifest named *itself* as a dependency on github:, so every
   `npm install reeflog-client` also cloned a second, older copy of the
