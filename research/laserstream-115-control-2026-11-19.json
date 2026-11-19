@@ -1,0 +1,23 @@
+{
+  "commitment": "confirmed",
+  "connection1_delivered_slots": [
+    90,
+    91,
+    90,
+    91,
+    90,
+    91
+  ],
+  "defect_present": false,
+  "expected_resume_slot": 92,
+  "issue": "helius-labs/laserstream-sdk#115",
+  "mock_ignores_from_slot": true,
+  "payloads_delivered_after_reconnect": 0,
+  "reconnect_from_slot": null,
+  "script": "payload@90, payload@91, stream end -> reconnect",
+  "sdk_head": "379a6ba (Update SDK to Agave 4.4 Core)",
+  "server_behavior": "the mock replays its fixed script regardless of from_slot; reconnect_from_slot is the measurement",
+  "skipped_range_size": 30,
+  "slots_a_compliant_server_would_never_redeliver": [],
+  "variant": "CONTROL: no slot update delivered at all (payload-only stream)"
+}
