@@ -168,6 +168,7 @@ detail and every raw number in
 | Two-queue reason | the two delivery queues kept ONE standing reason: a blocked event queue written after a blocked retraction queue OVERWROTE it, so `webhook status` showed the retraction's 404 where the event queue's repair (`hydrate`) belonged — the report a monitoring caller polls named the wrong queue's repair; measured on the published v0.7.36 asset, fixed in v0.7.37 |
 | Zero cadence | the four cadence flags (`--seal-every`/`--reorg-every`/`--repair-every`/`--webhook-every`) turned a documented 0 into ONE SECOND: every pass ran at 1 Hz while the SAME run's shutdown gates read the same zero as "never" — and `--webhook-every 0` delivered signed bodies at 1 Hz; measured on the published v0.7.37 asset, fixed in v0.7.38 |
 | Retraction refusal voice | the retraction queue formatted the refusal reason by hand instead of consulting the one mint: with an endpoint answering 302, the event queue said `refused with http 302 redirect — … repoint this target's url explicitly …` while the RETRACTION queue's four surfaces (the attempt record, the report's `reorg_error`, `webhook status`, the blocked line) all read the flat `refused with http 302` — the queue whose lateness costs money read a bare status with no repair; measured on the published v0.7.38 asset, fixed in v0.7.39 |
+| Idle-pass verdict erasure | a pass that never examined a queue erased the verdict it found: `webhook push --limit 0` (documented as sending zero bytes) nulled BOTH standing reasons, so a held retraction queue read as healthy on `webhook status` — exit 0, no `reorg_error` — and a recorded payload-hold repair (`run `hydrate``) vanished the same way; measured on this tree before the fix, fixed the same day (v0.7.40) |
 | Field use | the same cursor rule answered an open question in someone else's product: a LaserStream SDK issue asked whether reconnect `from_slot` can skip undelivered data — measured with a runnable mock (`379a6ba`, three variants + control): ticks at live head advance the SDK's resume cursor past payloads still being replayed, whatever their commitment status ([laserstream-sdk#115](https://github.com/helius-labs/laserstream-sdk/issues/115#issuecomment-7016745189), harness [auroraxo/laserstream-cursor-measure](https://github.com/auroraxo/laserstream-cursor-measure)) — the skip becomes a visible, backfillable gap row here (2026-11-19); the follow-up two-rule matrix measured the SDK maintainer's proposed fix (PR #114's `replay_cursor_slot`) against a compliant server: it closes the internal-tick face and the block-footer face, but the two faces the issue reports — a USER slot update at live head, with or without `filter_by_commitment` — still advance the cursor to 122 and lose slots 92..121 (per-cell artifacts + `research/laserstream-115-pr114-two-rule-matrix-2026-11-19.json`, pinned by `tests/laserstream_115_pr114_matrix.rs`) |
 
 ## Conditions and limits — the honest part
@@ -395,6 +396,21 @@ detail and every raw number in
   ([4 defect faces](research/reorg-refusal-voice-2026-11-19.json),
   verdict `reorg-refusal-voice-borrowed-flat-wording`) and re-measured on
   this tree (held, 0 defect faces).
+- **A channel's verdict survives a pass that never reaches it
+  (v0.7.40).** The two queues have owned their standing reasons since
+  v0.7.37, but the CLEAR stayed shared: the event phase nulled BOTH
+  columns, and the retraction phase had no clear of its own — so `webhook
+  push --limit 0`, the pass documented as sending zero bytes, erased the
+  retraction queue's recorded refusal on disk, and `webhook status` then
+  reported the held queue as healthy and exited 0. The mirror image
+  erased a recorded payload-hold repair. Now each phase clears only its
+  own column, and only after it actually read its queue: a phase that
+  examines no row leaves the verdict it finds standing, a pass that gets
+  through still clears its channel (v0.7.23 unchanged), and the owed
+  retraction still moves. Measured on this tree before the fix
+  ([prefix, 5/6 defect faces](research/reorg-verdict-survival-prefix-2026-11-19.json),
+  verdict `reorg-verdict-erased-by-idle-pass`) and after
+  ([fixed, 6/6](research/reorg-verdict-survival-fixed-2026-11-19.json)).
 - **The client is zero-dependency since v0.7.25.** Until then the npm
   manifest named *itself* as a dependency on github:, so every
   `npm install reeflog-client` also cloned a second, older copy of the
