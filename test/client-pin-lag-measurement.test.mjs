@@ -27,7 +27,7 @@ const ART = path.resolve(
   import.meta.dirname,
   '..',
   'research',
-  'client-pin-lag-published-v0716-2026-11-11.json',
+  'client-pin-lag-published-v0716-2026-11-19.json',
 );
 
 const report = JSON.parse(fs.readFileSync(ART, 'utf8'));

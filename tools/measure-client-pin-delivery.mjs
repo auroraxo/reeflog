@@ -5,7 +5,7 @@
 // `package.json: 0.7.15`, so the README's install
 // (`npm install github:auroraxo/reeflog#v0.7.16`) handed a stranger a client
 // that asked the release API for v0.7.15 and installed the PREVIOUS binary
-// (research/client-pin-lag-published-v0716-2026-11-11.json).
+// (research/client-pin-lag-published-v0716-2026-11-19.json).
 //
 // What this measures: the SAME stranger path against the PUBLISHED v0.7.17
 // release, with the REAL GitHub API and the REAL asset — no stand-in:

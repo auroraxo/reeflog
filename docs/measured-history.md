@@ -2008,7 +2008,7 @@ afterwards.
 ### The tag's own client asked for the PREVIOUS release
 
 Measured 2026-11-11 on the **published v0.7.16 tag tree**
-(`research/client-pin-lag-published-v0716-2026-11-11.json`, verdict
+(`research/client-pin-lag-published-v0716-2026-11-19.json`, verdict
 `defect-present-on-baseline`): the v0.7.16 release commit moved Cargo.toml,
 Cargo.lock and the install pins above — and forgot `package.json`, which
 still read `"version": "0.7.15"`. `bootstrap()` derives the release tag it
