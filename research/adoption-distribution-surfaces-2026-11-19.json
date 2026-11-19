@@ -1,0 +1,285 @@
+{
+  "measuredAt": "2026-11-19T18:46:55.252Z",
+  "repo": "auroraxo/reeflog",
+  "checks": {
+    "repoMetadata": {
+      "public": true,
+      "license": "MIT",
+      "description": "Durable local mailbox for Solana events — cursor-addressed append-only journal with gap-fill, reorg sealing, webhook fan-out + DLQ. v0.1.0, MIT.",
+      "ok": true
+    },
+    "starForkCensus": {
+      "starsTotal": 0,
+      "forksTotal": 0,
+      "nonOwnerStars": [],
+      "nonOwnerForks": [],
+      "starsApiUsable": true,
+      "ok": true
+    },
+    "issueCensus": {
+      "total": 2,
+      "external": [],
+      "outreachExcluded": [
+        {
+          "n": 2,
+          "author": "webbeep",
+          "isPR": false,
+          "title": "Invite (outreach): Sloppable, an open network for agents. Opt-in, from SloppableAI",
+          "reasons": [
+            "title:invite/outreach",
+            "body:this is opt-in\\b",
+            "body:close this issue\\b.{0,120}\\b(won'?t|will not)\\b.{0,60}\\b(contact|reach out|write)\\b",
+            "body:\\bi['’]m writing to you, the agent\\b",
+            "body:\\bthis is [A-Za-z0-9_.-]+, an (AI|autonomous) agent\\b"
+          ]
+        }
+      ],
+      "ok": true
+    },
+    "traffic": {
+      "window": "last 14 days, GitHub-fixed buckets",
+      "views": {
+        "count": 11,
+        "uniques": 4
+      },
+      "clones": {
+        "count": 2092,
+        "uniques": 456
+      },
+      "caveat": "clone count includes every CI checkout of this repo; not an adoption signal",
+      "ok": true
+    },
+    "referrers": {
+      "all": [],
+      "external": [],
+      "ok": true
+    },
+    "npmDownloads": {
+      "package": "reeflog-client",
+      "registry": "api.npmjs.org/downloads",
+      "firstPublishAt": "2026-11-12T16:55:21.365Z",
+      "lastWeek": {
+        "downloads": 3024,
+        "window": "2026-11-12..2026-11-18"
+      },
+      "byDay": [
+        {
+          "day": "2026-10-29",
+          "downloads": 0
+        },
+        {
+          "day": "2026-10-30",
+          "downloads": 0
+        },
+        {
+          "day": "2026-10-31",
+          "downloads": 0
+        },
+        {
+          "day": "2026-11-01",
+          "downloads": 0
+        },
+        {
+          "day": "2026-11-02",
+          "downloads": 0
+        },
+        {
+          "day": "2026-11-03",
+          "downloads": 0
+        },
+        {
+          "day": "2026-11-04",
+          "downloads": 0
+        },
+        {
+          "day": "2026-11-05",
+          "downloads": 0
+        },
+        {
+          "day": "2026-11-06",
+          "downloads": 0
+        },
+        {
+          "day": "2026-11-07",
+          "downloads": 0
+        },
+        {
+          "day": "2026-11-08",
+          "downloads": 0
+        },
+        {
+          "day": "2026-11-09",
+          "downloads": 0
+        },
+        {
+          "day": "2026-11-10",
+          "downloads": 0
+        },
+        {
+          "day": "2026-11-11",
+          "downloads": 0
+        },
+        {
+          "day": "2026-11-12",
+          "downloads": 279
+        },
+        {
+          "day": "2026-11-13",
+          "downloads": 867
+        },
+        {
+          "day": "2026-11-14",
+          "downloads": 302
+        },
+        {
+          "day": "2026-11-15",
+          "downloads": 412
+        },
+        {
+          "day": "2026-11-16",
+          "downloads": 578
+        },
+        {
+          "day": "2026-11-17",
+          "downloads": 381
+        },
+        {
+          "day": "2026-11-18",
+          "downloads": 205
+        },
+        {
+          "day": "2026-11-19",
+          "downloads": 0
+        }
+      ],
+      "downloadsBeforeFirstPublish": 0,
+      "countsAsAdoption": false,
+      "meaning": "npm counts every install; this project’s own CI installs the package (client.test, npm-self-dependency, registry-channel, live registry harness) — downloads measure OWNER ACTIVITY unless a foreign consumer is proven elsewhere; adoption signals stay stars/forks/usage-issues/referrers",
+      "ownerCiRunsSameWeek": [
+        {
+          "repo": "auroraxo/reeflog",
+          "runs": 75,
+          "since": "2026-11-12T18:46:58.884Z"
+        },
+        {
+          "repo": "auroraxo/sememe",
+          "runs": 88,
+          "since": "2026-11-12T18:46:58.884Z"
+        },
+        {
+          "repo": "auroraxo/signerd",
+          "runs": 135,
+          "since": "2026-11-12T18:46:58.884Z"
+        },
+        {
+          "repo": "auroraxo/whirlpool-watcher",
+          "runs": 0,
+          "since": "2026-11-12T18:46:58.884Z"
+        }
+      ],
+      "ok": true
+    }
+  },
+  "placement": {
+    "upstream": "StockpileLabs/awesome-solana-oss",
+    "pr": 93,
+    "title": "Add reeflog to Data",
+    "state": "open",
+    "merged": false,
+    "mergedBy": null,
+    "mergedAt": null,
+    "url": "https://github.com/StockpileLabs/awesome-solana-oss/pull/93",
+    "fetchedAt": "2026-11-19T18:46:55.252Z"
+  },
+  "distributionSurfaces": {
+    "measuredAt": "2026-11-19T18:46:55.252Z",
+    "surfaces": [
+      {
+        "surface": "helius-labs/laserstream-sdk#115",
+        "kind": "issue-thread",
+        "ownerPresentedAt": "2026-11-19T17:27:29Z",
+        "ownerComments": 2,
+        "reactionsOnOwnerComments": 0,
+        "commentsTotal": 6,
+        "nonOwnerRepliesAfter": [
+          {
+            "author": "akshatcoder-hash",
+            "createdAt": "2026-11-19T18:20:13Z",
+            "mentionsReeflog": false,
+            "mentionsAuroraxoRepo": false,
+            "quotesMeasuredSkip": true
+          }
+        ],
+        "classification": "measurement-field-use-not-reeflog-consumption",
+        "reasons": [
+          "thread-is-foreign: helius-labs/laserstream-sdk is not owned by auroraxo",
+          "no-reeflog-mention: 1 foreign reply/replies after presentation mention neither reeflog nor a github.com/auroraxo/ link",
+          "content-engagement: the reply quotes the measured skip range 92..121, i.e. it engages with the evidence, not with reeflog"
+        ]
+      }
+    ],
+    "harnessRepo": {
+      "repo": "auroraxo/laserstream-cursor-measure",
+      "public": true,
+      "stars": 0,
+      "forks": 0,
+      "nonOwnerStars": [],
+      "nonOwnerForks": [],
+      "countsAsReeflogAdoption": false
+    },
+    "placements": [
+      {
+        "upstream": "StockpileLabs/awesome-solana-oss",
+        "pr": 93,
+        "title": "Add reeflog to Data",
+        "state": "open",
+        "merged": false,
+        "mergedBy": null,
+        "mergedAt": null,
+        "url": "https://github.com/StockpileLabs/awesome-solana-oss/pull/93",
+        "reviews": 0,
+        "reviewsByOthers": 0,
+        "commentsByOthers": 0,
+        "fetchedAt": "2026-11-19T18:46:55.252Z"
+      },
+      {
+        "upstream": "solana-foundation/awesome-solana-ai",
+        "pr": 280,
+        "title": "Add signerd to Developer Tools",
+        "state": "open",
+        "merged": false,
+        "mergedBy": null,
+        "mergedAt": null,
+        "url": "https://github.com/solana-foundation/awesome-solana-ai/pull/280",
+        "reviews": 0,
+        "reviewsByOthers": 0,
+        "commentsByOthers": 0,
+        "fetchedAt": "2026-11-19T18:46:55.252Z"
+      }
+    ],
+    "reeflogCensusAtMeasurement": {
+      "nonOwnerStars": 0,
+      "nonOwnerForks": 0,
+      "usageIssues": 0
+    },
+    "verdict": {
+      "class": "measurement-field-use-zero-reeflog-consumption",
+      "signals": [
+        "1 foreign reply/replies after presentation on helius-labs/laserstream-sdk#115 (akshatcoder-hash at 2026-11-19T18:20:13Z) — measurement field-use, NOT reeflog adoption"
+      ],
+      "meaning": "the measured evidence was read and answered off-repo; reeflog itself was not mentioned, no foreign star/fork/usage-issue exists — PUBLISH != CONSUMPTION still holds",
+      "userOneEvidence": false
+    },
+    "ok": true
+  },
+  "verdict": {
+    "class": "not-distributed-not-consumed",
+    "signals": [
+      "placement StockpileLabs/awesome-solana-oss#93 state=open",
+      "zero non-owner stars, forks, issues, PRs"
+    ],
+    "meaning": "the candidate channel is open but nothing has been consumed"
+  },
+  "dataSourcesFailed": 0,
+  "complete": true
+}

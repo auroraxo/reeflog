@@ -17,6 +17,16 @@
 //  6. Placement channel state — the distribution PR is fetched LIVE from
 //     the upstream list (MERGED means the channel delivered; it is NOT
 //     adoption by itself and the verdict says so).
+//  9. distribution surfaces — everything the distribution lane does OFF
+//     this repo, which the census above is blind to: the measured evidence
+//     posted on foreign threads (helius-labs/laserstream-sdk#115), the
+//     placement PRs (#93, #280) with their review/comment state, and the
+//     public measurement harness repo. A foreign reply that arrives after
+//     our first comment is the earliest possible reaction signal — it is
+//     classified as FIELD-USE OF THE MEASUREMENT, never as reeflog
+//     consumption, unless the reply itself mentions reeflog or links an
+//     auroraxo repo (then it is a foreign reeflog reaction, still not
+//     user-one: that class stays repo-scoped to stars/forks/usage-issues).
 //  7. npm downloads (the distribution card requires weekly npm numbers):
 //     recorded WITH their attribution — npm counts every install and this
 //     project's own CI installs the client on every run (client.test,
@@ -272,7 +282,226 @@ if (PLACEMENT_PR > 0) {
   placement = { upstream: UPSTREAM, pr: null, state: 'none-open' };
 }
 
-// ---- 7. classification -----------------------------------------------------
+// ---- 9. distribution surfaces: the outbound action, reacted to ------------
+// Configured surfaces (env-overridable); each is "owner/repo#number".
+const DIST_SURFACES = (
+  process.env.ADOPTION_DIST_SURFACES || 'helius-labs/laserstream-sdk#115'
+)
+  .split(',')
+  .map((s) => s.trim())
+  .filter(Boolean);
+const HARNESS_REPO = process.env.ADOPTION_HARNESS_REPO || 'auroraxo/laserstream-cursor-measure';
+
+const distributionSurfaces = [];
+for (const spec of DIST_SURFACES) {
+  const m = spec.match(/^(.+?)#(\d+)$/);
+  if (!m) {
+    failures.push(`distribution surface ${spec} is not owner/repo#number`);
+    continue;
+  }
+  const [, where, nStr] = m;
+  const n = Number(nStr);
+  const comments = gh([`repos/${where}/issues/${n}/comments?per_page=100`], true);
+  if (!comments) {
+    distributionSurfaces.push({ surface: spec, state: 'unverifiable' });
+    continue;
+  }
+  const presented = comments
+    .filter((c) => c.user && c.user.login === OWNER && c.created_at)
+    .map((c) => c.created_at)
+    .sort()[0] || null;
+  // Emoji reactions on the owner's comments: another reaction channel a
+  // reply-only view would miss.
+  const ownerCommentIds = comments
+    .filter((c) => c.user && c.user.login === OWNER)
+    .map((c) => c.id);
+  let reactionsOnOwnerComments = 0;
+  if (presented !== null) {
+    for (const id of ownerCommentIds) {
+      const rs = gh([`repos/${where}/issues/comments/${id}/reactions`], true);
+      if (rs === null) {
+        reactionsOnOwnerComments = null;
+        break;
+      }
+      reactionsOnOwnerComments += rs.length;
+    }
+  }
+  const foreignReplies = comments.filter(
+    (c) =>
+      presented &&
+      c.user &&
+      c.user.login !== OWNER &&
+      !c.user.login.endsWith('[bot]') &&
+      c.created_at > presented
+  );
+  const replies = foreignReplies.map((c) => ({
+    author: c.user.login,
+    createdAt: c.created_at,
+    mentionsReeflog: /\breeflog\b/i.test(c.body || ''),
+    mentionsAuroraxoRepo: /github\.com\/auroraxo\//i.test(c.body || ''),
+    // 92..121 is the skip range this project measured on SDK main 379a6ba;
+    // a foreign reply carrying both endpoints engaged with the numbers.
+    quotesMeasuredSkip: /\b92\b[\s\S]*\b121\b/.test(c.body || ''),
+  }));
+  const reeflogMentions = replies.filter((r) => r.mentionsReeflog || r.mentionsAuroraxoRepo);
+  let classification;
+  const reasons = [];
+  if (presented === null) {
+    classification = 'no-presentation';
+    reasons.push(`no-presentation: ${OWNER} has not commented on ${spec}`);
+  } else if (replies.length === 0) {
+    classification = 'no-visible-reaction';
+    reasons.push(`no-visible-reaction: no foreign non-bot reply after ${presented} on ${spec}`);
+  } else if (reeflogMentions.length > 0) {
+    classification = 'foreign-reeflog-reaction';
+    reasons.push(
+      `foreign-reeflog-reaction: ${reeflogMentions.map((r) => r.author).join(', ')} mentioned reeflog or an auroraxo repo link on ${spec}`
+    );
+  } else {
+    classification = 'measurement-field-use-not-reeflog-consumption';
+    reasons.push(`thread-is-foreign: ${where} is not owned by ${OWNER}`);
+    reasons.push(
+      `no-reeflog-mention: ${replies.length} foreign reply/replies after presentation mention neither reeflog nor a github.com/auroraxo/ link`
+    );
+    if (replies.some((r) => r.quotesMeasuredSkip)) {
+      reasons.push(
+        'content-engagement: the reply quotes the measured skip range 92..121, i.e. it engages with the evidence, not with reeflog'
+      );
+    }
+  }
+  distributionSurfaces.push({
+    surface: spec,
+    kind: 'issue-thread',
+    ownerPresentedAt: presented,
+    ownerComments: comments.filter((c) => c.user && c.user.login === OWNER).length,
+    reactionsOnOwnerComments,
+    commentsTotal: comments.length,
+    nonOwnerRepliesAfter: replies,
+    classification,
+    reasons,
+  });
+}
+
+// The public harness: stars/forks there are harness adoption, recorded
+// separately so they can never leak into the reeflog user-one class.
+const harness = gh([`repos/${HARNESS_REPO}`], true);
+const harnessStars = harness ? gh([`repos/${HARNESS_REPO}/stargazers?per_page=100`], true) || [] : [];
+const harnessForks = harness ? gh([`repos/${HARNESS_REPO}/forks?per_page=100`], true) || [] : [];
+const harnessRepo = harness
+  ? {
+      repo: HARNESS_REPO,
+      public: !harness.private,
+      stars: harness.stargazers_count,
+      forks: harness.forks_count,
+      nonOwnerStars: harnessStars
+        .filter((s) => s.login && s.login !== OWNER)
+        .map((s) => s.login),
+      nonOwnerForks: harnessForks
+        .filter((f) => f.owner && f.owner.login !== OWNER)
+        .map((f) => f.owner.login),
+      countsAsReeflogAdoption: false,
+    }
+  : { repo: HARNESS_REPO, state: 'unverifiable' };
+
+// Placement PRs: both listing channels, with review/comment state — 0
+// reviews is a measured fact, not a remembered one.
+const PLACEMENT_SPECS = (
+  process.env.ADOPTION_PLACEMENTS ||
+  'StockpileLabs/awesome-solana-oss#93,solana-foundation/awesome-solana-ai#280'
+)
+  .split(',')
+  .map((s) => s.trim())
+  .filter(Boolean);
+const placements = [];
+for (const spec of PLACEMENT_SPECS) {
+  const m = spec.match(/^(.+?)#(\d+)$/);
+  if (!m) {
+    failures.push(`placement ${spec} is not owner/repo#number`);
+    continue;
+  }
+  const [, up, nStr] = m;
+  const pr = gh([`repos/${up}/pulls/${Number(nStr)}`], true);
+  if (!pr) {
+    placements.push({ upstream: up, pr: Number(nStr), state: 'unverifiable' });
+    continue;
+  }
+  const reviews = gh([`repos/${up}/pulls/${pr.number}/reviews`], true);
+  const comments = gh([`repos/${up}/issues/${pr.number}/comments?per_page=100`], true);
+  placements.push({
+    upstream: up,
+    pr: pr.number,
+    title: pr.title,
+    state: pr.state,
+    merged: Boolean(pr.merged),
+    mergedBy: pr.merged_by ? pr.merged_by.login : null,
+    mergedAt: pr.merged_at,
+    url: pr.html_url,
+    reviews: reviews ? reviews.length : null,
+    reviewsByOthers: reviews
+      ? reviews.filter((r) => r.user && r.user.login !== OWNER).length
+      : null,
+    commentsByOthers: comments
+      ? comments.filter((c) => c.user && c.user.login !== OWNER && !c.user.login.endsWith('[bot]')).length
+      : null,
+    fetchedAt: startedAt,
+  });
+}
+
+const distVerdict = (() => {
+  const reacted = distributionSurfaces.filter(
+    (s) => s.classification === 'foreign-reeflog-reaction' || s.classification === 'measurement-field-use-not-reeflog-consumption'
+  );
+  const reeflogReactions = distributionSurfaces.filter((s) => s.classification === 'foreign-reeflog-reaction');
+  if (reeflogReactions.length > 0) {
+    return {
+      class: 'foreign-reeflog-reaction',
+      signals: reeflogReactions.map(
+        (s) => `foreign reply on ${s.surface} mentions reeflog: ${s.nonOwnerRepliesAfter.filter((r) => r.mentionsReeflog || r.mentionsAuroraxoRepo).map((r) => r.author).join(', ')}`
+      ),
+      meaning:
+        'a foreign account brought reeflog up on a distribution surface — follow up as a signal, but the user-one class stays repo-scoped (stars/forks/usage-issues on the reeflog repo)',
+      userOneEvidence: false,
+    };
+  }
+  if (reacted.length > 0) {
+    const signalParts = reacted.map((s) => {
+      const first = s.nonOwnerRepliesAfter[0];
+      return `${s.nonOwnerRepliesAfter.length} foreign reply/replies after presentation on ${s.surface} (${first.author} at ${first.createdAt}) — measurement field-use, NOT reeflog adoption`;
+    });
+    return {
+      class: 'measurement-field-use-zero-reeflog-consumption',
+      signals: signalParts,
+      meaning:
+        'the measured evidence was read and answered off-repo; reeflog itself was not mentioned, no foreign star/fork/usage-issue exists — PUBLISH != CONSUMPTION still holds',
+      userOneEvidence: false,
+    };
+  }
+  return {
+    class: 'no-visible-reaction',
+    signals: ['no foreign reply after presentation on any distribution surface'],
+    meaning: 'the outbound action is live but nothing has come back — still zero signals',
+    userOneEvidence: false,
+  };
+})();
+
+const distributionSurfacesBlock = {
+  measuredAt: startedAt,
+  surfaces: distributionSurfaces,
+  harnessRepo,
+  placements,
+  reeflogCensusAtMeasurement: {
+    nonOwnerStars: starLogins.length,
+    nonOwnerForks: forkLogins.length,
+    usageIssues: usageIssues.length,
+  },
+  verdict: distVerdict,
+  ok: distributionSurfaces.every((s) => s.state !== 'unverifiable') && placements.every((p) => p.state !== 'unverifiable') && harnessRepo.state !== 'unverifiable',
+};
+if (!distributionSurfacesBlock.ok) {
+  failures.push('distribution surfaces not fully verifiable — no verdict on partial evidence');
+}
+
+// ---- 10. classification ----------------------------------------------------
 const userOneSignals = [
   ...starLogins.map((l) => `star by ${l}`),
   ...forkLogins.map((l) => `fork by ${l}`),
@@ -311,6 +540,7 @@ const report = {
   repo: REPO,
   checks,
   placement,
+  distributionSurfaces: distributionSurfacesBlock,
   verdict,
   dataSourcesFailed: failedSources,
   complete: failedSources === 0 && checks.repoMetadata.ok && checks.traffic.ok && npmOk,
@@ -339,6 +569,23 @@ lines.push(
 lines.push(
   `  placement: ${UPSTREAM}#${placement.pr} state=${placement.state}${placement.merged ? ` MERGED by ${placement.mergedBy}` : ''}`
 );
+for (const s of distributionSurfaces) {
+  lines.push(
+    `  surface ${s.surface}: owner presented ${s.ownerPresentedAt ?? 'n/a'}, ${s.ownerComments} owner comment(s), ${s.nonOwnerRepliesAfter.length} foreign reply/replies after presentation -> ${s.classification}`
+  );
+}
+for (const p of placements) {
+  lines.push(
+    `  placement ${p.upstream}#${p.pr}: state=${p.state}${p.merged ? ' MERGED' : ''}, reviews=${p.reviews ?? '?'} (others ${p.reviewsByOthers ?? '?'}), foreign comments=${p.commentsByOthers ?? '?'}`
+  );
+}
+lines.push(
+  `  harness ${harnessRepo.repo}: public=${harnessRepo.public} stars=${harnessRepo.stars ?? '?'} (non-owner ${harnessRepo.nonOwnerStars ? harnessRepo.nonOwnerStars.length : '?'}) forks=${harnessRepo.forks ?? '?'} (non-owner ${harnessRepo.nonOwnerForks ? harnessRepo.nonOwnerForks.length : '?'}) — harness adoption, never reeflog adoption`
+);
+if (distributionSurfacesBlock.ok) {
+  lines.push(`  DISTRIBUTION VERDICT: ${distributionSurfacesBlock.verdict.class}`);
+  for (const s of distributionSurfacesBlock.verdict.signals) lines.push(`    - ${s}`);
+}
 if (failedSources || !checks.repoMetadata.ok || !checks.traffic.ok || !npmOk) {
   lines.push(
     `  NO VERDICT — incomplete evidence (${failedSources} data source failure(s)` +
