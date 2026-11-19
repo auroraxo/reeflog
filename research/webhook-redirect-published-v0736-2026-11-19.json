@@ -1,0 +1,213 @@
+{
+  "verdict": "webhook-redirect-refused-at-the-configured-endpoint",
+  "baselineDefectFaces": 5,
+  "fixedDefectFaces": 0,
+  "baseline": {
+    "label": "published-v0735",
+    "binVersion": "reeflog 0.7.35",
+    "binSha256": "df2ea627dbd03a7de056c3511e132864cdaef2b0c18ddba548a27edd4e024902",
+    "exitCode": 0,
+    "reportDelivered": 1,
+    "reportError": null,
+    "reportBlocked": false,
+    "statusLastError": null,
+    "cursor": 1,
+    "receipts": 1,
+    "attemptStatus": 200,
+    "attemptError": null,
+    "primaryHits": [
+      {
+        "request_line": "POST /hook HTTP/1.1",
+        "method": "POST",
+        "body_bytes": 228,
+        "signature_header": true
+      }
+    ],
+    "hopHits": [
+      {
+        "request_line": "GET /hook HTTP/1.1",
+        "method": "GET",
+        "body_bytes": 0,
+        "signature_header": true
+      }
+    ]
+  },
+  "fixed": {
+    "label": "published-v0736",
+    "binVersion": "reeflog 0.7.36",
+    "binSha256": "12433146fea140c068d3e2991b50869a2bf43abd9734e3a8c67ff40fb3f58306",
+    "exitCode": 3,
+    "reportDelivered": 0,
+    "reportError": "refused with http 302 redirect — the endpoint redirected the delivery; delivery follows the url AS CONFIGURED, never the redirect: repoint this target's url explicitly if the redirect destination is the real consumer",
+    "reportBlocked": true,
+    "statusLastError": "refused with http 302 redirect — the endpoint redirected the delivery; delivery follows the url AS CONFIGURED, never the redirect: repoint this target's url explicitly if the redirect destination is the real consumer",
+    "cursor": 0,
+    "receipts": 0,
+    "attemptStatus": 302,
+    "attemptError": "refused with http 302 redirect — the endpoint redirected the delivery; delivery follows the url AS CONFIGURED, never the redirect: repoint this target's url explicitly if the redirect destination is the real consumer",
+    "primaryHits": [
+      {
+        "request_line": "POST /hook HTTP/1.1",
+        "method": "POST",
+        "body_bytes": 228,
+        "signature_header": true
+      }
+    ],
+    "hopHits": []
+  },
+  "baselineGuard": {
+    "label": "published-v0735",
+    "guard200": {
+      "exit": 0,
+      "error": null
+    },
+    "guard404": {
+      "exit": 3,
+      "error": "refused with http 404"
+    },
+    "guard500": {
+      "exit": 3,
+      "error": "http 500"
+    }
+  },
+  "fixedGuard": {
+    "label": "published-v0736",
+    "guard200": {
+      "exit": 0,
+      "error": null
+    },
+    "guard404": {
+      "exit": 3,
+      "error": "refused with http 404"
+    },
+    "guard500": {
+      "exit": 3,
+      "error": "http 500"
+    }
+  },
+  "faces": [
+    {
+      "name": "D1 the configured endpoint received ONE request and the event was not recorded delivered",
+      "baseline": false,
+      "fixed": true,
+      "detail": {
+        "base": {
+          "primaryHits": 1,
+          "reportDelivered": 1,
+          "exit": 0
+        },
+        "fixed": {
+          "primaryHits": 1,
+          "reportDelivered": 0,
+          "exit": 3
+        }
+      }
+    },
+    {
+      "name": "D2 the redirect destination received ZERO requests",
+      "baseline": false,
+      "fixed": true,
+      "detail": {
+        "base": [
+          {
+            "request_line": "GET /hook HTTP/1.1",
+            "method": "GET",
+            "body_bytes": 0,
+            "signature_header": true
+          }
+        ],
+        "fixed": []
+      }
+    },
+    {
+      "name": "D3 the report holds the exit code and names the redirect mechanism",
+      "baseline": false,
+      "fixed": true,
+      "detail": {
+        "base": {
+          "exit": 0,
+          "reportError": null,
+          "statusLastError": null
+        },
+        "fixed": {
+          "exit": 3,
+          "reportError": "refused with http 302 redirect — the endpoint redirected the delivery; delivery follows the url AS CONFIGURED, never the redirect: repoint this target's url explicitly if the redirect destination is the real consumer",
+          "statusLastError": "refused with http 302 redirect — the endpoint redirected the delivery; delivery follows the url AS CONFIGURED, never the redirect: repoint this target's url explicitly if the redirect destination is the real consumer"
+        }
+      }
+    },
+    {
+      "name": "D4 the attempt records the endpoint answer (3xx), not a 2xx",
+      "baseline": false,
+      "fixed": true,
+      "detail": {
+        "base": {
+          "attemptStatus": 200
+        },
+        "fixed": {
+          "attemptStatus": 302
+        }
+      }
+    },
+    {
+      "name": "D5 the cursor stays behind the undelivered event",
+      "baseline": false,
+      "fixed": true,
+      "detail": {
+        "base": {
+          "cursor": 1
+        },
+        "fixed": {
+          "cursor": 0
+        }
+      }
+    },
+    {
+      "name": "G1 a plain 200 sink delivers normally on both sides",
+      "baseline": true,
+      "fixed": true,
+      "detail": {
+        "base": {
+          "exit": 0,
+          "error": null
+        },
+        "fixed": {
+          "exit": 0,
+          "error": null
+        }
+      }
+    },
+    {
+      "name": "G2 a 404 sink is refused identically on both sides (unchanged wording)",
+      "baseline": true,
+      "fixed": true,
+      "detail": {
+        "base": {
+          "exit": 3,
+          "error": "refused with http 404"
+        },
+        "fixed": {
+          "exit": 3,
+          "error": "refused with http 404"
+        }
+      }
+    },
+    {
+      "name": "G3 a 500 sink is transient identically on both sides (unchanged wording)",
+      "baseline": true,
+      "fixed": true,
+      "detail": {
+        "base": {
+          "exit": 3,
+          "error": "http 500"
+        },
+        "fixed": {
+          "exit": 3,
+          "error": "http 500"
+        }
+      }
+    }
+  ],
+  "at": "2026-11-19T01:58:06.440Z",
+  "dir": "<tmp>/"
+}
