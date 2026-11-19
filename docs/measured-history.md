@@ -2230,6 +2230,59 @@ and the exit code is 3. Artifacts pinned by
 `tests/webhook_redirect_measurement.rs` (7 tests, host paths excluded).
 The v0.7.35 tag keeps the defect — tags are immutable.
 
+### Each delivery queue keeps its own standing reason (v0.7.37)
+
+The event queue and the retraction queue are independent by design: a
+retraction must still reach a consumer whose event queue is blocked, which
+is why `webhook push` has reported them on two separate fields (`error`
+and `reorg_error`) since v0.7.33. The JOURNAL kept **one** standing
+reason per target (`webhook_state.last_error`): `deliver_events` wrote it,
+then `deliver_reorgs` wrote the same column, and the second write won.
+
+Measured on the **published v0.7.36 asset** (the linux archive whose sha256
+equals the digest the Release API publishes; binary `12433146…` =
+`reeflog 0.7.36`; `tools/measure-status-two-queue-reason.mjs`, the real
+binary against a real journal with a live sink that accepts events and
+refuses retractions; `research/status-two-queue-reason-2026-11-19.json`,
+verdict `status-two-queue-reason-one-field`, **3 defect faces**):
+
+* with both queues blocked at once — the event queue held at an owed
+  payload, the retraction queue refused with 404 — `webhook push` reported
+  **both** reasons (`error: "the payload is still owed — run \`hydrate\`"`
+  and `reorg_error: "refused with http 404"`);
+* `webhook status` reported **one**: the retraction's 404. The event
+  queue's repair (`hydrate`) was gone from the report, and nothing on the
+  row said which channel the 404 belonged to. An operator reading that
+  report would run the wrong repair for the queue that was actually held.
+
+The fix keeps the two channels apart all the way down:
+
+* each channel's standing reason lives in its own column
+  (`last_error` for events, `last_reorg_error` for retractions — the new
+  column is added in place, so a journal written by an older binary keeps
+  working);
+* `webhook status` prints the retraction channel's reason on its own field
+  `reorg_error` — the same name `webhook push` uses for it, so one fact
+  carries one name across the surfaces — and the stderr lines name the
+  channel (`failing — t1 (events): …` / `failing — t1 (retractions): …`);
+* a target blocked on both queues shows **both** reasons, each on its own
+  channel, and both hold the exit code (3);
+* a pass that gets through clears both (the v0.7.23 stale-error rule, now
+  reachable through the second column too).
+
+Gate: `tests/webhook_two_queue_reason.rs` (8 tests: D1–D3 written RED on
+the pre-fix tree — the event channel's reason, the retraction channel's own
+field, the journal's two columns — G1–G3 guards green on both trees), the
+mutation ladder `tools/mutation-ladder-status-two-queue-reason.sh` —
+**5/5 caught** (the retraction channel writing the event column again, the
+summary dropping the retraction reason, the status row hiding it, the clear
+reaching only one column, the exit code counting only the event channel),
+tree byte-identical after restore, and the two-tree instrument
+`tools/measure-status-two-queue-reason.mjs`: baseline v0.7.36 **3 defect
+faces**, fixed tree **0**. Artifact pinned by
+`tests/status_two_queue_reason_measurement.rs` (4 tests, host paths
+excluded). The v0.7.36 tag keeps the defect — tags are immutable.
+
 ## Repeated use
 
 ```bash

@@ -1,0 +1,443 @@
+{
+  "verdict": "status-two-queue-reason-one-field",
+  "baselineDefectFaces": 3,
+  "fixedDefectFaces": 0,
+  "baseline": {
+    "label": "published-v0736",
+    "binVersion": "reeflog 0.7.36",
+    "binSha256": "12433146fea140c068d3e2991b50869a2bf43abd9734e3a8c67ff40fb3f58306",
+    "both": {
+      "pushExit": 3,
+      "pushError": "the payload is still owed — run `hydrate`",
+      "pushReorgError": "refused with http 404",
+      "pushBlockedSeq": 2,
+      "pushBlockedReorg": 1,
+      "statusExit": 3,
+      "statusKeys": [
+        "dead_letters",
+        "delivered",
+        "endpoint_recorded",
+        "failed_attempts",
+        "last_error",
+        "next_reorg_id",
+        "next_seq",
+        "pending_events",
+        "pending_retractions",
+        "target",
+        "transport_failures",
+        "url"
+      ],
+      "statusLastError": "refused with http 404",
+      "statusPendingEvents": 1,
+      "statusPendingRetractions": 1,
+      "statusFailingTargets": 1,
+      "statusStderr": [
+        "reeflog: failing — t1: refused with http 404",
+        "reeflog: 1 target(s) still carry a standing failure — delivery is stopped until the next clean pass"
+      ],
+      "journalLastError": "refused with http 404",
+      "journalHasReorgErrorColumn": false,
+      "sinkHits": [
+        {
+          "line": "POST /hook HTTP/1.1",
+          "reorg": false
+        },
+        {
+          "line": "POST /hook HTTP/1.1",
+          "reorg": true
+        }
+      ]
+    },
+    "onlyEvent": {
+      "pushExit": 3,
+      "pushError": "the payload is still owed — run `hydrate`",
+      "pushReorgError": null,
+      "pushBlockedSeq": 2,
+      "pushBlockedReorg": null,
+      "statusExit": 3,
+      "statusKeys": [
+        "dead_letters",
+        "delivered",
+        "endpoint_recorded",
+        "failed_attempts",
+        "last_error",
+        "next_reorg_id",
+        "next_seq",
+        "pending_events",
+        "pending_retractions",
+        "target",
+        "transport_failures",
+        "url"
+      ],
+      "statusLastError": "the payload is still owed — run `hydrate`",
+      "statusPendingEvents": 1,
+      "statusPendingRetractions": 0,
+      "statusFailingTargets": 1,
+      "statusStderr": [
+        "reeflog: failing — t1: the payload is still owed — run `hydrate`",
+        "reeflog: 1 target(s) still carry a standing failure — delivery is stopped until the next clean pass"
+      ],
+      "journalLastError": "the payload is still owed — run `hydrate`",
+      "journalHasReorgErrorColumn": false,
+      "sinkHits": [
+        {
+          "line": "POST /hook HTTP/1.1",
+          "reorg": false
+        }
+      ]
+    },
+    "onlyReorg": {
+      "pushExit": 3,
+      "pushError": null,
+      "pushReorgError": "refused with http 404",
+      "pushBlockedSeq": null,
+      "pushBlockedReorg": 1,
+      "statusExit": 3,
+      "statusKeys": [
+        "dead_letters",
+        "delivered",
+        "endpoint_recorded",
+        "failed_attempts",
+        "last_error",
+        "next_reorg_id",
+        "next_seq",
+        "pending_events",
+        "pending_retractions",
+        "target",
+        "transport_failures",
+        "url"
+      ],
+      "statusLastError": "refused with http 404",
+      "statusPendingEvents": 0,
+      "statusPendingRetractions": 1,
+      "statusFailingTargets": 1,
+      "statusStderr": [
+        "reeflog: failing — t1: refused with http 404",
+        "reeflog: 1 target(s) still carry a standing failure — delivery is stopped until the next clean pass"
+      ],
+      "journalLastError": "refused with http 404",
+      "journalHasReorgErrorColumn": false,
+      "sinkHits": [
+        {
+          "line": "POST /hook HTTP/1.1",
+          "reorg": false
+        },
+        {
+          "line": "POST /hook HTTP/1.1",
+          "reorg": true
+        }
+      ]
+    },
+    "clean": {
+      "pushExit": 0,
+      "pushError": null,
+      "pushReorgError": null,
+      "pushBlockedSeq": null,
+      "pushBlockedReorg": null,
+      "statusExit": 0,
+      "statusKeys": [
+        "dead_letters",
+        "delivered",
+        "endpoint_recorded",
+        "failed_attempts",
+        "last_error",
+        "next_reorg_id",
+        "next_seq",
+        "pending_events",
+        "pending_retractions",
+        "target",
+        "transport_failures",
+        "url"
+      ],
+      "statusLastError": null,
+      "statusPendingEvents": 0,
+      "statusPendingRetractions": 0,
+      "statusFailingTargets": 0,
+      "statusStderr": [],
+      "journalLastError": null,
+      "journalHasReorgErrorColumn": false,
+      "sinkHits": [
+        {
+          "line": "POST /hook HTTP/1.1",
+          "reorg": false
+        }
+      ]
+    }
+  },
+  "fixed": {
+    "label": "tree",
+    "binVersion": "reeflog 0.7.36",
+    "binSha256": "37dce36af2985e50bf8201dcdd9fb9daa75aa55d133d6c8c9398c1ac9f8b4e18",
+    "both": {
+      "pushExit": 3,
+      "pushError": "the payload is still owed — run `hydrate`",
+      "pushReorgError": "refused with http 404",
+      "pushBlockedSeq": 2,
+      "pushBlockedReorg": 1,
+      "statusExit": 3,
+      "statusKeys": [
+        "dead_letters",
+        "delivered",
+        "endpoint_recorded",
+        "failed_attempts",
+        "last_error",
+        "next_reorg_id",
+        "next_seq",
+        "pending_events",
+        "pending_retractions",
+        "reorg_error",
+        "target",
+        "transport_failures",
+        "url"
+      ],
+      "statusLastError": "the payload is still owed — run `hydrate`",
+      "statusReorgError": "refused with http 404",
+      "statusPendingEvents": 1,
+      "statusPendingRetractions": 1,
+      "statusFailingTargets": 2,
+      "statusStderr": [
+        "reeflog: failing — t1 (events): the payload is still owed — run `hydrate`",
+        "reeflog: failing — t1 (retractions): refused with http 404",
+        "reeflog: 2 target(s) still carry a standing failure — delivery is stopped until the next clean pass"
+      ],
+      "journalLastError": "the payload is still owed — run `hydrate`",
+      "journalLastReorgError": "refused with http 404",
+      "journalHasReorgErrorColumn": true,
+      "sinkHits": [
+        {
+          "line": "POST /hook HTTP/1.1",
+          "reorg": false
+        },
+        {
+          "line": "POST /hook HTTP/1.1",
+          "reorg": true
+        }
+      ]
+    },
+    "onlyEvent": {
+      "pushExit": 3,
+      "pushError": "the payload is still owed — run `hydrate`",
+      "pushReorgError": null,
+      "pushBlockedSeq": 2,
+      "pushBlockedReorg": null,
+      "statusExit": 3,
+      "statusKeys": [
+        "dead_letters",
+        "delivered",
+        "endpoint_recorded",
+        "failed_attempts",
+        "last_error",
+        "next_reorg_id",
+        "next_seq",
+        "pending_events",
+        "pending_retractions",
+        "reorg_error",
+        "target",
+        "transport_failures",
+        "url"
+      ],
+      "statusLastError": "the payload is still owed — run `hydrate`",
+      "statusReorgError": null,
+      "statusPendingEvents": 1,
+      "statusPendingRetractions": 0,
+      "statusFailingTargets": 1,
+      "statusStderr": [
+        "reeflog: failing — t1 (events): the payload is still owed — run `hydrate`",
+        "reeflog: 1 target(s) still carry a standing failure — delivery is stopped until the next clean pass"
+      ],
+      "journalLastError": "the payload is still owed — run `hydrate`",
+      "journalLastReorgError": null,
+      "journalHasReorgErrorColumn": true,
+      "sinkHits": [
+        {
+          "line": "POST /hook HTTP/1.1",
+          "reorg": false
+        }
+      ]
+    },
+    "onlyReorg": {
+      "pushExit": 3,
+      "pushError": null,
+      "pushReorgError": "refused with http 404",
+      "pushBlockedSeq": null,
+      "pushBlockedReorg": 1,
+      "statusExit": 3,
+      "statusKeys": [
+        "dead_letters",
+        "delivered",
+        "endpoint_recorded",
+        "failed_attempts",
+        "last_error",
+        "next_reorg_id",
+        "next_seq",
+        "pending_events",
+        "pending_retractions",
+        "reorg_error",
+        "target",
+        "transport_failures",
+        "url"
+      ],
+      "statusLastError": null,
+      "statusReorgError": "refused with http 404",
+      "statusPendingEvents": 0,
+      "statusPendingRetractions": 1,
+      "statusFailingTargets": 1,
+      "statusStderr": [
+        "reeflog: failing — t1 (retractions): refused with http 404",
+        "reeflog: 1 target(s) still carry a standing failure — delivery is stopped until the next clean pass"
+      ],
+      "journalLastError": null,
+      "journalLastReorgError": "refused with http 404",
+      "journalHasReorgErrorColumn": true,
+      "sinkHits": [
+        {
+          "line": "POST /hook HTTP/1.1",
+          "reorg": false
+        },
+        {
+          "line": "POST /hook HTTP/1.1",
+          "reorg": true
+        }
+      ]
+    },
+    "clean": {
+      "pushExit": 0,
+      "pushError": null,
+      "pushReorgError": null,
+      "pushBlockedSeq": null,
+      "pushBlockedReorg": null,
+      "statusExit": 0,
+      "statusKeys": [
+        "dead_letters",
+        "delivered",
+        "endpoint_recorded",
+        "failed_attempts",
+        "last_error",
+        "next_reorg_id",
+        "next_seq",
+        "pending_events",
+        "pending_retractions",
+        "reorg_error",
+        "target",
+        "transport_failures",
+        "url"
+      ],
+      "statusLastError": null,
+      "statusReorgError": null,
+      "statusPendingEvents": 0,
+      "statusPendingRetractions": 0,
+      "statusFailingTargets": 0,
+      "statusStderr": [],
+      "journalLastError": null,
+      "journalLastReorgError": null,
+      "journalHasReorgErrorColumn": true,
+      "sinkHits": [
+        {
+          "line": "POST /hook HTTP/1.1",
+          "reorg": false
+        }
+      ]
+    }
+  },
+  "faces": [
+    {
+      "name": "D1 both queues blocked: status reports the EVENT channel reason (payload owed)",
+      "baseline": false,
+      "fixed": true,
+      "detail": {
+        "base": {
+          "last_error": "refused with http 404",
+          "push_error": "the payload is still owed — run `hydrate`",
+          "push_reorg_error": "refused with http 404"
+        },
+        "fixed": {
+          "last_error": "the payload is still owed — run `hydrate`",
+          "push_error": "the payload is still owed — run `hydrate`",
+          "push_reorg_error": "refused with http 404"
+        }
+      }
+    },
+    {
+      "name": "D2 the retraction reason is attributable to the retraction channel on the status row",
+      "baseline": false,
+      "fixed": true,
+      "detail": {
+        "base": {
+          "has_reorg_error_field": false,
+          "value": null
+        },
+        "fixed": {
+          "has_reorg_error_field": true,
+          "value": "refused with http 404"
+        }
+      }
+    },
+    {
+      "name": "D3 the event channel reason survives in the journal after the retraction pass",
+      "baseline": false,
+      "fixed": true,
+      "detail": {
+        "base": {
+          "last_error": "refused with http 404",
+          "last_reorg_error": null,
+          "column": false
+        },
+        "fixed": {
+          "last_error": "the payload is still owed — run `hydrate`",
+          "last_reorg_error": "refused with http 404",
+          "column": true
+        }
+      }
+    },
+    {
+      "name": "G1 only the event queue blocked: status names its reason and exits 3 (unchanged)",
+      "baseline": true,
+      "fixed": true,
+      "detail": {
+        "base": {
+          "last_error": "the payload is still owed — run `hydrate`",
+          "exit": 3
+        },
+        "fixed": {
+          "last_error": "the payload is still owed — run `hydrate`",
+          "exit": 3
+        }
+      }
+    },
+    {
+      "name": "G2 only the retraction queue blocked: status reports that reason and exits 3 (unchanged)",
+      "baseline": true,
+      "fixed": true,
+      "detail": {
+        "base": {
+          "last_error": "refused with http 404",
+          "reorg_error": null,
+          "exit": 3
+        },
+        "fixed": {
+          "last_error": null,
+          "reorg_error": "refused with http 404",
+          "exit": 3
+        }
+      }
+    },
+    {
+      "name": "G3 a clean journal reports no standing reasons and exits 0 (unchanged)",
+      "baseline": true,
+      "fixed": true,
+      "detail": {
+        "base": {
+          "last_error": null,
+          "exit": 0
+        },
+        "fixed": {
+          "last_error": null,
+          "reorg_error": null,
+          "exit": 0
+        }
+      }
+    }
+  ],
+  "at": "2026-11-19T07:59:31.869Z",
+  "dir": "<tmp>/"
+}

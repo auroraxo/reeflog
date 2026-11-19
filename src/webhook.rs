@@ -822,7 +822,15 @@ pub fn deliver_reorgs(
                     Attempt::Delivered(_) => unreachable!(),
                 };
                 j.webhook_record_attempt(&target.id, "reorg", r.id, status, err.as_deref())?;
-                j.webhook_set_error(&target.id, &target.url, err.as_deref())?;
+                // The RETRACTION channel's own column: a retraction hold
+                // written after an event hold must not erase the event
+                // queue's reason, and the reverse — the two queues are
+                // independent, so their standing verdicts live in two
+                // columns of the same row (measured on the published
+                // v0.7.36 asset: the retraction's 404 overwrote the payload
+                // hold, and `webhook status` named the retraction's repair
+                // for a queue that only `hydrate` can serve).
+                j.webhook_set_reorg_error(&target.id, &target.url, err.as_deref())?;
                 rep.failed += 1;
                 rep.blocked_reorg_id = Some(r.id);
                 rep.blocked_reorg_error = err;

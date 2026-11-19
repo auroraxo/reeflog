@@ -67,6 +67,15 @@ CREATE TABLE IF NOT EXISTS webhook_state (
     next_seq     INTEGER NOT NULL DEFAULT 0,
     next_reorg_id INTEGER NOT NULL DEFAULT 0,
     last_error   TEXT,
+    -- The RETRACTION channel's standing reason, in its own column. The two
+    -- queues are independent (a retraction must still reach a consumer whose
+    -- event queue is blocked), so one reason column cannot carry both: the
+    -- second write overwrote the first and the report a monitoring caller
+    -- polls showed one channel's repair for the other channel's block
+    -- (measured 2026-11-19 on the published v0.7.36 asset: with both queues
+    -- blocked, `webhook status` named the retraction's 404 and the event
+    -- queue's owed-payload repair was gone from the report).
+    last_reorg_error TEXT,
     updated_at   INTEGER NOT NULL
 );
 -- Delivery receipts. Written only after the endpoint answered 2xx. They make
@@ -153,14 +162,26 @@ const MIGRATIONS: &[(&str, &str)] = &[
 /// named refusal — that is the measured defect (published v0.7.14: a
 /// repointed target inherited the old endpoint's cursors and the new
 /// consumer starved behind `delivered: 0, blocked: false, exit 0`).
-const WEBHOOK_MIGRATIONS: &[(&str, &str)] = &[
+const WEBHOOK_MIGRATIONS: &[(&str, &str, &str)] = &[
     (
         "webhook_state",
+        "endpoint",
         "ALTER TABLE webhook_state ADD COLUMN endpoint TEXT NOT NULL DEFAULT ''",
     ),
     (
         "webhook_receipts",
+        "endpoint",
         "ALTER TABLE webhook_receipts ADD COLUMN endpoint TEXT NOT NULL DEFAULT ''",
+    ),
+    // v0.7.37: the retraction channel gets its own standing reason (see the
+    // column comment in SCHEMA). A journal written before this rule keeps
+    // working: the new column is NULL, which reads as "no standing
+    // retraction failure" — the same absence the old single column carried
+    // for both channels.
+    (
+        "webhook_state",
+        "last_reorg_error",
+        "ALTER TABLE webhook_state ADD COLUMN last_reorg_error TEXT",
     ),
 ];
 
@@ -240,8 +261,8 @@ impl Journal {
                 db.execute_batch(ddl).map_err(|e| e.to_string())?;
             }
         }
-        for (table, ddl) in WEBHOOK_MIGRATIONS {
-            let sql = format!("SELECT COUNT(*) FROM pragma_table_info('{table}') WHERE name='endpoint'");
+        for (table, column, ddl) in WEBHOOK_MIGRATIONS {
+            let sql = format!("SELECT COUNT(*) FROM pragma_table_info('{table}') WHERE name='{column}'");
             let present: bool = db
                 .prepare(&sql)
                 .and_then(|mut s| s.query_row([], |r| r.get::<_, i64>(0)))
@@ -1353,21 +1374,58 @@ impl Journal {
 
     /// Record why a target is stuck. The message is a fact about the last
     /// attempt, not a verdict about the target.
+    ///
+    /// `channel` says which queue stopped: one fact carries one channel, and
+    /// one channel's write never erases the other channel's standing reason
+    /// (both reasons live in the same row, in their own columns, so the two
+    /// verdicts stand together).
+    fn webhook_set_error_in(
+        &self,
+        target: &str,
+        endpoint: &str,
+        column: &str,
+        error: Option<&str>,
+    ) -> Result<(), String> {
+        // The column names are internal constants of this module (never
+        // caller input), so interpolation into the statement is safe:
+        // SQLite has no parameter for an identifier.
+        self.db
+            .execute(
+                &format!(
+                    "INSERT INTO webhook_state(target,endpoint,next_seq,next_reorg_id,{column},updated_at)
+                 VALUES(?1,?2,0,0,?3,?4)
+                 ON CONFLICT(target) DO UPDATE SET endpoint=excluded.endpoint, {column}=excluded.{column}, updated_at=excluded.updated_at"
+                ),
+                params![target, endpoint, error, now_ms()],
+            )
+            .map_err(|e| e.to_string())?;
+        Ok(())
+    }
+
     pub fn webhook_set_error(
         &self,
         target: &str,
         endpoint: &str,
         error: Option<&str>,
     ) -> Result<(), String> {
-        self.db
-            .execute(
-                "INSERT INTO webhook_state(target,endpoint,next_seq,next_reorg_id,last_error,updated_at)
-                 VALUES(?1,?2,0,0,?3,?4)
-                 ON CONFLICT(target) DO UPDATE SET endpoint=excluded.endpoint, last_error=excluded.last_error, updated_at=excluded.updated_at",
-                params![target, endpoint, error, now_ms()],
-            )
-            .map_err(|e| e.to_string())?;
-        Ok(())
+        self.webhook_set_error_in(target, endpoint, "last_error", error)
+    }
+
+    /// The RETRACTION channel's standing reason, in its own column: an event
+    /// hold written after a retraction hold must not erase the retraction's
+    /// reason, and the reverse. Measured on the published v0.7.36 asset
+    /// (2026-11-19): with both queues blocked at once, `deliver_reorgs`'s
+    /// write landed in the one column `deliver_events` had filled, and the
+    /// report a monitoring caller polls showed the retraction's refusal
+    /// where the event queue's repair belonged — the owed payload's repair
+    /// (`hydrate`) was gone from the report.
+    pub fn webhook_set_reorg_error(
+        &self,
+        target: &str,
+        endpoint: &str,
+        error: Option<&str>,
+    ) -> Result<(), String> {
+        self.webhook_set_error_in(target, endpoint, "last_reorg_error", error)
     }
 
     /// Forget a target's standing error at the START of its next delivery
@@ -1382,7 +1440,7 @@ impl Journal {
     pub fn webhook_clear_error(&self, target: &str) -> Result<(), String> {
         self.db
             .execute(
-                "UPDATE webhook_state SET last_error = NULL WHERE target = ?1",
+                "UPDATE webhook_state SET last_error = NULL, last_reorg_error = NULL WHERE target = ?1",
                 params![target],
             )
             .map_err(|e| e.to_string())?;
@@ -1475,6 +1533,20 @@ impl Journal {
             }
             None => (0, 0, None),
         };
+        // The RETRACTION channel's own standing reason, from its own column:
+        // a row written before v0.7.37 has the column absent (NULL), which
+        // reads as "no standing retraction failure" — the same absence the
+        // one shared column carried for both channels.
+        let last_reorg_error: Option<String> = self
+            .db
+            .query_row(
+                "SELECT last_reorg_error FROM webhook_state WHERE target=?1",
+                params![target],
+                |r| r.get(0),
+            )
+            .optional()
+            .map_err(|e| e.to_string())?
+            .flatten();
         let delivered: i64 = self
             .db
             .query_row(
@@ -1504,6 +1576,7 @@ impl Journal {
             next_seq,
             next_reorg_id,
             last_error,
+            last_reorg_error,
             delivered,
             failed,
             transport_failures,
@@ -1932,6 +2005,9 @@ pub struct WebhookSummary {
     pub next_seq: i64,
     pub next_reorg_id: i64,
     pub last_error: Option<String>,
+    /// The RETRACTION channel's own standing reason. `None` here never
+    /// stands in for the event channel's reason, and the reverse.
+    pub last_reorg_error: Option<String>,
     pub delivered: i64,
     pub failed: i64,
     pub transport_failures: i64,

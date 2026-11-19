@@ -10,11 +10,11 @@ durable cursor, no catch-up. Every project rebuilds reconnect, dedup,
 gap-fill, and reorg handling, or silently loses events. reeflog makes that
 one daemon, one file, one cursor.
 
-**Status: v0.7.36 (2026-11-19), live against mainnet-beta — no Rust toolchain needed: `npm install reeflog-client`, then `import { bootstrap } from 'reeflog-client'; await bootstrap()` (downloads the prebuilt release archive and verifies its sha256 against what the GitHub release API publishes). The client itself is zero-dependency: one package, no `node_modules` of its own, and it installs without `git` on the machine.**
+**Status: v0.7.37 (2026-11-19), live against mainnet-beta — no Rust toolchain needed: `npm install reeflog-client`, then `import { bootstrap } from 'reeflog-client'; await bootstrap()` (downloads the prebuilt release archive and verifies its sha256 against what the GitHub release API publishes). The client itself is zero-dependency: one package, no `node_modules` of its own, and it installs without `git` on the machine.**
 
 The same client from the tagged release:
-`npm install github:auroraxo/reeflog#v0.7.36`. Or from source:
-`cargo install --git https://github.com/auroraxo/reeflog --tag v0.7.36`.
+`npm install github:auroraxo/reeflog#v0.7.37`. Or from source:
+`cargo install --git https://github.com/auroraxo/reeflog --tag v0.7.37`.
 
 **Honest state:** it works, and it is measured — but so far every real
 consumer belongs to the project itself. There is no unaffiliated third-party
@@ -165,6 +165,7 @@ detail and every raw number in
 | Fan-out isolation | ONE target whose delivery state is bound to another endpoint aborted the whole webhook command: `push`/`status`/`dlq replay` exited 1 with NO report, the healthy sink starved (3 of 5 bodies), the reports a monitoring caller polls went dark; measured on the published v0.7.33 asset, fixed in v0.7.34 |
 | Disconnect episodes | ONE outage left one OPEN gap row per refused connect attempt and healed only the last: a journal whose stream had returned reported `gaps_open: 6` forever, and every nightly network switch re-opened the alarm; measured on the published v0.7.34 asset, fixed in v0.7.35 |
 | Webhook redirect | the poster followed HTTP redirects: a redirecting endpoint recorded every event as delivered (attempt status = the hop's own 200) while the configured consumer received ZERO event bodies and a bodyless GET carried the signature header to a host the config never named — the cursor advanced past the event, so it could never be re-delivered; measured on the published v0.7.35 asset, fixed in v0.7.36 |
+| Two-queue reason | the two delivery queues kept ONE standing reason: a blocked event queue written after a blocked retraction queue OVERWROTE it, so `webhook status` showed the retraction's 404 where the event queue's repair (`hydrate`) belonged — the report a monitoring caller polls named the wrong queue's repair; measured on the published v0.7.36 asset, fixed in v0.7.37 |
 
 ## Conditions and limits — the honest part
 
@@ -346,6 +347,23 @@ detail and every raw number in
   re-measured on this tree
   ([held](research/webhook-redirect-two-tree-2026-11-19.json), 0 defect
   faces, verdict `webhook-redirect-refused-at-the-configured-endpoint`).
+- **Each delivery queue keeps its own standing reason (v0.7.37).** The
+  event queue and the retraction queue are independent — a retraction must
+  still reach a consumer whose event queue is blocked, which is why `webhook
+  push` reports them on two fields (`error` and `reorg_error`). The JOURNAL
+  kept ONE standing reason per target: the retraction pass wrote the same
+  column the event pass had filled, and the second write won. With both
+  queues blocked at once, `webhook status` — the report a monitoring caller
+  polls — showed the retraction's refusal where the event queue's repair
+  (`hydrate`) belonged: the operator read a repair for the one queue whose
+  stop was already visible and never learned the other queue owed a payload.
+  Each channel's reason now lives in its own column (`last_error`,
+  `last_reorg_error`), the status row carries the retraction's reason on
+  `reorg_error` — the same name `push` uses — and the stderr lines name the
+  channel they belong to. Measured on the published v0.7.36 asset
+  ([3 defect faces](research/status-two-queue-reason-2026-11-19.json),
+  verdict `status-two-queue-reason-one-field`) and re-measured on this tree
+  (held, 0 defect faces).
 - **The client is zero-dependency since v0.7.25.** Until then the npm
   manifest named *itself* as a dependency on github:, so every
   `npm install reeflog-client` also cloned a second, older copy of the

@@ -2471,6 +2471,17 @@ fn run_webhook_status(args: &[String]) {
             "pending_retractions": pending_retractions,
             "dead_letters": dead_letters,
             "last_error": s.last_error,
+            // The RETRACTION channel's own standing reason — never a copy of
+            // `last_error`, never standing in for it. The two queues are
+            // independent: an event hold written after a retraction hold
+            // used to overwrite the retraction's reason in the one shared
+            // column, so this report (the one a monitoring caller polls)
+            // showed the retraction's refusal where the event queue's repair
+            // belonged — the owed payload's repair (`hydrate`) was gone from
+            // the report (measured on the published v0.7.36 asset,
+            // 2026-11-19). With both columns, a target blocked on both
+            // queues shows BOTH repairs.
+            "reorg_error": s.last_reorg_error,
         }));
     }
     // The refused targets get their OWN rows in the same report: a caller
@@ -2542,13 +2553,33 @@ fn run_webhook_status(args: &[String]) {
     // A standing failure: `last_error` is written by the very blocked pass that
     // `push` reports as exit 3. Printing it and exiting 0 tells a polling
     // monitor the target is healthy while the queue is stopped.
-    let failing_targets: Vec<(&str, String)> = out
+    // Both channels count: a target whose EVENT queue is stopped and a
+    // target whose RETRACTION queue is stopped are both standing failures,
+    // and the report names each on its own channel (the retraction's reason
+    // lives in `reorg_error`, never in `last_error` — one reason column
+    // cannot carry two independent queues, measured on the published
+    // v0.7.36 asset: the retraction's 404 overwrote the payload hold and the
+    // event queue's repair (`hydrate`) disappeared from this report).
+    let failing_targets: Vec<(&str, String, &str)> = out
         .iter()
-        .filter_map(|row| {
-            row.get("last_error")
+        .flat_map(|row| {
+            let id = row["target"].as_str().unwrap_or("?");
+            let mut reasons: Vec<(&str, String, &str)> = Vec::new();
+            if let Some(e) = row
+                .get("last_error")
                 .and_then(|e| e.as_str())
                 .filter(|e| !e.is_empty())
-                .map(|e| (row["target"].as_str().unwrap_or("?"), e.to_string()))
+            {
+                reasons.push((id, e.to_string(), "events"));
+            }
+            if let Some(e) = row
+                .get("reorg_error")
+                .and_then(|e| e.as_str())
+                .filter(|e| !e.is_empty())
+            {
+                reasons.push((id, e.to_string(), "retractions"));
+            }
+            reasons
         })
         .collect();
     println!(
@@ -2602,8 +2633,8 @@ fn run_webhook_status(args: &[String]) {
         );
     }
     if !failing_targets.is_empty() {
-        for (id, why) in &failing_targets {
-            eprintln!("reeflog: failing — {id}: {why}");
+        for (id, why, channel) in &failing_targets {
+            eprintln!("reeflog: failing — {id} ({channel}): {why}");
         }
         eprintln!(
             "reeflog: {} target(s) still carry a standing failure — delivery is stopped until the \
