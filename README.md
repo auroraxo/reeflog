@@ -453,8 +453,13 @@ detail and every raw number in
   [3 defect faces + 3 guards](research/seal-pass-backlog-drain-2026-11-20.json),
   verdict `seal-pass-backlog-drained`) and re-measured on this tree
   (0 defect faces, full drains). The pass now walks the pending set with
-  a seq cursor and reports whether it reached the end. The v0.7.41
-  asset still carries the defect. Older tags keep it: they are immutable.
+  a seq cursor and reports whether it reached the end. The SHIPPED bytes
+  are measured too: the published v0.7.42 asset (Release API digest
+  `sha256:4c183352…`, binary `6f20fa89…`) answers
+  [0 defect faces, guards green](research/seal-pass-backlog-drain-published-v0742-2026-11-20.json)
+  against the published v0.7.41 asset's 3 — while the published v0.7.41
+  asset still carries the defect. Older tags keep it: they are
+  immutable.
 - **The client is zero-dependency since v0.7.25.** Until then the npm
   manifest named *itself* as a dependency on github:, so every
   `npm install reeflog-client` also cloned a second, older copy of the
