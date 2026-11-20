@@ -2,7 +2,7 @@
   "tool": "measure-seal-pass-backlog-drain.mjs",
   "question": "Can the seal pass drain a backlog larger than one batch, and does a row the chain cannot decide block the rows behind it?",
   "defect": "The seal pass asked for the OLDEST 150 pending rows each time; the tick compared that window before/after (both clamped to 150) so a backlog of 300+ could never show progress, and the window never moved past undecidable head rows — rows behind a stuck head were never asked while status reported exit 0.",
-  "measuredAt": "2026-11-20T17:49:05.941Z",
+  "measuredAt": "2026-11-20T20:40:08.976Z",
   "verdict": "seal-pass-backlog-drained",
   "baselineDefectFaces": 3,
   "fixedDefectFaces": 0,
@@ -99,9 +99,9 @@
       }
     },
     "fixed": {
-      "source": "this tree (0.7.43), the binary built from the release commit",
-      "binSha256": "e0ecb02ee163b8a8e3c4e0006499bcc6eb004816a1d292de970a15b946f14adc",
-      "binVersion": "reeflog 0.7.43",
+      "source": "this tree",
+      "binSha256": "04b9110c09e04c74d0bff47b9b5482cb02726b6e89d3101a8149d6de30af7b4e",
+      "binVersion": "reeflog 0.7.44",
       "faces": {
         "D1_daemon_drain": {
           "pending": 1000,

@@ -10,11 +10,11 @@ durable cursor, no catch-up. Every project rebuilds reconnect, dedup,
 gap-fill, and reorg handling, or silently loses events. reeflog makes that
 one daemon, one file, one cursor.
 
-**Status: v0.7.43 (2026-11-20), live against mainnet-beta — no Rust toolchain needed: `npm install reeflog-client`, then `import { bootstrap } from 'reeflog-client'; await bootstrap()` (downloads the prebuilt release archive and verifies its sha256 against what the GitHub release API publishes). The client itself is zero-dependency: one package, no `node_modules` of its own, and it installs without `git` on the machine.**
+**Status: v0.7.44 (2026-11-20), live against mainnet-beta — no Rust toolchain needed: `npm install reeflog-client`, then `import { bootstrap } from 'reeflog-client'; await bootstrap()` (downloads the prebuilt release archive and verifies its sha256 against what the GitHub release API publishes). The client itself is zero-dependency: one package, no `node_modules` of its own, and it installs without `git` on the machine.**
 
 The same client from the tagged release:
-`npm install github:auroraxo/reeflog#v0.7.43`. Or from source:
-`cargo install --git https://github.com/auroraxo/reeflog --tag v0.7.43`.
+`npm install github:auroraxo/reeflog#v0.7.44`. Or from source:
+`cargo install --git https://github.com/auroraxo/reeflog --tag v0.7.44`.
 
 **Honest state:** it works, and it is measured — but so far every real
 consumer belongs to the project itself. There is no unaffiliated third-party
@@ -172,6 +172,7 @@ detail and every raw number in
 | Envelope completeness | every completeness predicate counted a `token_state`-less envelope as a whole one: `status` printed `accounts_partial: 0` / `accounts_missing: 0` over a held half envelope, `tail --with-accounts` DELIVERED and consumed it (cursor past, exit 0), and `hydrate --accounts` paid 0 RPC on the debt — while the event-time authority of unchanged token accounts lives only in that field (103/125 touched accounts over 10 live Raydium AMM v4 transactions); measured on the published v0.7.40 asset, fixed in v0.7.41 — the shipped v0.7.41 asset re-measured held (verdict `token-state-completeness-held`, 5 defect faces as guards, 3/3 guards) |
 | Backlog drain | the seal pass asked for the OLDEST 150 pending rows on every attempt: with a 1,000-row backlog one daemon run sealed exactly the first 300 and left 700 unsealed at exit 0, `reeflog seal` sealed 150 of 1,000 and exited 0, and 150 rows the chain could not decide left every row behind them unasked — the tick's own progress test compared two window sizes that were both clamped to 150, so a backlog of 300+ could never show progress and rows behind a stuck head were never asked at all; measured on the PUBLISHED v0.7.41 asset (downloaded from the release API and re-hashed, binary `4b990ae2…`, 3 defect faces + 3 guards, verdict `seal-pass-backlog-drained`), fixed in v0.7.42 — the pass walks the pending set with a seq cursor, asks every row exactly once, reports whether it reached the end, and `reeflog seal` exits 3 like `verify`/`hydrate` when rows are still unasked (`research/seal-pass-backlog-drain-2026-11-20.json`, pinned by `tests/seal_backlog_drain_measurement.rs`) |
 | Short answer | the seal pass zipped pending rows with `result.value` unconditionally: an answer shorter than the request sealed only the rows it covered and moved the walk cursor past every row it did not — those rows were never asked, while the pass still reported `complete: true` and exited 0 (measured on the PUBLISHED v0.7.42 asset, binary `6f20fa89…`, floor(n/2) of every batch answered, 3 defect faces + 4 guards, verdict `seal-answer-covers-request`), fixed in v0.7.43 — a short answer is now a failed source: nothing sealed, nothing consumed, `complete: false`, exit 3, and the daemon tick names the incomplete pass (`research/seal-answer-shape-2026-11-20.json`, pinned by `tests/seal_answer_shape_measurement.rs`) |
+| Run outlives its own deadline | `reeflog start --seconds N` did not end in about N seconds when the signature walks' pages arrived slowly: the daemon checked its deadline only BETWEEN scheduler ticks, but the startup tail backfill, the periodic repair pass and the final shutdown pass are each ONE synchronous walk over `getSignaturesForAddress` pages, and each page pays its own rate-limit backoff — so a walk outlived the run that scheduled it (measured live twice on the PUBLISHED v0.7.43 asset against mainnet-beta: 150 s requested → 28:11 taken, 120 s requested → still running at 14:34; isolated from the network by a local sink with a per-page delay: the published binary walked 41 pages and took 91 s for a 5 s run, and even a 0-delay sink cost it 50 s), fixed in v0.7.44 — every walk stops at the run's deadline and reports the window it did not read as truncated, the RPC calls themselves are capped to the time that is left, and the shutdown passes get a budget that scales with the run (`research/shutdown-overrun-published-v0743-2026-11-20.json`, pinned by `tests/shutdown_overrun_published_v0743.rs`) |
 | Field use | the same cursor rule answered an open question in someone else's product: a LaserStream SDK issue asked whether reconnect `from_slot` can skip undelivered data — measured with a runnable mock (`379a6ba`, three variants + control): ticks at live head advance the SDK's resume cursor past payloads still being replayed, whatever their commitment status ([laserstream-sdk#115](https://github.com/helius-labs/laserstream-sdk/issues/115#issuecomment-7016745189), harness [auroraxo/laserstream-cursor-measure](https://github.com/auroraxo/laserstream-cursor-measure)) — the skip becomes a visible, backfillable gap row here (2026-11-19); the follow-up two-rule matrix measured the SDK maintainer's proposed fix (PR #114's `replay_cursor_slot`) against a compliant server: it closes the internal-tick face and the block-footer face, but the two faces the issue reports — a USER slot update at live head, with or without `filter_by_commitment` — still advance the cursor to 122 and lose slots 92..121 (per-cell artifacts + `research/laserstream-115-pr114-two-rule-matrix-2026-11-19.json`, pinned by `tests/laserstream_115_pr114_matrix.rs`) — and the thread's open half-question answered (2026-11-20): a quiet subscription aging out of the replay window is refused with `OUT_OF_RANGE` under BOTH rules, PR #114's payload-only cursor included — it stops at 91 and is refused like `main`'s 122, only sooner — while `main`'s quiet cursor rides the internal tracker to live head and loses 92..121 even in-window; under default options the stall is silent (0 consumer errors, 5 s retries) until `intra_slot_updates` makes it terminal (`research/laserstream-115-quiet-subscription-matrix-2026-11-20.json`, pinned by `tests/laserstream_115_quiet_subscription.rs`, ladder 7/7) | the consumer-side repair measured (2026-11-20): the SDK's OWN pieces stop that stall and turn it into a DECLARED gap \u2014 on the terminal error the consumer calls `subscribe_replay_info` (`first_available=130`), re-subscribes with the clamped `from_slot=130` (the rule the SDK's own docstring prescribes), resumes delivery 130..136 and declares the evicted 92..129 (38 slots) as a gap; the unclamped control is refused again, so the clamp \u2014 not the re-subscribe \u2014 is the operative rule, and under default options (0 consumer errors) the repair stays unreachable (`research/laserstream-115-quiet-clamp-summary-2026-11-20.json`, pinned by `tests/laserstream_115_quiet_clamp_repair.rs`, ladder 10/10) |
 
 ## Conditions and limits — the honest part
@@ -487,6 +488,28 @@ detail and every raw number in
   against the published v0.7.42 asset's 3 — while the published v0.7.42
   asset still carries the defect. Older tags keep the defect: they are
   immutable.
+- **A run does not outlive its own deadline (v0.7.44).** `reeflog start
+  --seconds N` ended whenever the slowest signature walk decided to,
+  because the daemon checked its deadline only BETWEEN scheduler ticks —
+  while the startup tail backfill, the periodic repair pass and the final
+  shutdown pass are each ONE synchronous walk over `getSignaturesForAddress`
+  pages, and each page pays its own rate-limit backoff. Measured live twice
+  on the PUBLISHED v0.7.43 asset against mainnet-beta: 150 s requested →
+  28:11 taken, 120 s requested → still running at 14:34. Then isolated from
+  the network by a local sink that delays each page
+  (1 s/page): the published binary walked 41 pages and took 91 s for a 5 s
+  run — and even a 0-delay sink cost it 50 s, unbounded in pages and ending
+  at a transport failure (exit 3), while the fixed tree stayed inside its
+  own 2 s shutdown budget (7 s wall-clock total, 2 pages asked) and exited 0
+  on every sink
+  ([verdict `shutdown-deadline-held-by-the-walk`](research/shutdown-overrun-published-v0743-2026-11-20.json),
+  pinned by `tests/shutdown_overrun_published_v0743.rs`). The fix bounds
+  every walk at the deadline — reporting the window it did not read as
+  truncated — and caps each RPC call to the time that is left, so a call in
+  flight cannot be the thing that overruns the run. The shutdown passes get
+  a budget that scales with the run (a fifth, at least 2 s and at most
+  30 s): a flat budget is its own overrun, which is the same defect with a
+  smaller number on it. Older tags keep the defect: they are immutable.
 - **The client is zero-dependency since v0.7.25.** Until then the npm
   manifest named *itself* as a dependency on github:, so every
   `npm install reeflog-client` also cloned a second, older copy of the

@@ -1,11 +1,11 @@
 {
   "tool": "measure-shutdown-overrun.mjs",
   "question": "Does `reeflog start --seconds N` end in about N seconds when the repair walk pages arrive slowly?",
-  "defect": "The daemon checks its deadline between scheduler ticks, but a repair pass is one synchronous walk over up to 40 pages of getSignaturesForAddress, each paying its own rate-limit backoff — so one pass can outlive the run it was scheduled in. Measured live twice on the published v0.7.43 asset (150 s -> 28:11; 120 s -> >14:34); this instrument fixes the endpoint so the mechanism, not the network, is what is measured.",
-  "measuredAt": "2026-11-20T20:08:26.004Z",
+  "defect": "The daemon checked its `--seconds` deadline only BETWEEN scheduler ticks, but the startup tail backfill, the periodic repair pass and the final shutdown pass are each ONE synchronous walk over up to 40 pages of `getSignaturesForAddress`, and each page pays its own rate-limit backoff — so a walk could outlive the run that scheduled it. Measured live twice on the published v0.7.43 asset against mainnet-beta (150 s -> 28:11; 120 s -> >14:34); this instrument fixes the endpoint so the mechanism, not the network, is what is measured: one local sink, the delay applied per page. The fixed side is this tree (walks stop at the deadline; the shutdown pass gets a budget of seconds/5, at least 2 s and at most 30 s).",
+  "measuredAt": "2026-11-20T20:54:58.941Z",
   "verdict": "shutdown-deadline-held-by-the-walk",
-  "binVersion": "reeflog 0.7.43",
-  "binSha256": "76f78e44bccbeb286e61aacd0be20c8ffd660e9f01f590c578ba824952ceb7ea",
+  "binVersion": "reeflog 0.7.44",
+  "binSha256": "04b9110c09e04c74d0bff47b9b5482cb02726b6e89d3101a8149d6de30af7b4e",
   "baseline": {
     "binVersion": "reeflog 0.7.43",
     "binSha256": "816177e336be4f1a76f7ba996dc5d059a0c88e1460b735eeeb05be4ce10f63af"
@@ -17,7 +17,7 @@
     {
       "name": "D1_baseline_overshoots_and_fixed_stays_inside_its_budget",
       "ok": true,
-      "detail": "baseline overshoot 40s (41 pages) vs fixed overshoot 2s (budget 2s, 2 pages) at 1000ms/page"
+      "detail": "baseline overshoot 26s (41 pages) vs fixed overshoot 1s (budget 2s, 2 pages) at 1000ms/page"
     },
     {
       "name": "G1_control_fast_sink_ends_near_seconds",
@@ -37,19 +37,19 @@
   ],
   "runs": {
     "label": "fixed",
-    "binVersion": "reeflog 0.7.43",
-    "binSha256": "76f78e44bccbeb286e61aacd0be20c8ffd660e9f01f590c578ba824952ceb7ea",
+    "binVersion": "reeflog 0.7.44",
+    "binSha256": "04b9110c09e04c74d0bff47b9b5482cb02726b6e89d3101a8149d6de30af7b4e",
     "controlFast": {
-      "ms": 5578,
+      "ms": 5542,
       "exit": 0
     },
     "slowSink": {
-      "ms": 7292,
+      "ms": 7035,
       "exit": 0,
       "pagesAsked": 2
     },
     "slowSinkDoubleDelay": {
-      "ms": 8300,
+      "ms": 8291,
       "exit": 0,
       "pagesAsked": 2
     }
@@ -59,16 +59,16 @@
     "binVersion": "reeflog 0.7.43",
     "binSha256": "816177e336be4f1a76f7ba996dc5d059a0c88e1460b735eeeb05be4ce10f63af",
     "controlFast": {
-      "ms": 50637,
+      "ms": 48660,
       "exit": 3
     },
     "slowSink": {
-      "ms": 90695,
+      "ms": 74549,
       "exit": 3,
       "pagesAsked": 41
     },
     "slowSinkDoubleDelay": {
-      "ms": 131868,
+      "ms": 123089,
       "exit": 3,
       "pagesAsked": 41
     }

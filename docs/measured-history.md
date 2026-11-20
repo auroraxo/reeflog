@@ -2538,6 +2538,58 @@ snapshot); artifact pin `tests/seal_answer_shape_measurement.rs` 7/7
 describes the release this tree is). The v0.7.42 tag keeps the defect —
 tags are immutable.
 
+### A run does not outlive its own deadline (v0.7.44)
+
+`reeflog start --seconds N` was documented as a run of about N seconds.
+It was not: the daemon checked its deadline only BETWEEN scheduler ticks,
+but the startup tail backfill, the periodic repair pass and the final
+shutdown pass are each ONE synchronous walk over `getSignaturesForAddress`
+pages, and each page pays its own rate-limit backoff — so a walk could
+outlive the run that scheduled it, and the walk's own page budget (40
+pages) was the only thing that stopped it.
+
+Measured live twice on the **published v0.7.43 asset** against
+mainnet-beta: `--seconds 150` took 28:11 wall-clock, and `--seconds 120`
+was still running at 14:34. Because the public endpoint's latency is not
+under our control, the mechanism was then isolated from the network by
+`tools/measure-shutdown-overrun.mjs`: one local sink that answers
+`getSignaturesForAddress` after a DELAY per page, everything else
+instant. At 1 s/page the published binary walked 41 pages and took 91 s
+for a 5 s run — and even a 0-delay sink cost it 50 s, unbounded in PAGES
+and ending at a transport failure (exit 3), while the control face held
+for the fixed tree.
+
+The fix (test-first, in three layers):
+
+1. `verify_recent_anchored_deadlined` and `backfill_tail_deadlined` stop
+   at an optional deadline and report the scan as TRUNCATED with the
+   unread window named — `Report::complete()` already refuses to call a
+   truncated walk proof, so the walk answers a smaller question honestly
+   instead of outliving the run. The startup tail backfill and the
+   periodic repair tick get the run's own deadline.
+2. `HttpFetcher` carries the deadline and caps each RPC call to the time
+   that is left: a call in flight when the deadline passes cannot be the
+   thing that overruns the run (the deadline checks between pages cannot
+   help a page that is already paying its backoff).
+3. The final shutdown pass gets a budget that SCALES with the run — a
+   fifth of the requested seconds, at least 2 s and at most 30 s — because
+   a flat budget is its own overrun: a flat 30 s made a `--seconds 5` run
+   take 36 s, measured, which is the same defect with a smaller number on
+   it. The shutdown passes share that budget (police: seal, reorg,
+   repair; content: hydrate), so the sum of the passes cannot outlive the
+   run either.
+
+Gates: the two-tree instrument against the PUBLISHED v0.7.43 asset
+(binary `816177e3…`) — baseline overshoot 41 s (41 pages) vs fixed 1 s
+(budget 2 s, 2 pages) at 1 s/page, control 6 s vs 51 s on a 0-delay sink,
+verdict `shutdown-deadline-held-by-the-walk`
+(`research/shutdown-overrun-published-v0743-2026-11-20.json`, pinned by
+`tests/shutdown_overrun_published_v0743.rs` 6/6: the fixed side honours
+`--seconds` on every sink, the baseline still overruns, the fixed side
+asks far fewer pages, no host path). Rust full suite green, clippy
+`-D warnings` clean, npm 223/223. The published v0.7.43 asset keeps the
+defect — tags are immutable.
+
 ## Repeated use
 
 ```bash

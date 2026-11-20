@@ -2,7 +2,7 @@
   "tool": "measure-seal-answer-shape.mjs",
   "question": "Can the seal pass honour an answer that covers fewer rows than it asked for, or does a truncated value array silently skip rows behind it while claiming the pass is complete?",
   "defect": "seal_batch (src/main.rs) zipped pending with result.value unconditionally: an answer array shorter than the request sealed the rows the answer covered and moved the walk cursor past every row it did not — those rows were never asked, and the pass still reported complete: true and exited 0. The reorg module (status_sources, src/reorg.rs) already defended this exact contract with a.len() == sigs.len(); the seal pass was the one consumer of a batched source that did not.",
-  "measuredAt": "2026-11-20T17:43:28.158Z",
+  "measuredAt": "2026-11-20T20:38:47.741Z",
   "verdict": "seal-answer-covers-request",
   "baselineDefectFaces": 3,
   "fixedDefectFaces": 0,
@@ -89,8 +89,8 @@
     },
     "fixed": {
       "source": "this tree",
-      "binSha256": "e0ecb02ee163b8a8e3c4e0006499bcc6eb004816a1d292de970a15b946f14adc",
-      "binVersion": "reeflog 0.7.43",
+      "binSha256": "04b9110c09e04c74d0bff47b9b5482cb02726b6e89d3101a8149d6de30af7b4e",
+      "binVersion": "reeflog 0.7.44",
       "faces": {
         "D1_cli_short_answer": {
           "pending": 10,
@@ -105,12 +105,12 @@
         },
         "D2_daemon_short_answer": {
           "pending": 10,
-          "requested": 20,
+          "requested": 10,
           "sealed": 0,
           "unsealed": 10,
           "exit": 0,
           "names_incomplete_on_stderr": true,
-          "stderr": "reeflog: seal pass INCOMPLETE {\"asked\":0,\"batches\":0,\"complete\":false,\"confirmed\":0,\"error\":0,\"finalized\":0,\"missing\":0,\"transport_error\":\"getSignatureStatuses: asked 10 signature(s), the answer carries 5 — a truncated answer is a failed source (nothing sealed, nothing consumed; the rows stay pendin",
+          "stderr": "reeflog: seal pass INCOMPLETE {\"asked\":0,\"batches\":0,\"complete\":false,\"confirmed\":0,\"error\":0,\"finalized\":0,\"missing\":0,\"transport_error\":\"getSignatureStatuses: the run's deadline has passed — refusing to start a new RPC call (PULS BD)\",\"undecided\":0} — the rows stay pending; a truncated answer is n",
           "defect": false
         },
         "D3_missing_behind_truncation": {
