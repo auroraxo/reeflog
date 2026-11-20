@@ -66,6 +66,17 @@ record('binary_version_matches_manifest', v === `reeflog ${instManifest.version}
   `${v} vs package.json ${instManifest.version}`);
 
 // 3 — a REAL journal: daemon against mainnet-beta
+//
+// The DEADLINE + EXIT-VOICE contract (PULS BE, measured 2026-11-20 on the
+// published v0.7.43 vs v0.7.44 assets — the start-deadline-exit
+// published-v0744 artifact): the run must END near its --seconds (the
+// v0.7.43 binary kept walking past it: 223 s for 120 s, and it never
+// returned inside a 240 s ceiling), and its exit code must tell the truth
+// about what it left owed: 0 when the journal is whole, 3 WITH the repair
+// named ("payload hydrate INCOMPLETE … run `reeflog hydrate`") when rows
+// still owe their content — the README's documented "reported and held"
+// voice since v0.7.31. This harness demanded plain exit 0 until now; that
+// expectation only ever passed on the overrun defect.
 const db = path.join(root, 'stranger.db');
 try {
   execFileSync(bin, ['init', '--db', db, '--program', PROGRAM], { stdio: 'ignore' });
@@ -74,14 +85,40 @@ try {
 }
 const started = Date.now();
 let rc = null;
+let daemonStderr = '';
 try {
   const p = spawn(bin, ['start', '--db', db, '--seconds', String(SECONDS)],
-    { stdio: ['ignore', 'ignore', 'ignore'] });
+    { stdio: ['ignore', 'ignore', 'pipe'] });
+  p.stderr.on('data', d => { daemonStderr += d; });
   rc = await new Promise((res) => { p.on('close', (code) => res(code)); });
 } catch (e) {
   record('daemon_live_run', false, String(e.message)); process.exit(2);
 }
-record('daemon_live_run', rc === 0, `exit=${rc} after ${Math.round((Date.now() - started) / 1000)}s against mainnet-beta`);
+const wallS = Math.round((Date.now() - started) / 1000);
+// The deadline: the run's own seconds + the v0.7.44 shutdown budget
+// (seconds/5, clamped 2..30) + spawn/WS grace — the same bound the
+// published pin uses.
+const budget = Math.min(Math.max(Math.floor(SECONDS / 5), 2), 30);
+const deadlineOk = wallS <= SECONDS + budget + 15;
+record('daemon_run_ends_near_its_deadline', deadlineOk,
+  `exit=${rc} after ${wallS}s for --seconds ${SECONDS} (allowed <= ${SECONDS + budget + 15}s)`);
+// The exit voice: whatever the run leaves owed, the code must say so —
+// and the repair must be named when rows are still owing. Read AFTER the
+// daemon exits so the voice and the state come from the same journal.
+const st = spawnSync(bin, ['status', '--db', db], { encoding: 'utf8' });
+let endStatus = null;
+try { endStatus = JSON.parse(st.stdout); } catch { endStatus = null; }
+const owed = endStatus ? (endStatus.payload_pending || 0) : null;
+const namesRepair = /payload hydrate INCOMPLETE.*reeflog hydrate/s.test(daemonStderr);
+const voiceOk = owed > 0
+  ? (rc === 3 && namesRepair)
+  : (rc === 0);
+record('daemon_exit_voice_matches_the_journal_state', voiceOk,
+  owed > 0
+    ? `exit=${rc} with ${owed} payload row(s) owed, repair named=${namesRepair}`
+    : `exit=${rc} with no debt owed`);
+if (!deadlineOk) { record('daemon_live_run', false, `the run overran: ${wallS}s for ${SECONDS}s`); process.exit(1); }
+if (!voiceOk) { record('daemon_live_run', false, `the exit code lied: exit=${rc} owed=${owed}`); process.exit(1); }
 
 // 4 — the registry-installed client reads what the binary wrote
 const mod = await import(path.join(inst, 'index.js'));

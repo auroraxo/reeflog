@@ -1,0 +1,34 @@
+{
+  "tool": "probe-start-exit (same command as tools/measure-start-deadline-exit.mjs, run recorded verbatim)",
+  "question": "when the daemon ends its run still owing payloads, what does its exit code say?",
+  "defect": "the live user-zero harness demanded exit 0 from `reeflog start`; on a contended endpoint the published v0.7.44 asset ends with exit 3 while rows still owe their payload. Either that is a regression, or it is the contract the README has documented since v0.7.31 ('the daemon exits 3 at shutdown while the payload hydrate is incomplete').",
+  "measuredAt": "2026-11-20T23:0x (this session, live mainnet-beta)",
+  "verdict": "exit-3-is-the-documented-voice-for-an-owed-journal",
+  "runs": {
+    "fixedBusyWithDebt": {
+      "binVersion": "reeflog 0.7.44",
+      "binSha256": "ead75ad96c442d4fd5ff0724e717840bad26f9c359084e2ec08acb65dcb5fea2",
+      "requestedSeconds": 120,
+      "wallSeconds": 144,
+      "exitCode": 3,
+      "payloadPending": 984,
+      "statusExit": 3,
+      "namesDebt": true,
+      "namesRepair": true,
+      "verdictLine": "reeflog: payload hydrate INCOMPLETE (984 row(s) still pending) \u2014 run `reeflog hydrate`",
+      "sealLine": "reeflog: seal pass INCOMPLETE {\"asked\":450,\"batches\":3,\"complete\":false,\"confirmed\":0,\"error\":218,\"finalized\":230,\"missing\":1,\"transport_error\":\"getSignatureStatuses: the run's deadline has passed \u2014 refusing to start a new RPC call (PULS BD)\",\"undecided\":1} \u2014 the rows stay pending; a truncated answer is not a verdict"
+    }
+  },
+  "notes": [
+    "The run ENDED: 144 s wall for a 120 s request \u2014 inside the run's own 120 s deadline + 24 s shutdown budget. The deadline fix held while the debt was reported.",
+    "The exit code 3 is the repo's 'reported and held' voice; the repair it names (`reeflog hydrate`) is the documented next step (README since v0.7.31).",
+    "On the SAME published binary with the endpoint uncontended (the later measurement run), the journal ended with 0 owed rows and exit 0 \u2014 so the debt face is load-conditional and the exit code tracks the state, not the version.",
+    "status agrees with the daemon: statusExit 3 on the same journal (v0.7.31 rule).",
+    "Baseline comparison: the published v0.7.43 asset exits 0 only after it stops honoring the deadline (measured 223 s wall for a 120 s run; the bounded instrument recorded it as never returning within 240 s), i.e. its clean exit 0 is the overrun, not a better voice."
+  ],
+  "limits": [
+    "Live mainnet-beta public endpoint: the debt a run leaves is a function of endpoint contention, so D2 in research/start-deadline-exit-published-v0744-2026-11-20.json records whether it was exercised on that run.",
+    "No third-party audit; 0 external users (the runner is my own user-zero).",
+    "The hydrate retry on the same journal hit HTTP 429 (rate limited) and left the debt standing \u2014 an endpoint rate limit, not a verdict about the repair path; the repair was not proven to drain to 0 in this session."
+  ]
+}

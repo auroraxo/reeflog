@@ -1,0 +1,90 @@
+{
+  "tool": "tools/measure-start-deadline-exit.mjs",
+  "question": "does `reeflog start --seconds N` end near N and tell the truth in its exit code about what it left owed?",
+  "confound": "the busy runs share the public mainnet-beta endpoint with whatever else this host is doing: when the endpoint is contended the journal ends with rows still owing their payload (exit 3, the repair named); when it is quiet the daemon pays the debt inside the run and exits 0. BOTH are honest under the contract — the debt face is load-conditional, so D2 records whether it was exercised this run.",
+  "defect": "the live user-zero harness demanded exit 0; the published v0.7.44 asset ends with exit 3 on a busy program. Either the run broke, or the run ends on time and names the debt it could not pay (exit 3 = \"reported and held\", documented since v0.7.31). The same expectation passed on v0.7.43 only because that binary overran its own deadline (measured: 223 s for a 120 s run) and so had time to pay the debt.",
+  "measuredAt": "2026-11-20T22:56:38.253Z",
+  "verdict": "start-deadline-and-exit-voice-hold",
+  "seconds": 120,
+  "quietSeconds": 60,
+  "busyProgram": "whirLbMiicVdio4qvUfM5KAg6Ct8VwpYzGff3uctyCc",
+  "quietProgram": "metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s",
+  "shutdownBudgetMs": 24000,
+  "faces": [
+    {
+      "name": "D1_fixed_ends_inside_its_deadline_budget",
+      "ok": true,
+      "detail": "fixed 123206ms for a 120s run (budget 24000ms, allowed 159000ms)"
+    },
+    {
+      "name": "D1_baseline_overruns_the_deadline",
+      "ok": true,
+      "detail": "baseline 240072ms vs allowed 159000ms (overshoot 120072ms, KILLED at the ceiling: it never returned on its own)"
+    },
+    {
+      "name": "D2_fixed_does_not_exit_zero_while_a_debt_is_owed",
+      "ok": true,
+      "detail": "no debt owed: exit=0 (the debt face is not exercised on this run)"
+    },
+    {
+      "name": "G1_quiet_program_ends_near_its_deadline_and_exits_zero",
+      "ok": true,
+      "detail": "exit=0 wall=61882ms allowed=87000ms debt=0"
+    },
+    {
+      "name": "G2_baseline_reports_health_only_behind_the_overrun",
+      "ok": true,
+      "detail": "baseline never returned on its own inside the 240s ceiling for a 120s run — killed by the instrument (SIGTERM, not a product verdict)"
+    }
+  ],
+  "runs": {
+    "fixed": {
+      "label": "fixed-busy",
+      "binVersion": "reeflog 0.7.44",
+      "binSha256": "ead75ad96c442d4fd5ff0724e717840bad26f9c359084e2ec08acb65dcb5fea2",
+      "requestedSeconds": 120,
+      "ceilingMs": 240000,
+      "wallMs": 123206,
+      "exitCode": 0,
+      "killed": false,
+      "returnedOnItsOwn": true,
+      "payloadPending": 0,
+      "statusExit": 0,
+      "namesDebt": false,
+      "namesRepair": false,
+      "endStateDebt": false
+    },
+    "fixedQuiet": {
+      "label": "fixed-quiet",
+      "binVersion": "reeflog 0.7.44",
+      "binSha256": "ead75ad96c442d4fd5ff0724e717840bad26f9c359084e2ec08acb65dcb5fea2",
+      "requestedSeconds": 60,
+      "ceilingMs": 180000,
+      "wallMs": 61882,
+      "exitCode": 0,
+      "killed": false,
+      "returnedOnItsOwn": true,
+      "payloadPending": 0,
+      "statusExit": 0,
+      "namesDebt": false,
+      "namesRepair": false,
+      "endStateDebt": false
+    },
+    "baseline": {
+      "label": "baseline-busy",
+      "binVersion": "reeflog 0.7.43",
+      "binSha256": "816177e336be4f1a76f7ba996dc5d059a0c88e1460b735eeeb05be4ce10f63af",
+      "requestedSeconds": 120,
+      "ceilingMs": 240000,
+      "wallMs": 240072,
+      "exitCode": null,
+      "killed": true,
+      "returnedOnItsOwn": false,
+      "payloadPending": 910,
+      "statusExit": 3,
+      "namesDebt": false,
+      "namesRepair": false,
+      "endStateDebt": true
+    }
+  }
+}
