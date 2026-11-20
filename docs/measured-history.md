@@ -2493,6 +2493,51 @@ two-source rule never moved, no host path). Mutation ladder
 green, m1–m4 CAUGHT, tree byte-identical after restore). Full suite
 green. The v0.7.41 tag keeps the defect — tags are immutable.
 
+### A short answer is not an answer (v0.7.43)
+
+`seal_batch` asked `getSignatureStatuses` for a batch of pending
+signatures and read the per-signature verdicts from `result.value[]`
+by **zipping** the two lists. The reorg module (`status_sources`) had
+defended exactly this contract since its first release — `a.len() ==
+sigs.len()` or the whole batch is `Source::Failed("bad response
+shape")` — but the seal pass was the one batched-source consumer that
+never got the check. An answer array shorter than the request (a
+truncated tail under load, a proxy cut) sealed the rows the answer
+covered, moved the walk's seq cursor past every row it did not — rows
+that were **never asked** — and still reported `complete: true` at
+exit 0.
+
+Measured 2026-11-20 on the **published v0.7.42 asset** (the linux
+archive whose sha256 equals the digest the Release API publishes;
+binary `6f20fa89...` = `reeflog 0.7.42`; `tools/measure-seal-answer-shape.mjs`
+drives both binaries against a local chain sink that answers
+floor(n/2) of every batch; `research/seal-answer-shape-2026-11-20.json`,
+verdict `seal-answer-covers-request`, **3 defect faces + 4 guards**):
+
+* the CLI pass sealed 5 of 10 pending rows and left the other 5 unasked
+  at exit 0 with `complete: true`;
+* the daemon tick sealed 7 of 10 and exited 0 without naming the
+  incomplete pass;
+* with null entries in the answer, the covered half was promoted
+  `missing` while the rows behind the truncation were dropped by the
+  same complete:true exit-0 pass.
+
+The fix (cc913b1, test-first): `value.len() != pending.len()` is a
+failed source — nothing is sealed, nothing is consumed, the walk stops
+with `transport_error` and `complete: false`; the CLI exits 3 like
+`verify`/`hydrate`, and the daemon tick names the incomplete pass on
+stderr. Cost measured: the honest path is unchanged (1,000 rows, 7
+batches, 145–209 ms vs 137–217 ms across runs — run noise).
+
+Gates: `tests/seal_answer_covers_request.rs` 6/6 (D1–D3 red on the
+pre-fix tree, G1–G3 green there and here); mutation ladder
+`tools/mutation-ladder-seal-answer-shape.sh` **6/6 CAUGHT** (every
+mutation value printed, tree byte-identical against the pre-ladder
+snapshot); artifact pin `tests/seal_answer_shape_measurement.rs` 7/7
+(baseline names the published bytes by sha256 + version, the fixed side
+describes the release this tree is). The v0.7.42 tag keeps the defect —
+tags are immutable.
+
 ## Repeated use
 
 ```bash

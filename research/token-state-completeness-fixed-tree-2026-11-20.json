@@ -1,10 +1,10 @@
 {
   "tool": "measure-token-state-completeness",
-  "measuredAt": "2026-11-20T13:54:58.507Z",
+  "measuredAt": "2026-11-20T17:43:08.873Z",
   "tree": "fix-tree",
   "binary": "reeflog",
-  "binarySha256": "2d415a38052aaed6d74f4d46ea8b84497ff2164927aafcb2b4f77b0ea7833e89",
-  "binaryVersion": "reeflog 0.7.42",
+  "binarySha256": "e0ecb02ee163b8a8e3c4e0006499bcc6eb004816a1d292de970a15b946f14adc",
+  "binaryVersion": "reeflog 0.7.43",
   "verdict": "token-state-completeness-held",
   "faces": [
     {

@@ -1,8 +1,8 @@
 {
   "tool": "measure-seal-pass-backlog-drain.mjs",
   "question": "Can the seal pass drain a backlog larger than one batch, and does a row the chain cannot decide block the rows behind it?",
-  "defect": "The seal pass asked for the OLDEST 150 pending rows each time; the tick compared that window before/after (both clamped to 150) so a backlog of 300+ could never show progress, and the window never moved past undecidable head rows \u2014 rows behind a stuck head were never asked while status reported exit 0.",
-  "measuredAt": "2026-11-20T13:56:34.858Z",
+  "defect": "The seal pass asked for the OLDEST 150 pending rows each time; the tick compared that window before/after (both clamped to 150) so a backlog of 300+ could never show progress, and the window never moved past undecidable head rows — rows behind a stuck head were never asked while status reported exit 0.",
+  "measuredAt": "2026-11-20T17:49:05.941Z",
   "verdict": "seal-pass-backlog-drained",
   "baselineDefectFaces": 3,
   "fixedDefectFaces": 0,
@@ -10,7 +10,7 @@
   "fixedGuards": "all pass",
   "trees": {
     "baseline": {
-      "source": "the PUBLISHED v0.7.41 linux-amd64 release asset, downloaded from the GitHub release API and re-hashed (archive sha256 0db3083d\u2026, unpacked binary sha256 4b990ae2\u2026 = 'reeflog 0.7.41') \u2014 the bytes a stranger installs, not a local rebuild",
+      "source": "the PUBLISHED v0.7.41 linux-amd64 release asset, downloaded from the GitHub release API and re-hashed (archive sha256 0db3083d…, unpacked binary sha256 4b990ae2… = 'reeflog 0.7.41') — the bytes a stranger installs, not a local rebuild",
       "binSha256": "4b990ae266b1321d827c0e6314b4c11791003090a230a20ca1845c435a6d7204",
       "binVersion": "reeflog 0.7.41",
       "faces": {
@@ -99,9 +99,9 @@
       }
     },
     "fixed": {
-      "source": "this tree (0.7.42), the binary built from the release commit",
-      "binSha256": "2d415a38052aaed6d74f4d46ea8b84497ff2164927aafcb2b4f77b0ea7833e89",
-      "binVersion": "reeflog 0.7.42",
+      "source": "this tree (0.7.43), the binary built from the release commit",
+      "binSha256": "e0ecb02ee163b8a8e3c4e0006499bcc6eb004816a1d292de970a15b946f14adc",
+      "binVersion": "reeflog 0.7.43",
       "faces": {
         "D1_daemon_drain": {
           "pending": 1000,
@@ -199,7 +199,7 @@
           "still_unsealed": 10,
           "exit": 3,
           "stdout_has_summary": true,
-          "stderr": "reeflog: seal pass INCOMPLETE \u2014 the journal still holds rows this pass did not ask",
+          "stderr": "reeflog: seal pass INCOMPLETE — the journal still holds rows this pass did not ask",
           "refused_calls": 1,
           "pass": true
         }
