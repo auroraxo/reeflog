@@ -1,0 +1,168 @@
+{
+  "commitment": "confirmed",
+  "compliant_server_mode": false,
+  "connection1_delivered_slots": [
+    90,
+    91,
+    91
+  ],
+  "consumer_errors": [],
+  "consumer_options_intra_slot_updates": false,
+  "defect_present": false,
+  "delivered_account_slots_by_conn": [
+    [
+      0,
+      90
+    ],
+    [
+      0,
+      91
+    ],
+    [
+      1,
+      91
+    ],
+    [
+      1,
+      92
+    ],
+    [
+      1,
+      93
+    ],
+    [
+      1,
+      94
+    ],
+    [
+      1,
+      95
+    ],
+    [
+      1,
+      96
+    ],
+    [
+      1,
+      97
+    ],
+    [
+      1,
+      98
+    ],
+    [
+      1,
+      99
+    ],
+    [
+      1,
+      100
+    ],
+    [
+      1,
+      101
+    ],
+    [
+      1,
+      102
+    ],
+    [
+      1,
+      103
+    ],
+    [
+      1,
+      104
+    ],
+    [
+      1,
+      105
+    ],
+    [
+      1,
+      106
+    ],
+    [
+      1,
+      107
+    ],
+    [
+      1,
+      108
+    ],
+    [
+      1,
+      109
+    ],
+    [
+      1,
+      110
+    ],
+    [
+      1,
+      111
+    ],
+    [
+      1,
+      112
+    ],
+    [
+      1,
+      113
+    ],
+    [
+      1,
+      114
+    ],
+    [
+      1,
+      115
+    ],
+    [
+      1,
+      116
+    ],
+    [
+      1,
+      117
+    ],
+    [
+      1,
+      118
+    ],
+    [
+      1,
+      119
+    ],
+    [
+      1,
+      120
+    ],
+    [
+      1,
+      121
+    ],
+    [
+      1,
+      122
+    ]
+  ],
+  "delivered_footer_slots_by_conn": [],
+  "expected_resume_slot": 92,
+  "footer_only_consumer": false,
+  "issue": "helius-labs/laserstream-sdk#115",
+  "mock_ignores_from_slot": true,
+  "out_of_range_replies": 0,
+  "payloads_delivered_after_reconnect": 5,
+  "reconnect_attempts": 1,
+  "reconnect_from_slot": 91,
+  "replay_window_floor_harness": 0,
+  "scenario": "QUIET_RESUME: window still holds the cursor slot -> replay",
+  "script": "payload@90, payload@91, stream end; chain advances while the consumer stays quiet",
+  "sdk_rule": "pr114",
+  "sdk_source": "helius-laserstream 2.0.0 from crates.io (its client.rs cursor logic is byte-identical to main 379a6ba: tracked_slot = s.slot on any slot update, payload slots never advance the cursor)",
+  "server_behavior": "the mock answers from_slot below first_available with OUT_OF_RANGE and holds the connection open",
+  "skipped_range_size": 30,
+  "slots_a_compliant_server_would_never_redeliver": [],
+  "variant": "F-CONTROL: quiet subscription, window still holds the cursor slot"
+}

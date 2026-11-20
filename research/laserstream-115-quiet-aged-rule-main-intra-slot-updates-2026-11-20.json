@@ -1,0 +1,72 @@
+{
+  "commitment": "confirmed",
+  "compliant_server_mode": false,
+  "connection1_delivered_slots": [
+    90,
+    91
+  ],
+  "consumer_errors": [
+    "gRPC status error: code: 'Operation was attempted past the valid range', message: \"requested from_slot is before the replay window: window_floor=130 (harness)\""
+  ],
+  "consumer_options_intra_slot_updates": true,
+  "defect_present": true,
+  "delivered_account_slots_by_conn": [
+    [
+      0,
+      90
+    ],
+    [
+      0,
+      91
+    ]
+  ],
+  "delivered_footer_slots_by_conn": [],
+  "expected_resume_slot": 92,
+  "footer_only_consumer": false,
+  "issue": "helius-labs/laserstream-sdk#115",
+  "mock_ignores_from_slot": true,
+  "out_of_range_replies": 1,
+  "payloads_delivered_after_reconnect": 0,
+  "reconnect_attempts": 1,
+  "reconnect_from_slot": 122,
+  "replay_window_floor_harness": 130,
+  "scenario": "QUIET_AGED: window slid past -> OUT_OF_RANGE",
+  "script": "payload@90, payload@91, stream end; chain advances while the consumer stays quiet",
+  "sdk_rule": "main",
+  "sdk_source": "helius-laserstream 2.0.0 from crates.io (its client.rs cursor logic is byte-identical to main 379a6ba: tracked_slot = s.slot on any slot update, payload slots never advance the cursor)",
+  "server_behavior": "the mock answers from_slot below first_available with OUT_OF_RANGE and holds the connection open",
+  "skipped_range_size": 30,
+  "slots_a_compliant_server_would_never_redeliver": [
+    92,
+    93,
+    94,
+    95,
+    96,
+    97,
+    98,
+    99,
+    100,
+    101,
+    102,
+    103,
+    104,
+    105,
+    106,
+    107,
+    108,
+    109,
+    110,
+    111,
+    112,
+    113,
+    114,
+    115,
+    116,
+    117,
+    118,
+    119,
+    120,
+    121
+  ],
+  "variant": "F: quiet subscription, replay window slid past the cursor (cursor-only-advance fix scenario)"
+}
