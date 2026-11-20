@@ -1,0 +1,528 @@
+#!/usr/bin/env node
+// Measure whether the seal pass can honour a short answer from its source.
+//
+// THE QUESTION (measured 2026-11-20): `seal_batch` asks getSignatureStatuses
+// for a batch of pending signatures and reads the per-signature verdicts
+// from result.value[]. The reorg module's `status_sources` defends that
+// contract explicitly (`a.len() == sigs.len()`; anything else is
+// Source::Failed("bad response shape") for the whole batch). The seal pass
+// zipped instead — a truncated value array sealed the rows the answer
+// covered and moved the walk's seq cursor past every row it did not. Those
+// rows were never asked, and the pass still reported complete: true at exit
+// 0. The pass knew it was incomplete in the abstract (PULS BA) but had no
+// way to notice one source not answering for its own batch.
+//
+// Faces (each run against BOTH binaries with an identical fixture, a local
+// sink that answers floor(n/2) of every batch — the defect shape):
+//   D1 CLI pass: 10 pending rows, short answer — rows behind the truncated
+//      answer must NOT be left unasked by a complete:true exit-0 pass.
+//   D2 daemon tick: the same short answer inside start — the tick must
+//      not seal rows a truncated answer never covered, and it must name
+//      the incomplete pass on stderr.
+//   D3 missing verdicts: short answer, null entries, refusing second source
+//      — the half promoted `missing` must not make the pass look done while
+//      the rows behind the truncation are dropped.
+//
+// Guards (must hold on BOTH trees — the honest forms must not move):
+//   G1 a full-length finalized answer seals every row, exit 0, complete true;
+//   G2 a full-length all-null answer with a serving second source decides
+//      nothing (undecided rows stay pending, exit 0);
+//   G3 a full-length all-null answer with a refusing second source seals
+//      `missing` for every row (the two-source rule, unchanged);
+//   G4 a dead endpoint (HTTP 500) never looks like a pass — the transport
+//      failure path is the one this fix feeds into, so it must not regress.
+//
+// Usage:
+//   node tools/measure-seal-answer-shape.mjs \
+//     --baseline <path/to/baseline/reeflog> \
+//     --fixed <path/to/fixed/reeflog> \
+//     --out research/seal-answer-shape-2026-11-20.json
+
+import fs from 'node:fs';
+import net from 'node:net';
+import crypto from 'node:crypto';
+import os from 'node:os';
+import path from 'node:path';
+import { spawn } from 'node:child_process';
+import { DatabaseSync } from 'node:sqlite';
+
+const PROGRAM = 'whirLbMiicVdio4qvUfM5KAg6Ct8VwpYzGff3uctyCc';
+const WS_GUID = '258EAFA5-E914-47DA-95CA-C5AB0DC85B11';
+
+function arg(name, fallback = null) {
+  const i = process.argv.indexOf(name);
+  return i >= 0 && process.argv[i + 1] ? process.argv[i + 1] : fallback;
+}
+const BASELINE = arg('--baseline') && path.resolve(arg('--baseline'));
+const FIXED = arg('--fixed') && path.resolve(arg('--fixed'));
+const OUT = arg('--out');
+if (!BASELINE || !FIXED || !OUT) {
+  console.error('usage: --baseline <bin> --fixed <bin> --out <json>');
+  process.exit(2);
+}
+
+const sha256 = (p) => crypto.createHash('sha256').update(fs.readFileSync(p)).digest('hex');
+const binVersion = (bin) =>
+  new Promise((res) => {
+    const c = spawn(bin, ['--version']);
+    let o = '';
+    c.stdout.on('data', (d) => (o += d));
+    c.on('close', () => res(o.trim()));
+  });
+
+// One port, the house roles: WS upgrade held open, JSON-RPC over plain
+// HTTP for the periodic passes. Answer modes:
+//   'full'  — every requested signature gets one finalized entry;
+//   'half'  — only floor(n/2) of the requested signatures get finalized
+//             entries: the truncated answer, the defect shape;
+//   'halfnull' — floor(n/2) of the requested signatures get NULL entries
+//                (truncated AND undecidable at the status source);
+//   'null'  — one entry per signature, every entry null (undecidable at the
+//             status source; the second source decides);
+//   'dead'  — every call is refused with HTTP 500 (the transport path).
+// The second source (`getTransaction`) serves unless it is told to refuse.
+function makeSink(mode, txServe) {
+  const calls = { getSignatureStatuses: [], getTransaction: 0, dead: 0 };
+  const isTruncated = (m) => m === 'half' || m === 'halfnull';
+  const answered = (m, n) => (isTruncated(m) ? Math.floor(n / 2) : n);
+  const srv = net.createServer((s) => {
+    let acc = Buffer.alloc(0);
+    s.on('error', () => {});
+    s.on('data', (d) => {
+      acc = Buffer.concat([acc, d]);
+      const p = acc.indexOf('\r\n\r\n');
+      if (p < 0) return;
+      const head = acc.subarray(0, p).toString();
+      const cl = Number((head.match(/content-length:\s*(\d+)/i) || [])[1] || 0);
+      const he = p + 4;
+      if (acc.length < he + cl) return;
+      const body = acc.subarray(he, he + cl).toString();
+      acc = Buffer.alloc(0);
+      if (head.toLowerCase().includes('upgrade: websocket')) {
+        const key = (head.match(/sec-websocket-key:\s*(.+)/i) || [])[1]?.trim();
+        const accept = crypto.createHash('sha1').update(key + WS_GUID).digest('base64');
+        s.write(
+          `HTTP/1.1 101 Switching Protocols\r\nupgrade: websocket\r\nconnection: upgrade\r\nsec-websocket-accept: ${accept}\r\n\r\n`
+        );
+        return; // held open for the rest of the run
+      }
+      let v;
+      try {
+        v = JSON.parse(body);
+      } catch {
+        return;
+      }
+      const m = v?.method || '';
+      if (mode === 'dead') {
+        calls.dead += 1;
+        s.write('HTTP/1.1 500 Internal Server Error\r\ncontent-length: 0\r\nconnection: close\r\n\r\n');
+        return;
+      }
+      let result;
+      if (m === 'getSignatureStatuses') {
+        const sigs = v?.params?.[0] || [];
+        calls.getSignatureStatuses.push(sigs.length);
+        const answer = answered(mode, sigs.length);
+        result = {
+          value: sigs.slice(0, answer).map(() =>
+            mode === 'null' || mode === 'halfnull'
+              ? null
+              : { confirmationStatus: 'finalized', err: null }
+          ),
+        };
+      } else if (m === 'getTransaction') {
+        calls.getTransaction += 1;
+        result = txServe ? { slot: 1000 } : null;
+      } else if (m === 'getSignaturesForAddress') {
+        result = [];
+      } else {
+        result = {};
+      }
+      const payload = JSON.stringify({ jsonrpc: '2.0', id: v?.id ?? 1, result });
+      s.write(
+        `HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: ${payload.length}\r\nconnection: close\r\n\r\n${payload}`
+      );
+    });
+  });
+  return { srv, calls };
+}
+
+function plant(dir, rows) {
+  fs.mkdirSync(dir, { recursive: true });
+  const db = new DatabaseSync(path.join(dir, 'reeflog.db'));
+  db.exec(`CREATE TABLE IF NOT EXISTS events(seq INTEGER PRIMARY KEY AUTOINCREMENT,signature TEXT NOT NULL UNIQUE,slot INTEGER NOT NULL,err TEXT,logs TEXT,source TEXT NOT NULL DEFAULT 'ws',first_seen INTEGER NOT NULL,seal_status TEXT,seal_seen INTEGER,payload_state TEXT)`);
+  const ins = db.prepare(`INSERT INTO events(signature,slot,logs,source,first_seen,payload_state) VALUES(?1,?2,'[]','ws',?3,'held')`);
+  for (let i = 0; i < rows; i++) ins.run(`sig${String(i).padStart(5, '0')}`, 1000 + i, Date.now());
+  db.close();
+}
+
+function counts(dir) {
+  const db = new DatabaseSync(path.join(dir, 'reeflog.db'), { readOnly: true });
+  const one = (q) => db.prepare(q).get().n;
+  const out = {
+    total: one(`SELECT COUNT(*) n FROM events`),
+    unsealed: one(`SELECT COUNT(*) n FROM events WHERE seal_status IS NULL`),
+    finalized: one(`SELECT COUNT(*) n FROM events WHERE seal_status='finalized'`),
+    missing: one(`SELECT COUNT(*) n FROM events WHERE seal_status='missing'`),
+    confirmed: one(`SELECT COUNT(*) n FROM events WHERE seal_status='confirmed'`),
+  };
+  db.close();
+  return out;
+}
+
+function exec(cmd, args, cwd, timeoutMs) {
+  return new Promise((res) => {
+    const c = spawn(cmd, args, { cwd, timeout: timeoutMs, killSignal: 'SIGKILL' });
+    let so = '',
+      se = '';
+    c.stdout.on('data', (d) => (so += d));
+    c.stderr.on('data', (d) => (se += d));
+    c.on('close', (st, sig) => res({ exit: st, signal: sig, stdout: so, stderr: se }));
+    c.on('error', (e) => res({ exit: -1, signal: null, stdout: so, stderr: String(e) }));
+  });
+}
+
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+let tmpRoot = null;
+function tmpdir(tag) {
+  if (!tmpRoot) tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'reeflog-answer-shape-'));
+  const dir = path.join(tmpRoot, `${tag}-${Math.random().toString(36).slice(2, 8)}`);
+  return dir;
+}
+async function listen(srv) {
+  await new Promise((r) => srv.listen(0, '127.0.0.1', r));
+  return srv.address().port;
+}
+
+// --- D1: the CLI pass must not claim complete over unanswered rows ---------
+async function d1_cli_short_answer(bin, tag) {
+  const { srv, calls } = makeSink('half', false);
+  const port = await listen(srv);
+  const dir = tmpdir(`d1-${tag}`);
+  plant(dir, 10);
+  const run = await exec(
+    bin,
+    ['seal', '--db', 'reeflog.db', '--rpc', `http://127.0.0.1:${port}`],
+    dir,
+    60_000
+  );
+  const c = counts(dir);
+  let summary = null;
+  try {
+    summary = JSON.parse(run.stdout).seal_pass;
+  } catch {
+    summary = null;
+  }
+  srv.close();
+  fs.rmSync(dir, { recursive: true, force: true });
+  return {
+    pending: 10,
+    requested: calls.getSignatureStatuses.reduce((a, b) => a + b, 0),
+    answered: calls.getSignatureStatuses.reduce((a, b) => a + Math.floor(b / 2), 0),
+    sealed: c.finalized,
+    unsealed: c.unsealed,
+    exit: run.exit,
+    complete: summary?.complete ?? null,
+    stderr: run.stderr.trim().slice(0, 300),
+  };
+}
+
+// --- D2: the daemon tick must not consume rows a truncated answer skipped --
+async function d2_daemon_short_answer(bin, tag) {
+  const { srv, calls } = makeSink('half', false);
+  const port = await listen(srv);
+  const dir = tmpdir(`d2-${tag}`);
+  plant(dir, 10);
+  const run = await exec(
+    bin,
+    [
+      'start', '--db', 'reeflog.db', '--program', PROGRAM,
+      '--rpc', `http://127.0.0.1:${port}`, '--ws', `ws://127.0.0.1:${port}`,
+      '--seconds', '3', '--seal-every', '1',
+      '--reorg-every', '0', '--repair-every', '0', '--webhook-every', '0',
+    ],
+    dir,
+    30_000
+  );
+  const c = counts(dir);
+  srv.close();
+  fs.rmSync(dir, { recursive: true, force: true });
+  return {
+    pending: 10,
+    requested: calls.getSignatureStatuses.reduce((a, b) => a + b, 0),
+    sealed: c.finalized,
+    unsealed: c.unsealed,
+    exit: run.exit,
+    names_incomplete_on_stderr: /seal pass INCOMPLETE/.test(run.stderr),
+    stderr: run.stderr.trim().slice(0, 300),
+  };
+}
+
+// --- D3: missing verdicts behind a truncation are not a complete pass ------
+async function d3_cli_short_answer_missing(bin, tag) {
+  const { srv, calls } = makeSink('halfnull', false);
+  const port = await listen(srv);
+  const dir = tmpdir(`d3-${tag}`);
+  plant(dir, 10);
+  const run = await exec(
+    bin,
+    ['seal', '--db', 'reeflog.db', '--rpc', `http://127.0.0.1:${port}`],
+    dir,
+    60_000
+  );
+  const c = counts(dir);
+  let summary = null;
+  try {
+    summary = JSON.parse(run.stdout).seal_pass;
+  } catch {
+    summary = null;
+  }
+  srv.close();
+  fs.rmSync(dir, { recursive: true, force: true });
+  return {
+    pending: 10,
+    sealed: c.finalized,
+    missing: c.missing,
+    unsealed: c.unsealed,
+    exit: run.exit,
+    complete: summary?.complete ?? null,
+    stderr: run.stderr.trim().slice(0, 300),
+  };
+}
+
+// --- G1: a full-length finalized answer seals everything -------------------
+async function g1_full_answer(bin, tag) {
+  const { srv, calls } = makeSink('full', false);
+  const port = await listen(srv);
+  const dir = tmpdir(`g1-${tag}`);
+  plant(dir, 10);
+  const run = await exec(
+    bin,
+    ['seal', '--db', 'reeflog.db', '--rpc', `http://127.0.0.1:${port}`],
+    dir,
+    60_000
+  );
+  const c = counts(dir);
+  let summary = null;
+  try {
+    summary = JSON.parse(run.stdout).seal_pass;
+  } catch {
+    summary = null;
+  }
+  srv.close();
+  fs.rmSync(dir, { recursive: true, force: true });
+  return {
+    pending: 10,
+    requested: calls.getSignatureStatuses.reduce((a, b) => a + b, 0),
+    answered: calls.getSignatureStatuses.reduce((a, b) => a + b, 0),
+    sealed: c.finalized,
+    unsealed: c.unsealed,
+    exit: run.exit,
+    complete: summary?.complete ?? null,
+  };
+}
+
+// --- G2: full-length nulls with a serving second source decide nothing -----
+async function g2_null_serving(bin, tag) {
+  const { srv } = makeSink('null', true);
+  const port = await listen(srv);
+  const dir = tmpdir(`g2-${tag}`);
+  plant(dir, 10);
+  const run = await exec(
+    bin,
+    ['seal', '--db', 'reeflog.db', '--rpc', `http://127.0.0.1:${port}`],
+    dir,
+    60_000
+  );
+  const c = counts(dir);
+  let summary = null;
+  try {
+    summary = JSON.parse(run.stdout).seal_pass;
+  } catch {
+    summary = null;
+  }
+  srv.close();
+  fs.rmSync(dir, { recursive: true, force: true });
+  return {
+    pending: 10,
+    sealed: c.finalized,
+    missing: c.missing,
+    unsealed: c.unsealed,
+    exit: run.exit,
+    complete: summary?.complete ?? null,
+  };
+}
+
+// --- G3: full-length nulls with a refusing second source seal missing ------
+async function g3_null_refusing(bin, tag) {
+  const { srv } = makeSink('null', false);
+  const port = await listen(srv);
+  const dir = tmpdir(`g3-${tag}`);
+  plant(dir, 10);
+  const run = await exec(
+    bin,
+    ['seal', '--db', 'reeflog.db', '--rpc', `http://127.0.0.1:${port}`],
+    dir,
+    60_000
+  );
+  const c = counts(dir);
+  let summary = null;
+  try {
+    summary = JSON.parse(run.stdout).seal_pass;
+  } catch {
+    summary = null;
+  }
+  srv.close();
+  fs.rmSync(dir, { recursive: true, force: true });
+  return {
+    pending: 10,
+    sealed: c.finalized,
+    missing: c.missing,
+    unsealed: c.unsealed,
+    exit: run.exit,
+    complete: summary?.complete ?? null,
+  };
+}
+
+// --- G4: a dead endpoint never looks like a pass ---------------------------
+async function g4_dead_endpoint(bin, tag) {
+  const { srv, calls } = makeSink('dead', false);
+  const port = await listen(srv);
+  const dir = tmpdir(`g4-${tag}`);
+  plant(dir, 10);
+  const run = await exec(
+    bin,
+    ['seal', '--db', 'reeflog.db', '--rpc', `http://127.0.0.1:${port}`],
+    dir,
+    180_000
+  );
+  const c = counts(dir);
+  srv.close();
+  fs.rmSync(dir, { recursive: true, force: true });
+  return {
+    pending: 10,
+    sealed: c.finalized,
+    unsealed: c.unsealed,
+    exit: run.exit,
+    refused_calls: calls.dead,
+    stdout_has_summary: run.stdout.trim().length > 0,
+    stderr: run.stderr.trim().slice(0, 300),
+  };
+}
+
+// --- evaluation -------------------------------------------------------------
+// A face is DEFECTIVE on a tree when the honest outcome did not hold. The
+// honest outcome has TWO shapes — the pass asked everything (exit 0,
+// complete: true, every row sealed/promoted) or it refused to lie (exit 3,
+// complete: false). Only the first shape may look done.
+const honestCli = (r, promotedOf) =>
+  (r.exit === 0 && r.complete === true && promotedOf(r) === r.pending) ||
+  (r.exit === 3 && r.complete === false);
+const evaluate = {
+  d1: (r) => !honestCli(r, (x) => x.sealed),
+  d2: (r) => !(r.sealed === 0 && r.unsealed === r.pending),
+  d3: (r) => !honestCli(r, (x) => x.missing),
+};
+const guardOk = {
+  g1: (r) => r.sealed === r.pending && r.unsealed === 0 && r.exit === 0 && r.complete === true,
+  g2: (r) => r.missing === 0 && r.unsealed === r.pending && r.exit === 0 && r.complete === true,
+  g3: (r) => r.missing === r.pending && r.unsealed === 0 && r.exit === 0 && r.complete === true,
+  g4: (r) => r.sealed === 0 && r.unsealed === r.pending && r.exit !== 0,
+};
+
+async function measureTree(bin, tag) {
+  const [d1, d2, d3, g1, g2, g3, g4] = [
+    await d1_cli_short_answer(bin, tag),
+    await d2_daemon_short_answer(bin, tag),
+    await d3_cli_short_answer_missing(bin, tag),
+    await g1_full_answer(bin, tag),
+    await g2_null_serving(bin, tag),
+    await g3_null_refusing(bin, tag),
+    await g4_dead_endpoint(bin, tag),
+  ];
+  return {
+    binSha256: sha256(bin),
+    binVersion: await binVersion(bin),
+    faces: {
+      D1_cli_short_answer: { ...d1, defect: evaluate.d1(d1) },
+      D2_daemon_short_answer: { ...d2, defect: evaluate.d2(d2) },
+      D3_missing_behind_truncation: { ...d3, defect: evaluate.d3(d3) },
+    },
+    guards: {
+      G1_full_answer_seals: { ...g1, pass: guardOk.g1(g1) },
+      G2_null_serving_undecided: { ...g2, pass: guardOk.g2(g2) },
+      G3_null_refusing_missing: { ...g3, pass: guardOk.g3(g3) },
+      G4_dead_is_not_a_pass: { ...g4, pass: guardOk.g4(g4) },
+    },
+  };
+}
+
+const count = (t, pick) => Object.values(t.faces).filter(pick).length;
+
+async function main() {
+  console.error(`baseline: ${BASELINE}`);
+  const baseline = await measureTree(BASELINE, 'baseline');
+  console.error(`fixed: ${FIXED}`);
+  const fixed = await measureTree(FIXED, 'fixed');
+
+  const baselineDefects = count(baseline, (f) => f.defect);
+  const fixedDefects = count(fixed, (f) => f.defect);
+  const guardsPass = (t) => Object.values(t.guards).every((g) => g.pass);
+  const verdict =
+    baselineDefects === 3 && fixedDefects === 0 && guardsPass(baseline) && guardsPass(fixed)
+      ? 'seal-answer-covers-request'
+      : 'inconclusive';
+
+  const artifact = {
+    tool: 'measure-seal-answer-shape.mjs',
+    question:
+      'Can the seal pass honour an answer that covers fewer rows than it asked for, or does a truncated value array silently skip rows behind it while claiming the pass is complete?',
+    defect:
+      'seal_batch (src/main.rs) zipped pending with result.value unconditionally: an answer array shorter than the request sealed the rows the answer covered and moved the walk cursor past every row it did not — those rows were never asked, and the pass still reported complete: true and exited 0. The reorg module (status_sources, src/reorg.rs) already defended this exact contract with a.len() == sigs.len(); the seal pass was the one consumer of a batched source that did not.',
+    measuredAt: new Date().toISOString(),
+    verdict,
+    baselineDefectFaces: baselineDefects,
+    fixedDefectFaces: fixedDefects,
+    baselineGuards: guardsPass(baseline) ? 'all pass' : 'FAILED',
+    fixedGuards: guardsPass(fixed) ? 'all pass' : 'FAILED',
+    trees: {
+      baseline: {
+        source: 'PUBLISHED v0.7.42 linux-amd64 release asset (archive digest 4c183352723e04827759947c7e5f34c8211db1252659b14be4aa067b91800807 == Release-API digest; unpacked binary sha256 6f20fa8988af4231eac87d555c97a077c0e420157cec51773217a9d0bb991c72) — the bytes a stranger installs.',
+        binSha256: baseline.binSha256,
+        binVersion: baseline.binVersion,
+        faces: baseline.faces,
+        guards: baseline.guards,
+      },
+      fixed: {
+        source: 'this tree',
+        binSha256: fixed.binSha256,
+        binVersion: fixed.binVersion,
+        faces: fixed.faces,
+        guards: fixed.guards,
+      },
+    },
+  };
+  fs.mkdirSync(path.dirname(OUT), { recursive: true });
+  fs.writeFileSync(OUT, JSON.stringify(artifact, null, 2) + '\n');
+  console.log(
+    JSON.stringify(
+      {
+        verdict,
+        baselineDefectFaces: baselineDefects,
+        fixedDefectFaces: fixedDefects,
+        baselineGuards: artifact.baselineGuards,
+        fixedGuards: artifact.fixedGuards,
+        out: OUT,
+      },
+      null,
+      1
+    )
+  );
+  if (tmpRoot) fs.rmSync(tmpRoot, { recursive: true, force: true });
+  process.exit(verdict === 'seal-answer-covers-request' ? 0 : 1);
+}
+
+main().catch((e) => {
+  console.error(e);
+  process.exit(2);
+});

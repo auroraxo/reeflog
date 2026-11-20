@@ -411,6 +411,24 @@ fn seal_batch<F: backfill::Fetcher>(
         .and_then(|v| v.as_array())
         .cloned()
         .unwrap_or_default();
+    // ONE ENTRY PER ASKED ROW, OR THE ANSWER IS NOT AN ANSWER. The reorg
+    // module's `status_sources` already defends this exact contract
+    // (src/reorg.rs: a length mismatch is `Source::Failed("bad response
+    // shape")` for the whole batch). The seal pass zipped instead, and a
+    // truncated `value` array (a sick endpoint that answers what it has, a
+    // proxy cut, measured 2026-11-20 against a local sink that answers
+    // floor(n/2)) sealed the rows the answer covered and moved the walk's
+    // cursor past every row it did not — those rows were never asked, and
+    // the pass still reported `complete: true` at exit 0. A short answer is
+    // a failed source: nothing is sealed, nothing is consumed, and the walk
+    // records the named error and stops with `complete: false`.
+    if values.len() != pending.len() {
+        return Err(format!(
+            "getSignatureStatuses: asked {} signature(s), the answer carries {} — a truncated answer is a failed source (nothing sealed, nothing consumed; the rows stay pending for the next pass)",
+            pending.len(),
+            values.len()
+        ));
+    }
     for ((_, sig), st) in pending.iter().zip(values.iter()) {
         if st.is_null() {
             // Second source: only a refusal from BOTH proves the chain does
@@ -990,6 +1008,14 @@ async fn run_start(args: &[String]) {
             stats.seal_passes += 1;
             for k in ["finalized", "confirmed", "error", "missing"] {
                 stats.seal_promoted += promoted[k].as_i64().unwrap_or(0);
+            }
+            // The seal pass says so when it cannot finish, the same way the
+            // reorg and repair ticks do — a truncated or failing answer is
+            // not a verdict, and the rows stay pending for the next pass.
+            if promoted["complete"].as_bool() != Some(true) {
+                eprintln!(
+                    "reeflog: seal pass INCOMPLETE {promoted} — the rows stay pending; a truncated answer is not a verdict"
+                );
             }
         }};
     }
