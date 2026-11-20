@@ -1507,8 +1507,11 @@ fn run_tail(args: &[String]) {
 ///
 /// * `events_missing_payload`: no logs, no recorded outcome → owed.
 /// * `events_missing_accounts`: logs present, and either `account_state`
-///   unset or a stored envelope missing the newer extractor's markers
-///   (a half envelope) → owed.
+///   unset or a HELD envelope missing a current extractor marker (a half
+///   envelope) → owed. A RECORDED outcome (unavailable/invalid/no_metadata)
+///   over a half envelope is final — the chain has answered — so it is NOT
+///   owed: the queue would not select it, and holding here would wedge the
+///   cursor at a row nothing can ever fill.
 ///
 /// Owed means "will exist later": HOLD (cursor stays, exit 3). A row with a
 /// recorded outcome can never be filled: SKIP, report, consume. Everything
@@ -1519,11 +1522,20 @@ enum AccountsFilter {
     RecordedOutcome,
 }
 
+/// The delivery-time twin of the SQL completeness predicates in journal.rs
+/// (`events_missing_accounts` / `accounts_partial`): an envelope is whole
+/// when every marker the current extractor writes is there — the
+/// instruction bytes, the account-list flag provenance, and (since the
+/// event-time authority work of 2026-11-02) the `token_state` list. Three
+/// markers, not two: a journal written by an older binary holds an envelope
+/// that satisfies this function's older two-marker form, and delivering it
+/// as complete is the half-envelope defect this module exists to prevent.
 fn envelope_markers_present(raw: &str) -> bool {
     match serde_json::from_str::<Value>(raw) {
         Ok(v) => {
             v.get("instructions").is_some_and(|x| !x.is_null())
                 && v.get("accounts_flags_source").is_some_and(|x| !x.is_null())
+                && v.get("token_state").is_some_and(|x| !x.is_null())
         }
         Err(_) => false,
     }
@@ -1531,11 +1543,13 @@ fn envelope_markers_present(raw: &str) -> bool {
 
 fn classify_for_accounts_filter(r: &EventRow) -> AccountsFilter {
     let payload_owed = r.logs.is_none() && r.payload_state.is_none();
+    let half_envelope = r
+        .accounts
+        .as_deref()
+        .is_some_and(|a| !envelope_markers_present(a));
     let accounts_owed = r.logs.is_some()
         && (r.account_state.is_none()
-            || r.accounts
-                .as_deref()
-                .is_some_and(|a| !envelope_markers_present(a)));
+            || (r.account_state.as_deref() == Some("held") && half_envelope));
     if payload_owed || accounts_owed {
         return AccountsFilter::Held;
     }

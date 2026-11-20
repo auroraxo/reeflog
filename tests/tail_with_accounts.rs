@@ -25,7 +25,10 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
 const VALID_PROGRAM: &str = "whirLbMiicVdio4qvUfM5KAg6Ct8VwpYzGff3uctyCc";
-const ENVELOPE: &str = r#"{"instructions":[],"accounts_flags_source":"message","token_changes":[]}"#;
+/// A COMPLETE envelope: the three markers the current extractor writes
+/// (instruction bytes, account-list flag provenance, event-time token
+/// authority). An envelope missing one of them is HALF and is owed.
+const ENVELOPE: &str = r#"{"instructions":[],"accounts_flags_source":"message","token_changes":[],"token_state":[]}"#;
 const INCOMPLETE_ENVELOPE: &str = r#"{"token_changes":[]}"#;
 const LOG: &str = r#"["Program log: hi"]"#;
 

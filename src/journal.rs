@@ -796,6 +796,15 @@ impl Journal {
     /// skipped: skipping it would leave a half envelope standing as the
     /// final word forever, and every later pass would report the journal
     /// complete over it.
+    ///
+    /// The guard and the debt queue are two halves of ONE contract: the
+    /// queue re-selects exactly what this guard refuses to call complete,
+    /// so a row can be re-fetched once and then converges — never loops.
+    /// Both sides name the same markers (`token_state` included since
+    /// v0.7.41: the event-time authority the extractor has written since
+    /// 2026-11-02), and both sides demand it of the NEW envelope too —
+    /// without the second demand the queue would refetch forever while
+    /// each fetched response was stored and still called incomplete.
     pub fn set_accounts(&self, signature: &str, accounts: &str) -> Result<bool, String> {
         let n = self
             .db
@@ -804,25 +813,44 @@ impl Journal {
                  WHERE signature=?1 AND logs IS NOT NULL
                    AND (account_state IS NULL
                         OR json_extract(accounts, '$.instructions') IS NULL
-                        OR json_extract(accounts, '$.accounts_flags_source') IS NULL)
+                        OR json_extract(accounts, '$.accounts_flags_source') IS NULL
+                        OR json_extract(accounts, '$.token_state') IS NULL)
                     AND json_extract(?2, '$.instructions') IS NOT NULL
-                    AND json_extract(?2, '$.accounts_flags_source') IS NOT NULL",
+                    AND json_extract(?2, '$.accounts_flags_source') IS NOT NULL
+                    AND json_extract(?2, '$.token_state') IS NOT NULL",
                 params![signature, accounts],
             )
             .map_err(|e| e.to_string())?;
         Ok(n > 0)
     }
 
-    /// Record a KNOWN reason why no account envelope exists: the chain no
-    /// longer knows the transaction, the endpoint refuses the key, or the
-    /// response carried no usable metadata. Without this, "chain forgot it"
-    /// and "not fetched yet" look identical, and every pass would report the
-    /// same rows as owed forever — the defect payload_state already fixed.
+    /// Record a KNOWN reason why no COMPLETE account envelope exists here:
+    /// the chain no longer knows the transaction, the endpoint refuses the
+    /// key, or the response carried no usable metadata. Without this, "chain
+    /// forgot it" and "not fetched yet" look identical, and every pass would
+    /// report the same rows as owed forever — the defect payload_state
+    /// already fixed.
+    ///
+    /// The guard widens the same way for the SAME reason: a row that holds a
+    /// HALF envelope (one missing a current extractor marker) is just as
+    /// unfillable as one holding nothing, and its `account_state` is already
+    /// `held`. Guarding on `account_state IS NULL` alone would refuse the
+    /// record there — the row would sit in the accounts debt queue forever,
+    /// costing one `getTransaction` per pass and holding `hydrate --accounts`
+    /// at exit 3 for a row the chain can never answer. Recording wins; the
+    /// half envelope stays stored (plain `tail` still delivers it with its
+    /// marker) and the row leaves the queue.
     pub fn mark_account_outcome(&self, signature: &str, state: &str) -> Result<(), String> {
         self.db
             .execute(
                 "UPDATE events SET account_state=?2
-                 WHERE signature=?1 AND logs IS NOT NULL AND account_state IS NULL",
+                 WHERE signature=?1 AND logs IS NOT NULL
+                   AND (account_state IS NULL
+                        OR (account_state='held'
+                            AND accounts IS NOT NULL
+                            AND (json_extract(accounts, '$.instructions') IS NULL
+                                 OR json_extract(accounts, '$.accounts_flags_source') IS NULL
+                                 OR json_extract(accounts, '$.token_state') IS NULL)))",
                 params![signature, state],
             )
             .map_err(|e| e.to_string())?;
@@ -849,7 +877,16 @@ impl Journal {
     /// `accounts_flags_source` is the marker of the newer extractor. It is
     /// written even when the derivation is refused ("unavailable"), so a row
     /// whose flags could not be derived is NOT re-fetched forever: the chain
-    /// would answer the same.
+    /// would answer the same. `token_state` joined the marker set with the
+    /// event-time authority work (2026-11-02): an envelope written before it
+    /// carried balances, instructions and the account list but no event-time
+    /// token authority, and every count-based query called that whole — the
+    /// same defect class as the instruction bytes, one field further along.
+    ///
+    /// The second clause requires `account_state='held'`: a RECORDED outcome
+    /// (unavailable/invalid/no_metadata) over a half envelope is final — the
+    /// chain has answered — and must leave the queue, or the pass would
+    /// refetch an unfillable row forever.
     pub fn events_missing_accounts(&self, limit: i64) -> Result<Vec<(i64, String)>, String> {
         let mut stmt = self
             .db
@@ -857,9 +894,11 @@ impl Journal {
                 "SELECT seq, signature FROM events
                  WHERE logs IS NOT NULL
                    AND (account_state IS NULL
-                        OR (accounts IS NOT NULL
+                        OR (account_state='held'
+                            AND accounts IS NOT NULL
                             AND (json_extract(accounts, '$.instructions') IS NULL
-                                 OR json_extract(accounts, '$.accounts_flags_source') IS NULL)))
+                                 OR json_extract(accounts, '$.accounts_flags_source') IS NULL
+                                 OR json_extract(accounts, '$.token_state') IS NULL)))
                  ORDER BY seq LIMIT ?1",
             )
             .map_err(|e| e.to_string())?;
@@ -1064,9 +1103,11 @@ impl Journal {
                 "SELECT COUNT(*) FROM events
                  WHERE logs IS NOT NULL
                    AND (account_state IS NULL
-                        OR (accounts IS NOT NULL
+                        OR (account_state='held'
+                            AND accounts IS NOT NULL
                             AND (json_extract(accounts, '$.instructions') IS NULL
-                                 OR json_extract(accounts, '$.accounts_flags_source') IS NULL)))",
+                                 OR json_extract(accounts, '$.accounts_flags_source') IS NULL
+                                 OR json_extract(accounts, '$.token_state') IS NULL)))",
                 [],
                 |r| r.get(0),
             )
@@ -1906,14 +1947,15 @@ impl Journal {
                 |r| r.get(0),
             )
             .map_err(|e| e.to_string())?;
-        let accounts_missing: i64 = self
-            .db
-            .query_row(
-                "SELECT COUNT(*) FROM events WHERE logs IS NOT NULL AND account_state IS NULL",
-                [],
-                |r| r.get(0),
-            )
-            .map_err(|e| e.to_string())?;
+        // The accounts debt: the SAME predicate as the queue that pays it
+        // (`events_missing_accounts`), read through the counter that counts
+        // it (`accounts_missing_count`). Three hand-written copies of one
+        // fact is how this file already shipped the defect twice — the
+        // queue knew about the instruction bytes and the account list,
+        // while this counter asked only "is there an envelope?", so a
+        // half envelope was reported as stored-and-done. One counter, one
+        // predicate: the report cannot disagree with the queue.
+        let accounts_missing: i64 = self.accounts_missing_count()?;
         let accounts_held: i64 = self
             .db
             .query_row(
@@ -1927,16 +1969,17 @@ impl Journal {
         // extractor produces. Silent unless counted — a consumer reading
         // `accounts_held` alone would believe a half envelope is a whole
         // one, exactly the confusion `account_state` exists to prevent.
-        // Two of those fields now: the instruction bytes and the account
-        // list. An envelope missing EITHER one is half of what the current
-        // extractor writes.
+        // Three of those fields now: the instruction bytes, the account
+        // list, and the event-time token authority. An envelope missing ANY
+        // of them is half of what the current extractor writes.
         let accounts_partial: i64 = self
             .db
             .query_row(
                 "SELECT COUNT(*) FROM events
                  WHERE accounts IS NOT NULL
                    AND (json_extract(accounts, '$.instructions') IS NULL
-                        OR json_extract(accounts, '$.accounts_flags_source') IS NULL)",
+                        OR json_extract(accounts, '$.accounts_flags_source') IS NULL
+                        OR json_extract(accounts, '$.token_state') IS NULL)",
                 [],
                 |r| r.get(0),
             )

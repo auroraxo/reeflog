@@ -446,7 +446,7 @@ mod tests {
             "version": "legacy", "slot": 1, "program_id": "P", "err": Value::Null,
             "accounts_total": addresses.len(), "accounts_static": addresses.len(),
             "accounts_loaded": 0, "accounts_flags_source": "header",
-            "accounts": list, "instructions": [], "lamport_changes": [], "token_changes": [],
+            "accounts": list, "instructions": [], "lamport_changes": [], "token_changes": [], "token_state": [],
         });
         j.insert_for_test(sig, 1, Some("[\"log\"]"), None).unwrap();
         assert!(j.set_accounts(sig, &env.to_string()).unwrap(), "plant envelope for {sig}");
@@ -694,7 +694,7 @@ mod tests {
             "version": "legacy", "slot": 1, "program_id": "P", "err": Value::Null,
             "accounts_total": 5, "accounts_static": 5, "accounts_loaded": 0,
             "accounts_flags_source": "unavailable", "accounts": Value::Null,
-            "instructions": [], "lamport_changes": [], "token_changes": [],
+            "instructions": [], "lamport_changes": [], "token_changes": [], "token_state": [],
         });
         j.set_accounts("sigNoList", &env.to_string()).unwrap();
         assert_eq!(j.account_data_missing_count().unwrap(), 0);

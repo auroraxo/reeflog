@@ -688,6 +688,154 @@ mod tests {
         assert!(!wrote, "a response without instruction bytes must not overwrite a real envelope");
     }
 
+    /// PULS AY: the marker set is THREE fields, not two. An envelope that
+    /// carries the instruction bytes and the account-list provenance but
+    /// NO `token_state` is HALF — the event-time authority of every token
+    /// account the transaction touched lives in that field, and 82.4% of
+    /// touched token accounts (103/125 over 10 live Raydium AMM v4
+    /// transactions) carry an UNCHANGED amount and live ONLY there.
+    ///
+    /// The write guard is on the FIELD, not on who calls it: an envelope
+    /// without `token_state` must not be stored over a good one, exactly
+    /// as one without instruction bytes is not.
+    #[test]
+    fn an_envelope_without_the_token_state_marker_is_never_written() {
+        let j = tmp("refuse-token-state-write");
+        j.append("row", 10, None, Some(r#"["x"]"#), "ws").unwrap();
+        let half = serde_json::json!({
+            "instructions": [],
+            "accounts_flags_source": "message",
+            "token_changes": [],
+        });
+        let wrote = j
+            .set_accounts("row", &half.to_string())
+            .expect("set_accounts");
+        assert!(
+            !wrote,
+            "an envelope without the event-time token authority must not overwrite a real one"
+        );
+    }
+
+    /// The other half of the same contract: a `token_state`-less envelope
+    /// that an OLDER binary already stored is a DEBT, not a done row. The
+    /// accounts pass must select it, replace it with a whole one, and
+    /// CONVERGE — a second pass must cost no RPC. Without the marker in
+    /// the queue predicate the row would stand half forever while every
+    /// count-based query called it whole.
+    #[test]
+    fn an_envelope_from_an_older_extractor_is_owed_again_and_converges() {
+        let j = tmp("token-state-partial");
+        j.append("legacy", 10, None, Some(r#"["x"]"#), "ws").unwrap();
+        // An envelope as an extractor before the event-time authority
+        // landed wrote it: instructions, account list, flag provenance.
+        let old = serde_json::json!({
+            "version": "legacy", "slot": 10, "program_id": "Program",
+            "accounts_total": 3, "accounts_static": 3, "accounts_loaded": 0,
+            "accounts_flags_source": "header",
+            "accounts": [{"index": 0, "address": "Payer", "signer": true, "writable": true, "source": "static"}],
+            "instructions": [], "lamport_changes": [], "token_changes": [],
+        });
+        j.db
+            .execute(
+                "UPDATE events SET accounts=?2, account_state='held' WHERE signature=?1",
+                rusqlite::params!["legacy", old.to_string()],
+            )
+            .unwrap();
+        assert_eq!(
+            j.accounts_missing_count().unwrap(),
+            1,
+            "a half envelope is still a debt, not an outcome"
+        );
+
+        let mut rpc = FullRpc { calls: 0, fail_after: None };
+        let r = hydrate_accounts(&j, &mut rpc, 10).unwrap();
+        assert_eq!(r.stored, 1, "the half envelope is re-fetched and replaced");
+        assert!(r.complete());
+        let rows = j.events_after(0, 10).unwrap();
+        let env: Value = serde_json::from_str(rows[0].accounts.as_ref().unwrap()).unwrap();
+        assert!(
+            env["token_state"].is_array(),
+            "the replacement carries the event-time authority the old one lacked"
+        );
+        assert_eq!(j.accounts_missing_count().unwrap(), 0);
+        let mut rpc2 = FullRpc { calls: 0, fail_after: None };
+        let r2 = hydrate_accounts(&j, &mut rpc2, 10).unwrap();
+        assert_eq!(r2.considered, 0, "a complete envelope is not refetched");
+        assert_eq!(rpc2.calls, 0, "the converged row costs no second RPC");
+    }
+
+    /// The escape hatch that keeps the widened queue honest: a half
+    /// envelope whose transaction the chain NO LONGER KNOWS must be able to
+    /// record that outcome. `mark_account_outcome` guarded on
+    /// `account_state IS NULL` alone, which a half envelope (state
+    /// `held`) never satisfies — the row would sit in the accounts debt
+    /// queue forever, costing one `getTransaction` per pass and holding
+    /// `hydrate --accounts` at exit 3 for a row the chain cannot answer.
+    #[test]
+    fn a_half_envelope_can_record_that_the_chain_forgot_the_transaction() {
+        let j = tmp("token-state-final");
+        j.append("legacy", 10, None, Some(r#"["x"]"#), "ws").unwrap();
+        let old = serde_json::json!({
+            "version": "legacy", "slot": 10, "program_id": "Program",
+            "accounts_flags_source": "header", "accounts": [],
+            "instructions": [], "lamport_changes": [], "token_changes": [],
+        });
+        j.db
+            .execute(
+                "UPDATE events SET accounts=?2, account_state='held' WHERE signature=?1",
+                rusqlite::params!["legacy", old.to_string()],
+            )
+            .unwrap();
+        assert_eq!(j.accounts_missing_count().unwrap(), 1);
+
+        j.mark_account_outcome("legacy", "unavailable").unwrap();
+        assert_eq!(
+            j.accounts_missing_count().unwrap(),
+            0,
+            "a recorded outcome over a half envelope leaves the queue — the chain has answered"
+        );
+        let rows = j.events_after(0, 10).unwrap();
+        assert_eq!(
+            rows[0].account_state.as_deref(),
+            Some("unavailable"),
+            "the recorded outcome rides with the row"
+        );
+    }
+
+    /// The QUEUE side of the same contract: a recorded outcome is final
+    /// even when the envelope the row still holds is HALF. The debt queue
+    /// must not select it — otherwise every pass pays one `getTransaction`
+    /// for a row whose answer can never change, forever. The counter and
+    /// the queue are separate predicates, so this is pinned on the queue
+    /// itself (`hydrate_accounts` costs 0 RPC for the row).
+    #[test]
+    fn a_final_row_with_a_half_envelope_is_never_refetched() {
+        let j = tmp("final-half-queue");
+        j.append("legacy", 10, None, Some(r#"["x"]"#), "ws").unwrap();
+        let half = serde_json::json!({
+            "version": "legacy", "slot": 10, "program_id": "Program",
+            "accounts_flags_source": "header", "accounts": [],
+            "instructions": [], "lamport_changes": [], "token_changes": [],
+        });
+        j.db
+            .execute(
+                "UPDATE events SET accounts=?2, account_state='unavailable' WHERE signature=?1",
+                rusqlite::params!["legacy", half.to_string()],
+            )
+            .unwrap();
+
+        let mut rpc = FullRpc { calls: 0, fail_after: None };
+        let r = hydrate_accounts(&j, &mut rpc, 10).unwrap();
+        assert_eq!(
+            r.considered, 0,
+            "the chain has answered — a recorded outcome is final, half envelope or not"
+        );
+        assert_eq!(
+            rpc.calls, 0,
+            "no RPC is spent on a debt that can never be paid"
+        );
+    }
+
     #[test]
     fn a_rate_limit_leaves_no_envelope_and_the_pass_incomplete() {
         // The rule that keeps the mailbox honest: an endpoint failure must

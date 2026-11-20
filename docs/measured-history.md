@@ -2382,6 +2382,75 @@ fixed tree **0**. Artifact pinned by
 `tests/webhook_reorg_refusal_voice_measurement.rs` (4 tests, host paths
 excluded). The v0.7.38 tag keeps the defect — tags are immutable.
 
+### The envelope never learned the event-time token authority (v0.7.41)
+
+`token_state` — the authority every token account held at the moment of the
+event — has been written by the extractor since commit `3ed0536`
+(2026-11-02, first released in v0.4.0) and rode into the envelope
+contract. None of the envelope COMPLETENESS predicates knew it. The
+marker set stayed at two fields (instruction bytes, account-list flag
+provenance), so an envelope from any extractor before that commit — or
+any future field added after them — satisfied every completeness check
+while carrying none of the event-time authority: the same "half envelope
+presented as a whole one" class the instruction bytes defect already
+paid for, one field along, third occurrence.
+
+Why the field is not cosmetic: the authority of every UNCHANGED token
+account a transaction touched lives only in `token_state` — measured
+before this fix, **103 of 125** touched token accounts over 10 live
+Raydium AMM v4 transactions carried unchanged amounts and therefore
+existed nowhere else in the response.
+
+Measured 2026-11-20 on the **published v0.7.40 asset** (linux binary
+sha256 `a332e39c…` = `reeflog 0.7.40`, the bytes the Release API
+publishes; `tools/measure-token-state-completeness.mjs` drives both trees
+against the same planted journals; `research/token-state-completeness-published-v0740-2026-11-20.json`,
+verdict `token-state-completeness-blind`, **4 defect faces**):
+
+- `status` over a held half envelope printed `accounts_partial: 0`
+  (D1) and `accounts_missing: 0` (D2) — every count-based query called
+  it whole while the row stood half;
+- `tail --with-accounts` **delivered** the half envelope and
+  **consumed** it — cursor advanced past, exit 0, no `hydrate` named
+  (D3) — so the filled envelope could never reach that consumer again;
+- `hydrate --accounts` spent **0 RPC** on the debt (D4): the queue never
+  selected it, so the journal could never grow into a whole one.
+
+The fix closes the class on every predicate that answers "is this
+envelope complete?", and the two halves of ONE contract stay symmetric:
+the **write guard** (`set_accounts`) demands `token_state` of the stored
+row AND of the incoming envelope — a regression can no longer overwrite
+a good envelope; the **debt queue** (`events_missing_accounts`) selects
+a stored half envelope and re-fetches it once, then **converges** (a
+second pass costs 0 RPC — pinned, not assumed); the **debt counter**
+(`accounts_missing_count`, now the single source `counts()` delegates to
+— the third hand-written copy of the predicate is gone) and the
+**partial counter** count it; the **delivery classification**
+(`envelope_markers_present`) holds instead of delivering it. And the
+queue's escape hatch widens with it: `mark_account_outcome` accepts a
+recorded outcome over a held half envelope, so a transaction the chain
+no longer knows can still LEAVE the debt queue — without that, the
+widened queue would cost one `getTransaction` per pass forever for a row
+nothing can ever fill.
+
+Gates: `tests/token_state_completeness.rs` (7 tests: the health report
+counts the half envelope partial AND owed, `tail --with-accounts` holds
+with cursor intact and the repair named, a complete envelope is still
+delivered, a recorded outcome is skipped rather than held, plain `tail`
+is never held, the write guard refuses, a final row over a half envelope
+leaves the queue), three journal/payload unit tests in `src/payload.rs`
+(the write guard on the NEW envelope, owed-again-and-converges, the
+escape hatch, and the queue never re-fetching a final row), and
+`tests/token_state_completeness_published_v0740.rs` (10 tests pinning
+both artifacts: verdicts, face values, binary sha256, no host paths).
+Mutation ladder `tools/mutation-ladder-token-state-completeness.sh`:
+**8/8 caught** — queue blind, counter blind, partial counter blind,
+guard accepting a half NEW envelope, queue losing its held narrowing
+(refetching final rows), the escape hatch narrowing back, the delivery
+filter blind, and the guard face (completeness leaking into the plain
+delivery path), tree byte-identical after restore. Full suite green.
+The v0.7.40 tag keeps the defect — tags are immutable.
+
 ## Repeated use
 
 ```bash

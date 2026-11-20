@@ -116,7 +116,13 @@ fn setup(tag: &str, rows: &[(Kind, &str)]) -> PathBuf {
             Kind::Enriched => (
                 Some(LOG),
                 Some("held"),
-                Some(r#"{"instructions":[],"accounts_flags_source":"message"}"#),
+                // A COMPLETE envelope under the three-marker contract
+                // (instructions, accounts_flags_source, token_state) — the
+                // accounts filter delivers it; the hold below must come
+                // from the PAYLOAD debt, never from a half envelope.
+                Some(
+                    r#"{"instructions":[],"accounts_flags_source":"message","token_state":[]}"#,
+                ),
                 Some("held"),
             ),
             Kind::Held => (Some(LOG), Some("held"), None, None),
