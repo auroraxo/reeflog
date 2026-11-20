@@ -1,0 +1,79 @@
+{
+  "tool": "measure-token-state-completeness",
+  "measuredAt": "2026-11-20T06:50:06.017Z",
+  "tree": "published-v0.7.41",
+  "binary": "reeflog",
+  "binarySha256": "4b990ae266b1321d827c0e6314b4c11791003090a230a20ca1845c435a6d7204",
+  "binaryVersion": "reeflog 0.7.41",
+  "verdict": "token-state-completeness-held",
+  "faces": [
+    {
+      "id": "D1",
+      "kind": "defect-guard",
+      "exitCode": 0,
+      "accountsPartial": 1,
+      "accountsHeld": 1
+    },
+    {
+      "id": "D2",
+      "kind": "defect-guard",
+      "accountsMissing": 1
+    },
+    {
+      "id": "D3",
+      "kind": "defect-guard",
+      "exitCode": 3,
+      "delivered": [
+        "SigWhole111111111111111111111111111111111111111111111"
+      ],
+      "cursorPos": 1,
+      "namedHydrate": true,
+      "err": "reeflog: 1 events after cursor 0 → cursor now 1 (HELD at seq 2 SigHalf11111111111111111111111111111111111111111111111: the account envelope is still owed — run `hydrate --accounts`; nothing at or after this row is consumed)"
+    },
+    {
+      "id": "D4",
+      "kind": "defect-guard",
+      "exitCode": 0,
+      "err": "",
+      "rpcCalls": 1,
+      "accountState": "held",
+      "storedHasTokenState": true
+    },
+    {
+      "id": "D5",
+      "kind": "defect-guard",
+      "exitCode": 0,
+      "accountsMissing": 0,
+      "accountsPartial": 1
+    },
+    {
+      "id": "G1",
+      "kind": "guard",
+      "exitCode": 0,
+      "delivered": [
+        "SigWhole111111111111111111111111111111111111111111111"
+      ],
+      "cursorPos": 1
+    },
+    {
+      "id": "G2",
+      "kind": "guard",
+      "exitCode": 0,
+      "delivered": [
+        "SigHalf11111111111111111111111111111111111111111111111"
+      ]
+    },
+    {
+      "id": "G3",
+      "kind": "guard",
+      "exitCode": 0,
+      "cursorPos": 1
+    }
+  ],
+  "summary": {
+    "defectVisible": false,
+    "defectGone": true,
+    "fixedHolds": true,
+    "guardsGreen": true
+  }
+}
