@@ -1,0 +1,70 @@
+{
+  "issue": "helius-labs/laserstream-sdk#115",
+  "measured_at": "2026-11-20",
+  "scenario": "QUIET_CLAMP: payload@90, payload@91, ONE internal-tracker tick @122, then silence; the chain advances to 136 behind retention floor 130 — the replay window evicted slots 92..129 (38 slots).",
+  "question": "PULS 4 proved the age-out reservation holds for ANY slot cursor. This measurement asks the open design question the thread left: does the SDK's own documented consumer-side repair actually work, and what does it cost?",
+  "repair_pieces_tested": [
+    "LaserstreamClient::subscribe_replay_info() -> first_available (the SDK's own unary RPC; its docstring says: clamp with from_slot.max(first_available))",
+    "subscribe_with_options(..., SubscribeOptions::default().with_intra_slot_updates(true)) — turns the silent OUT_OF_RANGE retry loop into a TERMINAL consumer error",
+    "a fresh subscribe() with from_slot = first_available (the clamp) plus a locally declared gap"
+  ],
+  "cells": {
+    "silent": {
+      "artifact": "research/laserstream-115-quiet-clamp-silent-2026-11-20.json",
+      "consumer_options": "default-options",
+      "consumer_error_count": 0,
+      "out_of_range_replies": 2,
+      "reconnect_from_slots": [null, 122, 122],
+      "verdict": "silent-stall-reproduced",
+      "meaning": "default options: the consumer sees ZERO errors while the SDK retries the refused 122 forever — the stall PULS 4 found, on the harder chain-advanced shape"
+    },
+    "intra": {
+      "artifact": "research/laserstream-115-quiet-clamp-intra-2026-11-20.json",
+      "consumer_options": "intra-slot-updates",
+      "consumer_error_count": 1,
+      "out_of_range_replies": 1,
+      "reconnect_from_slots": [null, 122],
+      "verdict": "terminal-error-surfaced",
+      "meaning": "intra_slot_updates=true: the consumer SEES the terminal OutOfRange — the SDK already owns the switch that makes the stall loud"
+    },
+    "repair": {
+      "artifact": "research/laserstream-115-quiet-clamp-repair-2026-11-20.json",
+      "consumer_options": "intra-slot-updates",
+      "replay_info_queries": 1,
+      "first_available_reported": 130,
+      "clamp_from_slot": 130,
+      "delivered_after_clamp": [130, 131, 132, 133, 134, 135, 136],
+      "gap_declared_range_size": 38,
+      "verdict": "clamp-repair-works-gap-declared",
+      "meaning": "on the terminal error the consumer queries subscribe_replay_info (first_available=130), re-subscribes with from_slot=130, resumes live delivery at the floor, and DECLARES 92..129 as a gap — 38 slots named instead of silently vanished"
+    },
+    "control": {
+      "artifact": "research/laserstream-115-quiet-clamp-control-2026-11-20.json",
+      "consumer_options": "intra-slot-updates",
+      "replay_info_queries": 0,
+      "out_of_range_replies": 3,
+      "delivered_after_clamp": [],
+      "verdict": "unclamped-resubscribe-refused",
+      "meaning": "the false-positive guard: the same repair WITHOUT the clamp (fresh subscribe at the stale cursor 122) is refused AGAIN — the clamp is what makes the repair work, not the re-subscribe alone"
+    }
+  },
+  "findings": [
+    "The repair is real and entirely consumer-side: no SDK change, no server change. Three SDK pieces the SDK already ships (replay_info + intra_slot_updates + explicit from_slot) turn the silent infinite stall into a declared gap plus live delivery.",
+    "The cost is honest and permanent: slots 92..129 (38 slots) are unrecoverable — the repair can name them, never refill them. What the clamp buys is truth (a declared, machine-readable gap) instead of silence.",
+    "The unclamped control shows the re-subscribe alone is NOT the repair: at the stale cursor the server refuses again. max(cursor, first_available) is the operative rule — exactly what the SDK's own replay-info docstring prescribes.",
+    "Default options make the repair UNREACHABLE in practice: the consumer never sees an error, so it never knows to repair. intra_slot_updates is the switch that connects the stall to the repair."
+  ],
+  "falsification_guards": [
+    "silent cell must show 0 consumer errors (the stall is invisible)",
+    "intra cell must show >=1 consumer error (the error is surfaced)",
+    "repair cell must show exactly 1 replay_info query, first_available=130, clamp_from=130, >=5 delivered slots after the clamp, gap_declared_range_size=38",
+    "control cell must be refused again (>0 OUT_OF_RANGE) and deliver 0 slots (no clamp, no repair)"
+  ],
+  "regression": "All eight 2026-11-20 quiet-matrix cells (rule x window x options) reproduce IDENTICAL values after the harness extension (only three additive diagnostic keys: chain_head_harness, first_available_reported, replay_info_queries); the quiet matrix summary is byte-identical; the 2026-11-19 variant-A cell was spot-checked byte-identical and restored from its pristine copy.",
+  "limits": [
+    "mock geyser: window = a single retention floor + a chain head; real LaserStream retention/eviction pacing approximated, not measured against live infrastructure",
+    "Rust SDK only (2.0.0 from crates.io for main, PR #114 vendored verbatim for the pr114 rule); #115 names the same cursor logic in the Go and JS SDKs",
+    "the declared gap is the consumer's own bookkeeping — the SDK has no gap primitive; a real repair would record it in the consumer's durable state (reeflog's gap ledger is exactly this shape)",
+    "subscribe_replay_info between stall and repair races eviction: a real server's floor can move between the query and the fresh subscribe"
+  ]
+}

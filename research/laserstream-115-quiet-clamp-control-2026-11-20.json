@@ -1,0 +1,11 @@
+{
+  "consumer_options": "intra-slot-updates",
+  "delivered_after_clamp": [],
+  "out_of_range_replies": 3,
+  "reconnect_from_slots": [
+    null,
+    122
+  ],
+  "replay_info_queries": 0,
+  "scenario": "QUIET_CLAMP: unclamped control — re-subscribe at stale cursor 122"
+}

@@ -1,0 +1,18 @@
+{
+  "consumer_errors": [],
+  "consumer_options": "default-options",
+  "delivered_slots": [
+    90,
+    91
+  ],
+  "first_available_reported": null,
+  "out_of_range_replies": 2,
+  "reconnect_attempts": 2,
+  "reconnect_from_slots": [
+    null,
+    122,
+    122
+  ],
+  "replay_info_queries": 0,
+  "scenario": "QUIET_CLAMP: chain head 136 behind floor 130; evicted 92..129 (38 slots)"
+}
