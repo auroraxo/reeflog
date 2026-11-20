@@ -419,6 +419,41 @@ test('V3w: the published 0.7.39 passed the live registry-install user-zero 12/12
   assert.match(String(bv.detail), /0\.7\.39/);
 });
 
+test('V3x: the published 0.7.41 tarball measures registry-consistent — 0 defects', () => {
+  const r = load('registry-channel-v0741-2026-11-20.json');
+  assert.equal(r.source, 'published reeflog-client@0.7.41 tarball from registry.npmjs.org');
+  assert.equal(r.verdict, 'registry-consistent');
+  assert.equal(r.defects, 0);
+  for (const f of r.faces) assert.equal(f.ok, true, `${f.name} must hold`);
+  assert.equal(r.distTags.latest, '0.7.41');
+});
+
+test('V3y: the stranger path DELIVERED the v0.7.41 binary to the pin', () => {
+  const d = load('client-pin-delivery-v0741-2026-11-20.json');
+  assert.equal(d.verdict, 'DELIVERED-TO-THE-PIN');
+  assert.equal(d.passed, d.total);
+  assert.equal(d.total, 6);
+  assert.equal(d.tag, 'v0.7.41', 'the delivery must name the tag it delivered');
+  for (const f of d.faces) assert.equal(f.ok, true, `${f.name} must pass`);
+});
+
+test('V3z: the published 0.7.41 passed the live registry-install user-zero 12/12', () => {
+  const live = load('registry-install-live-v0741-2026-11-20.json');
+  assert.equal(live.package, 'reeflog-client@0.7.41');
+  assert.equal(live.installedVersion, '0.7.41');
+  assert.equal(live.verdict, 'all_pass');
+  assert.equal(live.checks.length, 12);
+  assert.ok(live.journalEvents > 0, 'every read was answered by a real mainnet journal');
+  for (const c of live.checks) assert.equal(c.ok, true, `${c.name} must pass`);
+  const bv = live.checks.find((c) => c.name === 'binary_version_matches_manifest');
+  assert.equal(bv.ok, true);
+  assert.match(String(bv.detail), /0\.7\.41/);
+  // The digest the bootstrap verified BEFORE installing, named on the
+  // check itself: the installed bytes are the released bytes.
+  const bs = live.checks.find((c) => c.name === 'bootstrap_installs_binary');
+  assert.match(String(bs.detail), /0db3083d/, 'the release digest the client verified');
+});
+
 test('V4: no host path leaks into the artifacts', () => {
   for (const f of ['registry-channel-v0720-2026-11-13.json',
     'registry-channel-v0721-2026-11-13.json',
@@ -452,7 +487,10 @@ test('V4: no host path leaks into the artifacts', () => {
     'client-pin-delivery-v0738-2026-11-19.json',
     'registry-channel-v0739-2026-11-19.json',
     'registry-install-live-v0739-2026-11-19.json',
-    'client-pin-delivery-v0739-2026-11-19.json']) {
+    'client-pin-delivery-v0739-2026-11-19.json',
+    'registry-channel-v0741-2026-11-20.json',
+    'registry-install-live-v0741-2026-11-20.json',
+    'client-pin-delivery-v0741-2026-11-20.json']) {
     const text = fs.readFileSync(path.join(dir, f), 'utf8');
     assert.doesNotMatch(text, /\/home\/|\/Users\/|C:\\/, `${f} must not pin the claim to one machine`);
   }
