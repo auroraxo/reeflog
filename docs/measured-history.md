@@ -2451,6 +2451,48 @@ filter blind, and the guard face (completeness leaking into the plain
 delivery path), tree byte-identical after restore. Full suite green.
 The v0.7.40 tag keeps the defect — tags are immutable.
 
+### The seal pass never walked its own backlog (v0.7.42)
+
+The seal pass asked for the **oldest 150 pending rows** on every
+attempt. `Journal::pending_seals(limit)` returned the head of the
+pending set, the walk sealed the window, and the loop started again
+from the same head — so the window never advanced past rows the chain
+had not decided.
+
+Why that is a real, reachable defect rather than a slow path: a journal
+whose seal pass runs on a **timer** while transactions arrive faster
+than the walk finishes them accumulates pending rows the pass never
+reaches. Measured 2026-11-20 on the **published v0.7.41 asset** (the
+linux archive whose sha256 equals the digest the Release API publishes;
+binary `4b990ae2...` = `reeflog 0.7.41`; `tools/measure-seal-pass-backlog-drain.mjs`
+drives both trees against a local chain sink that answers every status;
+`research/seal-pass-backlog-drain-2026-11-20.json`, verdict
+`seal-pass-backlog-drained`, **3 defect faces**):
+
+* a 1,000-row backlog in one daemon run sealed exactly the first 300 and
+  left 700 unsealed at exit 0 — the tick's progress test compared the
+  size of that window before and after each batch, and both were clamped
+  to 150, so a backlog of 300+ could never show progress and the walk
+  stopped after a single batch;
+* `reeflog seal` sealed 150 of 1,000 and exited 0;
+* 150 rows the chain could not decide left every row behind them
+  unasked — head-of-line blocking, reported as a healthy pass.
+
+The fix walks the pending set with a **seq cursor** (`Journal::unsealed_after`):
+each row exactly once per pass, undecidable rows stay pending but no
+longer block the rows behind them, and the pass reports whether it
+reached the end — `reeflog seal` exits 3 like `verify`/`hydrate` when
+rows are still unasked.
+
+Gates: `tests/seal_backlog_drain_measurement.rs` (7 tests: the artifact
+names the verdict and both sides, the baseline side names the published
+bytes it measured by sha256 and version, the fixed side describes the
+release this tree is, the measured numbers hold on both sides, the
+two-source rule never moved, no host path). Mutation ladder
+`tools/mutation-ladder-seal-backlog-drain.sh`: **5/5 caught** (m0
+green, m1–m4 CAUGHT, tree byte-identical after restore). Full suite
+green. The v0.7.41 tag keeps the defect — tags are immutable.
+
 ## Repeated use
 
 ```bash

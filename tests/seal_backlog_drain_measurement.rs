@@ -3,14 +3,15 @@
 //! PULS BA, 2026-11-20. `tools/measure-seal-pass-backlog-drain.mjs` — two
 //! real binaries against one local chain sink that answers every status:
 //!
-//! * The BASELINE side is the release tree at 5550f5b, whose `src/` is
-//!   byte-identical to tag v0.7.41 (`git diff v0.7.41..5550f5b -- src/` is
-//!   empty) — i.e. the code a stranger installs. Verdict
-//!   `seal-pass-backlog-drained` with 3 DEFECT FACES: the seal pass asked
-//!   for the oldest 150 pending rows every time, so a 1,000-row backlog
-//!   drained 300 rows in one daemon run (700 unsealed at exit 0), the CLI
-//!   sealed 150 of 1,000 and exited 0, and 150 undecidable head rows left
-//!   all 150 decidable rows behind them unasked (0 sealed).
+//! * The BASELINE side is the PUBLISHED v0.7.41 linux-amd64 release asset
+//!   (downloaded from the GitHub release API, archive digest `0db3083d…`,
+//!   unpacked binary sha256 `4b990ae2…` = `reeflog 0.7.41`) — i.e. the bytes
+//!   a stranger installs. Verdict `seal-pass-backlog-drained` with 3 DEFECT
+//!   FACES: the seal pass asked for the oldest 150 pending rows every time,
+//!   so a 1,000-row backlog drained 300 rows in one daemon run (700
+//!   unsealed at exit 0), the CLI sealed 150 of 1,000 and exited 0, and 150
+//!   undecidable head rows left all 150 decidable rows behind them unasked
+//!   (0 sealed).
 //!
 //! * The FIXED side is this tree (0 defect faces): the pass walks the
 //!   pending set with a seq cursor instead of a window, so every row is
@@ -18,8 +19,10 @@
 //!   reached the end.
 //!
 //! The pin holds the MEASURED numbers on both sides — the baseline side
-//! must still carry the exact stall it recorded, and the fixed side must
-//! still carry the full drains it claims.
+//! must still carry the exact stall it recorded AND the exact published
+//! bytes it was measured on (sha256 + version), and the fixed side must
+//! still carry the full drains it claims and describe the release this
+//! tree actually is.
 
 use std::path::PathBuf;
 
@@ -38,6 +41,60 @@ fn assert_contains(text: &str, needle: &str, what: &str) {
 }
 
 const ARTIFACT: &str = "seal-pass-backlog-drain-2026-11-20.json";
+
+/// The UNPACKED binary inside the PUBLISHED v0.7.41 linux-amd64 archive
+/// (the archive's own Release API digest is `sha256:0db3083d…`, verified
+/// before unpacking).
+const PUBLISHED_V0741_SHA: &str =
+    "4b990ae266b1321d827c0e6314b4c11791003090a230a20ca1845c435a6d7204";
+
+#[test]
+fn the_baseline_side_names_the_published_bytes_it_measured() {
+    let v: serde_json::Value =
+        serde_json::from_str(&artifact(ARTIFACT)).expect("the artifact is JSON");
+    let baseline = &v["trees"]["baseline"];
+    assert_eq!(
+        baseline["binSha256"].as_str(),
+        Some(PUBLISHED_V0741_SHA),
+        "the baseline side must be the PUBLISHED v0.7.41 binary, named by sha256"
+    );
+    assert_eq!(
+        baseline["binVersion"].as_str(),
+        Some("reeflog 0.7.41"),
+        "the baseline version must be read from that binary"
+    );
+    let source = baseline["source"].as_str().expect("the baseline names its source");
+    assert!(
+        source.contains("PUBLISHED v0.7.41"),
+        "the baseline must say it measured the published asset, not a local rebuild"
+    );
+}
+
+#[test]
+fn the_fixed_side_describes_the_release_this_tree_is() {
+    let v: serde_json::Value =
+        serde_json::from_str(&artifact(ARTIFACT)).expect("the artifact is JSON");
+    let fixed = &v["trees"]["fixed"];
+    let cargo = std::fs::read_to_string(
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("Cargo.toml"),
+    )
+    .expect("Cargo.toml is readable");
+    let crate_version = cargo
+        .lines()
+        .find(|l| l.starts_with("version = "))
+        .and_then(|l| l.split('"').nth(1))
+        .expect("Cargo.toml names a version");
+    assert_eq!(
+        fixed["binVersion"].as_str(),
+        Some(format!("reeflog {crate_version}").as_str()),
+        "the fixed side must be the binary of THIS tree's version"
+    );
+    assert_ne!(
+        fixed["binSha256"].as_str(),
+        Some(PUBLISHED_V0741_SHA),
+        "the fixed build must be a different binary from the defect carrier"
+    );
+}
 
 #[test]
 fn the_artifact_names_the_verdict_and_both_sides() {
