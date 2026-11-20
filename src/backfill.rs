@@ -58,10 +58,31 @@ pub struct HttpFetcher {
     /// the many calls a walk makes. The timeout lives here, on the agent,
     /// because that is the only place where it bounds EVERY request.
     agent: ureq::Agent,
+    /// The instant after which this fetcher must not start a new RPC call.
+    /// `None` = the caller is not on a run's deadline (a CLI command).
+    ///
+    /// WHY a fetcher-level deadline (PULS BD, measured 2026-11-20): a walk
+    /// page is one HTTP call, and a call is bounded by the AGENT's 10 s
+    /// timeout, not by the run that scheduled it. A 5 s run against an
+    /// endpoint that answers a page every 3 s therefore spent 6 s past its
+    /// own deadline on two in-flight pages — the deadline checks between
+    /// pages cannot help, because the page that overshoots is already in
+    /// flight when the deadline passes. The deadline here is enforced by
+    /// capping the call's own global timeout to the time that is left, so a
+    /// call can never be the thing that outlives the run.
+    deadline: Option<std::time::Instant>,
 }
 
 impl HttpFetcher {
     pub fn new(url: String) -> Self {
+        Self::with_deadline(url, None)
+    }
+
+    /// The same fetcher, bounded by a run's deadline: no call is started
+    /// after it, and a call that would run past it is capped to what is
+    /// left (a call that cannot finish inside the budget is a FAILED call,
+    /// which the walk reports as truncated instead of an overrun).
+    pub fn with_deadline(url: String, deadline: Option<std::time::Instant>) -> Self {
         // Every RPC call is bounded. Measured 2026-11-02 (live
         // mainnet-beta): a `reeflog start` run hung PAST ITS OWN
         // `--seconds` deadline and never returned — 4 of 5 repetitions on
@@ -74,13 +95,35 @@ impl HttpFetcher {
         // reason; the RPC path gets the same contract. 10 s bounds a
         // stalled peer without touching healthy traffic (measured: a
         // completed call is sub-second; throttled pages arrive at ~0.63/s).
+        //
+        // The deadline only ever *reduces* this budget: it is the remaining
+        // time of the run that scheduled the call, capped at the 10 s
+        // ceiling above.
         let cfg = ureq::Agent::config_builder()
             .timeout_global(Some(std::time::Duration::from_millis(10_000)))
             .build();
         Self {
             url,
             agent: ureq::Agent::new_with_config(cfg),
+            deadline,
         }
+    }
+
+    /// The call's own budget: the time left before the deadline, capped at
+    /// the agent's 10 s ceiling.
+    ///
+    /// `None` means "do not start a call": the deadline has already passed.
+    /// A fetcher WITHOUT a deadline (a CLI command) is never in that state
+    /// — it gets the full ceiling, which is the behaviour it had before the
+    /// deadline existed.
+    fn call_budget(&self) -> Option<std::time::Duration> {
+        let ceiling = std::time::Duration::from_millis(10_000);
+        let d = self.deadline?;
+        let now = std::time::Instant::now();
+        if now >= d {
+            return None;
+        }
+        Some((d - now).min(ceiling))
     }
 }
 
@@ -96,15 +139,39 @@ impl Fetcher for HttpFetcher {
         let mut last_err = String::from("unreachable");
         let mut timeout_seen = false;
         for attempt in 0..6 {
+            // The run's deadline is the fetcher's ceiling. When it has
+            // passed, a new call is refused: the walk reports truncation and
+            // the run returns. This is what makes `--seconds N` mean "about
+            // N seconds" even when a page is in flight (PULS BD). A fetcher
+            // without a deadline (a CLI command) always gets its full 10 s
+            // call budget — `call_budget` answers None only when a REAL
+            // deadline has expired.
+            let deadline_passed = self
+                .deadline
+                .is_some_and(|d| std::time::Instant::now() >= d);
+            if deadline_passed {
+                return Err(format!(
+                    "{method}: the run's deadline has passed — refusing to start a new RPC call (PULS BD)"
+                ));
+            }
             if attempt > 0 {
                 // Quadratic backoff, capped: a 429 burst must clear without
-                // parking the whole scan for minutes.
+                // parking the whole scan for minutes. The sleep itself is
+                // capped by the remaining budget so the backoff can never
+                // be the thing that outlives the run.
                 let wait = (400u64 * attempt * attempt).min(8_000);
+                let wait = wait.min(self.call_budget().unwrap_or(std::time::Duration::ZERO).as_millis() as u64);
                 std::thread::sleep(std::time::Duration::from_millis(wait));
             }
+            // Per-call timeout: the remaining budget, capped at the agent's
+            // ceiling. A call started with 200 ms left cannot take 10 s.
+            let timeout = self.call_budget().unwrap_or(std::time::Duration::from_millis(10_000));
             let mut resp = match self
                 .agent
                 .post(&self.url)
+                .config()
+                .timeout_global(Some(timeout))
+                .build()
                 .header("content-type", "application/json")
                 .send(body.as_str())
             {
@@ -125,11 +192,11 @@ impl Fetcher for HttpFetcher {
                 Err(ureq::Error::Timeout(_)) => {
                     if timeout_seen {
                         return Err(format!(
-                            "{method}: rpc call timed out twice (10 s limit each) — endpoint accepted the connection but never answered; failing this pass instead of stalling the run"
+                            "{method}: rpc call timed out twice ({timeout:?} budget each) — endpoint accepted the connection but never answered; failing this pass instead of stalling the run"
                         ));
                     }
                     timeout_seen = true;
-                    last_err = format!("{method}: rpc call timed out (10 s limit, attempt {}) — endpoint accepted the connection but never answered", attempt + 1);
+                    last_err = format!("{method}: rpc call timed out ({timeout:?} budget, attempt {}) — endpoint accepted the connection but never answered", attempt + 1);
                     continue;
                 }
                 Err(ureq::Error::StatusCode(c)) => {
@@ -304,12 +371,28 @@ impl Report {
 /// Bounded by `max_pages`; if the boundary is not reached the result is
 /// marked truncated and the caller must keep the gap open — an unfilled gap
 /// must never look filled.
+#[cfg_attr(not(test), allow(dead_code))]
 pub fn backfill_tail<F: Fetcher>(
     j: &Journal,
     f: &mut F,
     program: &str,
     max_pages: usize,
     page_size: usize,
+) -> Result<Report, String> {
+    backfill_tail_deadlined(j, f, program, max_pages, page_size, None)
+}
+
+/// The same tail walk, with an optional deadline (see
+/// `verify_recent_anchored_deadlined` for why the deadline exists — PULS BD,
+/// measured 2026-11-20). A deadline stop is a TRUNCATED walk: the gap stays
+/// open with the unread window named, never folded into "no gap".
+pub fn backfill_tail_deadlined<F: Fetcher>(
+    j: &Journal,
+    f: &mut F,
+    program: &str,
+    max_pages: usize,
+    page_size: usize,
+    deadline: Option<std::time::Instant>,
 ) -> Result<Report, String> {
     let mut report = Report::default();
     let Some(boundary_slot) = j.newest_slot()? else {
@@ -320,6 +403,17 @@ pub fn backfill_tail<F: Fetcher>(
     loop {
         if report.pages >= max_pages as i64 {
             report.truncated = true;
+            break;
+        }
+        // The deadline stops the walk from outliving the run that scheduled
+        // it (PULS BD, measured 2026-11-20). Truncated = the gap stays open
+        // and the unread window is named; it is never folded into "no gap".
+        if deadline.is_some_and(|d| std::time::Instant::now() >= d) {
+            report.truncated = true;
+            report.error = Some(format!(
+                "tail backfill stopped at the run's deadline after {} page(s) — the window above was NOT read",
+                report.pages
+            ));
             break;
         }
         let mut params = json!([program, {"limit": page_size, "commitment": "finalized"}]);
@@ -441,6 +535,38 @@ pub fn verify_recent_anchored<F: Fetcher>(
     since_slot: Option<i64>,
     anchor: Option<Anchor>,
 ) -> Result<Report, String> {
+    verify_recent_anchored_deadlined(j, f, program, max_pages, page_size, since_slot, anchor, None)
+}
+
+/// The same walk, with an optional deadline.
+///
+/// WHY (measured 2026-11-20, PULS BD): a walk page costs one
+/// `getSignaturesForAddress` call, and each call pays its own rate-limit
+/// backoff. The daemon checks its `--seconds` deadline BETWEEN scheduler
+/// ticks, but a repair pass IS one synchronous walk — so a pass whose pages
+/// arrive slowly outlives the run it was scheduled in. Measured live twice
+/// on the published v0.7.43 asset against mainnet-beta (150 s requested ->
+/// 28:11 wall-clock), and isolated from the network by
+/// `tools/measure-shutdown-overrun.mjs` (a local sink, the delay applied per
+/// page): --seconds 5 ended in 9 s against a 2 s/page sink and 13 s against a
+/// 4 s/page sink, while the 0-delay control ended in 5 s.
+///
+/// The deadline is the walk's, not the caller's: when it passes, the walk
+/// STOPS asking for more pages and reports the scan as TRUNCATED — a scan
+/// that did not reach the floor was never proof that the journal is whole,
+/// and `Report::complete()` already refuses to say so. The walk therefore
+/// answers a smaller question honestly instead of outliving the run.
+#[allow(clippy::too_many_arguments)]
+pub fn verify_recent_anchored_deadlined<F: Fetcher>(
+    j: &Journal,
+    f: &mut F,
+    program: &str,
+    max_pages: usize,
+    page_size: usize,
+    since_slot: Option<i64>,
+    anchor: Option<Anchor>,
+    deadline: Option<std::time::Instant>,
+) -> Result<Report, String> {
     let mut report = Report::default();
     let held = j.all_signatures()?;
     let (Some(oldest), Some(ceil)) = (j.oldest_slot()?, j.newest_slot()?) else {
@@ -459,6 +585,19 @@ pub fn verify_recent_anchored<F: Fetcher>(
     loop {
         if report.pages >= max_pages as i64 {
             report.truncated = true;
+            break;
+        }
+        // The deadline stops the walk from outliving the run that scheduled
+        // it (PULS BD). A truncated scan is NOT a complete scan — the
+        // journal's completeness predicates already refuse to call a
+        // truncated walk proof, so the walk stays honest about what it did
+        // not read.
+        if deadline.is_some_and(|d| std::time::Instant::now() >= d) {
+            report.truncated = true;
+            report.error = Some(format!(
+                "repair walk stopped at the run's deadline after {} page(s) — the window below was NOT read",
+                report.pages
+            ));
             break;
         }
         let mut params = json!([program, {"limit": page_size, "commitment": "finalized"}]);

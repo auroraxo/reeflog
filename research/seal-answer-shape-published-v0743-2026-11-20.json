@@ -1,0 +1,169 @@
+{
+  "tool": "measure-seal-answer-shape.mjs",
+  "question": "Can the seal pass honour an answer that covers fewer rows than it asked for, or does a truncated value array silently skip rows behind it while claiming the pass is complete?",
+  "defect": "seal_batch (src/main.rs) zipped pending with result.value unconditionally: an answer array shorter than the request sealed the rows the answer covered and moved the walk cursor past every row it did not — those rows were never asked, and the pass still reported complete: true and exited 0. The reorg module (status_sources, src/reorg.rs) already defended this exact contract with a.len() == sigs.len(); the seal pass was the one consumer of a batched source that did not.",
+  "measuredAt": "2026-11-20T18:07:34.305Z",
+  "verdict": "seal-answer-covers-request",
+  "baselineDefectFaces": 3,
+  "fixedDefectFaces": 0,
+  "baselineGuards": "all pass",
+  "fixedGuards": "all pass",
+  "trees": {
+    "baseline": {
+      "source": "PUBLISHED v0.7.42 linux-amd64 release asset (archive digest 4c183352723e04827759947c7e5f34c8211db1252659b14be4aa067b91800807 == Release-API digest; unpacked binary sha256 6f20fa89… = 'reeflog 0.7.42') — the defect carrier; tags are immutable.",
+      "binSha256": "6f20fa8988af4231eac87d555c97a077c0e420157cec51773217a9d0bb991c72",
+      "binVersion": "reeflog 0.7.42",
+      "faces": {
+        "D1_cli_short_answer": {
+          "pending": 10,
+          "requested": 10,
+          "answered": 5,
+          "sealed": 5,
+          "unsealed": 5,
+          "exit": 0,
+          "complete": true,
+          "stderr": "",
+          "defect": true
+        },
+        "D2_daemon_short_answer": {
+          "pending": 10,
+          "requested": 15,
+          "sealed": 7,
+          "unsealed": 3,
+          "exit": 0,
+          "names_incomplete_on_stderr": false,
+          "stderr": "",
+          "defect": true
+        },
+        "D3_missing_behind_truncation": {
+          "pending": 10,
+          "sealed": 0,
+          "missing": 5,
+          "unsealed": 5,
+          "exit": 0,
+          "complete": true,
+          "stderr": "",
+          "defect": true
+        }
+      },
+      "guards": {
+        "G1_full_answer_seals": {
+          "pending": 10,
+          "requested": 10,
+          "answered": 10,
+          "sealed": 10,
+          "unsealed": 0,
+          "exit": 0,
+          "complete": true,
+          "pass": true
+        },
+        "G2_null_serving_undecided": {
+          "pending": 10,
+          "sealed": 0,
+          "missing": 0,
+          "unsealed": 10,
+          "exit": 0,
+          "complete": true,
+          "pass": true
+        },
+        "G3_null_refusing_missing": {
+          "pending": 10,
+          "sealed": 0,
+          "missing": 10,
+          "unsealed": 0,
+          "exit": 0,
+          "complete": true,
+          "pass": true
+        },
+        "G4_dead_is_not_a_pass": {
+          "pending": 10,
+          "sealed": 0,
+          "unsealed": 10,
+          "exit": 3,
+          "refused_calls": 1,
+          "stdout_has_summary": true,
+          "stderr": "reeflog: seal pass INCOMPLETE — the journal still holds rows this pass did not ask",
+          "pass": true
+        }
+      }
+    },
+    "fixed": {
+      "source": "PUBLISHED v0.7.43 linux-amd64 release asset (archive digest 3e7bcc9890682411059a6dd50d6b5f9db9b8accb1ced81bf93ebb1cf38a5cbab == Release-API digest; unpacked binary sha256 816177e3… = 'reeflog 0.7.43') — the bytes a stranger installs.",
+      "binSha256": "816177e336be4f1a76f7ba996dc5d059a0c88e1460b735eeeb05be4ce10f63af",
+      "binVersion": "reeflog 0.7.43",
+      "faces": {
+        "D1_cli_short_answer": {
+          "pending": 10,
+          "requested": 10,
+          "answered": 5,
+          "sealed": 0,
+          "unsealed": 10,
+          "exit": 3,
+          "complete": false,
+          "stderr": "reeflog: seal pass INCOMPLETE — the journal still holds rows this pass did not ask",
+          "defect": false
+        },
+        "D2_daemon_short_answer": {
+          "pending": 10,
+          "requested": 20,
+          "sealed": 0,
+          "unsealed": 10,
+          "exit": 0,
+          "names_incomplete_on_stderr": true,
+          "stderr": "reeflog: seal pass INCOMPLETE {\"asked\":0,\"batches\":0,\"complete\":false,\"confirmed\":0,\"error\":0,\"finalized\":0,\"missing\":0,\"transport_error\":\"getSignatureStatuses: asked 10 signature(s), the answer carries 5 — a truncated answer is a failed source (nothing sealed, nothing consumed; the rows stay pendin",
+          "defect": false
+        },
+        "D3_missing_behind_truncation": {
+          "pending": 10,
+          "sealed": 0,
+          "missing": 0,
+          "unsealed": 10,
+          "exit": 3,
+          "complete": false,
+          "stderr": "reeflog: seal pass INCOMPLETE — the journal still holds rows this pass did not ask",
+          "defect": false
+        }
+      },
+      "guards": {
+        "G1_full_answer_seals": {
+          "pending": 10,
+          "requested": 10,
+          "answered": 10,
+          "sealed": 10,
+          "unsealed": 0,
+          "exit": 0,
+          "complete": true,
+          "pass": true
+        },
+        "G2_null_serving_undecided": {
+          "pending": 10,
+          "sealed": 0,
+          "missing": 0,
+          "unsealed": 10,
+          "exit": 0,
+          "complete": true,
+          "pass": true
+        },
+        "G3_null_refusing_missing": {
+          "pending": 10,
+          "sealed": 0,
+          "missing": 10,
+          "unsealed": 0,
+          "exit": 0,
+          "complete": true,
+          "pass": true
+        },
+        "G4_dead_is_not_a_pass": {
+          "pending": 10,
+          "sealed": 0,
+          "unsealed": 10,
+          "exit": 3,
+          "refused_calls": 1,
+          "stdout_has_summary": true,
+          "stderr": "reeflog: seal pass INCOMPLETE — the journal still holds rows this pass did not ask",
+          "pass": true
+        }
+      }
+    }
+  }
+}

@@ -480,8 +480,13 @@ detail and every raw number in
   the one batched-source consumer that did not. Now a short answer is a
   failed source: nothing is sealed, nothing is consumed, the pass
   reports `complete: false` and exits 3 like `verify`/`hydrate`, and the
-  daemon tick names the incomplete pass on stderr. Older tags keep the
-  defect: they are immutable.
+  daemon tick names the incomplete pass on stderr. The SHIPPED bytes
+  are measured too: the published v0.7.43 asset (Release API digest
+  `sha256:3e7bcc98…`, binary `816177e3…`) answers
+  [0 defect faces, guards green](research/seal-answer-shape-published-v0743-2026-11-20.json)
+  against the published v0.7.42 asset's 3 — while the published v0.7.42
+  asset still carries the defect. Older tags keep the defect: they are
+  immutable.
 - **The client is zero-dependency since v0.7.25.** Until then the npm
   manifest named *itself* as a dependency on github:, so every
   `npm install reeflog-client` also cloned a second, older copy of the

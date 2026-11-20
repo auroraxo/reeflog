@@ -16,7 +16,7 @@ mod webhook;
 
 use reeflog::flags;
 use backfill::{
-    backfill_tail, repair_holes_anchored, resolve_anchor, verify_recent_anchored, Anchor,
+    backfill_tail_deadlined, repair_holes_anchored, resolve_anchor, verify_recent_anchored, Anchor,
     HttpFetcher, Report,
 };
 use futures_util::{SinkExt, StreamExt};
@@ -36,6 +36,21 @@ const DEFAULT_RPC: &str = "https://api.mainnet-beta.solana.com";
 /// public endpoint that rate-limits mid-walk.
 const PAGE_SIZE: usize = 1000;
 const RECONNECT_BACKOFF_MS: u64 = 1500;
+/// The wall-clock budget of the FINAL repair pass at shutdown (PULS BD).
+/// The run's own `--seconds` deadline is already spent when the shutdown
+/// passes run; without a budget of their own, a final repair walk over a
+/// rate-limited endpoint outlived the whole run (measured: 150 s requested,
+/// 28:11 taken, the final pass the one that never ended).
+///
+/// The budget SCALES with the run — a fifth of the requested seconds, at
+/// least 2 s and at most 30 s — because a flat budget is its own overrun: a
+/// flat 30 s made a `--seconds 5` run take 36 s (measured), which is the
+/// same defect with a smaller number on it. The shutdown passes are real
+/// work (the last window of the run still needs policing), so they get a
+/// bounded share of the run's own budget, not a fixed one.
+fn shutdown_repair_budget(seconds: u64) -> std::time::Duration {
+    std::time::Duration::from_secs((seconds / 5).clamp(2, 30))
+}
 
 /// Print a refusal and exit 1.
 ///
@@ -194,10 +209,30 @@ fn is_address(s: &str) -> bool {
 // Pipeline helpers
 // ---------------------------------------------------------------------------
 
-/// Backfill signatures the journal missed since its oldest held signature.
-/// Returns how many *new* events were appended (dedup is the journal's job).
-fn backfill_gap(j: &Journal, fetcher: &mut HttpFetcher, program: &str) -> Result<Report, String> {
-    backfill_tail(j, fetcher, program, 40, PAGE_SIZE)
+/// The same tail backfill, bounded by the run's deadline when one is given.
+///
+/// WHY (PULS BD, measured 2026-11-20): the startup tail backfill and the
+/// periodic repair pass are both walks over `getSignaturesForAddress` pages,
+/// and each page pays its own rate-limit backoff. The daemon checked its
+/// `--seconds` deadline only BETWEEN scheduler ticks, so both walks could
+/// outlive the run that scheduled them — measured twice on the published
+/// v0.7.43 asset against mainnet-beta (150 s requested -> 28:11), then
+/// isolated from the network by `tools/measure-shutdown-overrun.mjs` (a local
+/// sink, the delay applied per page): with the repair pass disabled the
+/// startup tail backfill alone still cost 2 s of a 5 s run at 2 s/page, and
+/// with it enabled 4 s.
+///
+/// A walk that stops at its deadline reports TRUNCATED and an error naming
+/// the window it did not read: `Report::complete()` already refuses to call a
+/// truncated walk proof, so the walk answers a smaller question honestly
+/// instead of outliving the run.
+fn backfill_gap_deadlined(
+    j: &Journal,
+    fetcher: &mut HttpFetcher,
+    program: &str,
+    deadline: Option<Instant>,
+) -> Result<Report, String> {
+    backfill_tail_deadlined(j, fetcher, program, 40, PAGE_SIZE, deadline)
 }
 
 /// Does a scan with this `since_slot` cover the journal's WHOLE claimed
@@ -219,9 +254,45 @@ fn scan_covers_whole_window(j: &Journal, since_slot: Option<i64>) -> bool {
 /// closed with the number of rows it filled) so `status` keeps reporting the
 /// episode instead of the rewrite happening invisibly. An incomplete pass
 /// leaves the gap open with an explicit marker.
-fn repair_pass(j: &Journal, rpc_url: &str, program: &str, pages: usize, since_slot: Option<i64>) -> Value {
-    let mut fetcher = HttpFetcher::new(rpc_url.to_string());
-    repair_pass_anchored(j, &mut fetcher, program, pages, since_slot, None, None)
+/// The daemon tick's face of the repair pass, bounded by the RUN's own
+/// deadline: a pass whose pages arrive slowly stops at the deadline and
+/// reports the unread window instead of outliving the run (PULS BD, measured
+/// 2026-11-20 — 150 s requested, 28:11 taken on the published v0.7.43
+/// asset). The final shutdown pass stays UNBOUNDED by this deadline: at
+/// shutdown the deadline has already passed, and the pass must still police
+/// the last window — its pages cap and its error reporting are the bound.
+fn repair_pass_deadlined(
+    j: &Journal,
+    rpc_url: &str,
+    program: &str,
+    pages: usize,
+    since_slot: Option<i64>,
+    deadline: Option<std::time::Instant>,
+) -> Value {
+    let mut fetcher = HttpFetcher::with_deadline(rpc_url.to_string(), deadline);
+    let r = match backfill::verify_recent_anchored_deadlined(
+        j,
+        &mut fetcher,
+        program,
+        pages,
+        PAGE_SIZE,
+        since_slot,
+        None,
+        deadline,
+    ) {
+        Ok(r) => r,
+        Err(e) => {
+            return json!({"complete": false, "error": e, "found_missing": 0, "filled": 0});
+        }
+    };
+    json!({
+        "complete": r.complete(),
+        "error": r.error,
+        "truncated": r.truncated,
+        "pages": r.pages,
+        "found_missing": r.missing.len(),
+        "filled": r.filled,
+    })
 }
 
 /// One bounded repair pass, optionally started from an archive anchor.
@@ -574,9 +645,15 @@ fn seal<F: backfill::Fetcher>(j: &Journal, f: &mut F) -> Result<Value, String> {
 /// can still unmake, and therefore the rows a consumer could still have acted
 /// on. Rate limits are not verdicts here either — an incomplete pass is
 /// reported and counted, never folded into "no reorgs".
-fn reorg_tick(j: &Journal, rpc_url: &str, limit: i64, lookback_slots: i64) -> Value {
+fn reorg_tick(
+    j: &Journal,
+    rpc_url: &str,
+    limit: i64,
+    lookback_slots: i64,
+    deadline: Option<std::time::Instant>,
+) -> Value {
     let min_slot = j.max_slot().unwrap_or(None).map(|s| s - lookback_slots).unwrap_or(0);
-    let mut fetcher = HttpFetcher::new(rpc_url.to_string());
+    let mut fetcher = HttpFetcher::with_deadline(rpc_url.to_string(), deadline);
     match check_sealed_window(j, &mut fetcher, limit, min_slot) {
         Ok(r) => json!({
             "complete": r.complete(),
@@ -604,8 +681,8 @@ fn reorg_tick(j: &Journal, rpc_url: &str, limit: i64, lookback_slots: i64) -> Va
 /// the cursor, because pending rows that got no verdict stay pending. The
 /// walk's `complete` flag survives: when the bound stopped it, the pass
 /// says so instead of silently looking done.
-fn seal_tick(j: &Journal, rpc_url: &str) -> Value {
-    let mut fetcher = HttpFetcher::new(rpc_url.to_string());
+fn seal_tick(j: &Journal, rpc_url: &str, deadline: Option<std::time::Instant>) -> Value {
+    let mut fetcher = HttpFetcher::with_deadline(rpc_url.to_string(), deadline);
     match seal_walk(j, &mut fetcher, 20) {
         Ok(v) => v,
         Err(e) => json!({"transport_error": e, "complete": false}),
@@ -750,7 +827,10 @@ async fn run_start(args: &[String]) {
     let deadline = Instant::now() + Duration::from_secs(seconds);
 
     // Gap 1: anything since this journal's last event (previous run or crash).
-    let mut fetcher = HttpFetcher::new(rpc_url.clone());
+    // The fetcher carries the run's deadline: every RPC call it makes is
+    // capped to the time that is left, so the startup walk cannot be the
+    // thing that outlives the run (PULS BD).
+    let mut fetcher = HttpFetcher::with_deadline(rpc_url.clone(), Some(deadline));
     let mut open_gap = if j.max_seq().unwrap_or(0) > 0 {
         let g = j
             .gap_open(
@@ -761,7 +841,7 @@ async fn run_start(args: &[String]) {
                 "journal had events before this start",
             )
             .unwrap_or_else(|e| die(e));
-        let r = backfill_gap(&j, &mut fetcher, &program);
+        let r = backfill_gap_deadlined(&j, &mut fetcher, &program, Some(deadline));
         let r = match r {
             Ok(r) => r,
             Err(e) => {
@@ -833,7 +913,7 @@ async fn run_start(args: &[String]) {
                     return None;
                 }
             };
-            let mut f = HttpFetcher::new(rpc);
+            let mut f = HttpFetcher::with_deadline(rpc, Some(deadline));
             let mut last: Option<payload::PayloadReport> = None;
             loop {
                 // Non-blocking check: the run is over, stop hydrating.
@@ -987,7 +1067,10 @@ async fn run_start(args: &[String]) {
         () => {{
             next_repair = next_due(repair_every_s);
             let since = j.max_slot().unwrap_or(None).map(|s| s - repair_lookback);
-            let summary = repair_pass(&j, &rpc_url, &program, repair_pages, since);
+            // The tick's walk is bounded by the RUN's deadline: one slow
+            // pass must not outlive the --seconds it was scheduled into
+            // (PULS BD). The unread window is reported, not silently kept.
+            let summary = repair_pass_deadlined(&j, &rpc_url, &program, repair_pages, since, Some(deadline));
             stats.repair_passes += 1;
             stats.repair_filled += summary["filled"].as_i64().unwrap_or(0);
             if summary["found_missing"].as_i64().unwrap_or(0) > 0 || summary["complete"].as_bool() != Some(true) {
@@ -1004,7 +1087,7 @@ async fn run_start(args: &[String]) {
     macro_rules! seal_tick_now {
         () => {{
             next_seal = next_due(seal_every_s);
-            let promoted = seal_tick(&j, &rpc_url);
+            let promoted = seal_tick(&j, &rpc_url, Some(deadline));
             stats.seal_passes += 1;
             for k in ["finalized", "confirmed", "error", "missing"] {
                 stats.seal_promoted += promoted[k].as_i64().unwrap_or(0);
@@ -1022,7 +1105,7 @@ async fn run_start(args: &[String]) {
     macro_rules! reorg_tick_now {
         () => {{
             next_reorg = next_due(reorg_every_s);
-            let report = reorg_tick(&j, &rpc_url, reorg_limit, reorg_lookback);
+            let report = reorg_tick(&j, &rpc_url, reorg_limit, reorg_lookback, Some(deadline));
             stats.reorg_passes += 1;
             stats.reorg_considered += report["considered"].as_i64().unwrap_or(0);
             stats.reorg_reverted += report["reverted"].as_i64().unwrap_or(0);
@@ -1129,7 +1212,7 @@ async fn run_start(args: &[String]) {
             || matches!(j.gap_find_open("subscribe_fail"), Ok(Some(_)));
         if open_gap.is_some() || episode_open {
             let g = open_gap.take();
-            let r = match backfill_gap(&j, &mut fetcher, &program) {
+            let r = match backfill_gap_deadlined(&j, &mut fetcher, &program, Some(deadline)) {
                 Ok(r) => r,
                 Err(e) => {
                     if let Some(g) = g {
@@ -1308,7 +1391,24 @@ async fn run_start(args: &[String]) {
     }
 
     // Final seal pass so the summary reflects the durable state.
-    let mut seal_fetcher = HttpFetcher::new(rpc_url.clone());
+    //
+    // Bounded too (PULS BD): an empty journal costs one cheap call, but a
+    // backlog of unsealed rows makes this walk one status batch per 150
+    // rows, each paying its own budget — the same overrun shape as the
+    // final repair walk. The pass gets a bounded share of the shutdown
+    // budget: after it is spent, the fetcher refuses further calls, so
+    // nothing here can outlive the run it summarizes.
+    //
+    // The shutdown budget is SPLIT: half for the passes that police the
+    // journal (seal, reorg, repair), half for the content pass (hydrate).
+    // One shared deadline would let a big seal backlog starve the content
+    // pass entirely, and one deadline per pass would make the shutdown as
+    // long as the sum of the passes — the same defect with more steps.
+    let shutdown_budget = shutdown_repair_budget(seconds);
+    let police_budget = shutdown_budget / 2;
+    let content_budget = shutdown_budget - police_budget;
+    let police_deadline = std::time::Instant::now() + police_budget;
+    let mut seal_fetcher = HttpFetcher::with_deadline(rpc_url.clone(), Some(police_deadline));
     let promoted = seal(&j, &mut seal_fetcher).unwrap_or_else(|e| {
         eprintln!("reeflog: seal failed at shutdown: {e}");
         json!({"error": e})
@@ -1317,7 +1417,7 @@ async fn run_start(args: &[String]) {
     // retraction it had already seen but never recorded — the consumer would
     // act on a fill the chain no longer knows.
     let final_reorg = if reorg_every_s > 0 {
-        let r = reorg_tick(&j, &rpc_url, reorg_limit, reorg_lookback);
+        let r = reorg_tick(&j, &rpc_url, reorg_limit, reorg_lookback, Some(police_deadline));
         stats.reorg_passes += 1;
         stats.reorg_considered += r["considered"].as_i64().unwrap_or(0);
         stats.reorg_reverted += r["reverted"].as_i64().unwrap_or(0);
@@ -1338,9 +1438,24 @@ async fn run_start(args: &[String]) {
     // Final repair pass before the summary: the last window of the run may
     // still hold holes the socket dropped. Without it the journal would end
     // the run with known holes and no record of them.
+    //
+    // It is bounded too (PULS BD): the run's own deadline was already in
+    // the past when this pass starts, so it gets a bounded SHUTDOWN BUDGET
+    // instead — the walk stops when the budget is spent and says which
+    // window it did not read. Unbounded here meant the exact measured
+    // failure: `--seconds 150` taking 28:11 because the final pass was one
+    // synchronous walk over 40 pages of a rate-limited endpoint.
     let final_repair = if repair_every_s > 0 {
         let since = j.max_slot().unwrap_or(None).map(|s| s - repair_lookback);
-        let s = repair_pass(&j, &rpc_url, &program, repair_pages, since);
+        let walk_deadline = std::time::Instant::now() + police_budget;
+        let s = repair_pass_deadlined(
+            &j,
+            &rpc_url,
+            &program,
+            repair_pages,
+            since,
+            Some(walk_deadline),
+        );
         stats.repair_passes += 1;
         stats.repair_filled += s["filled"].as_i64().unwrap_or(0);
         s
@@ -1382,7 +1497,10 @@ async fn run_start(args: &[String]) {
     } else {
         json!({"worker": {"skipped": true}})
     };
-    let mut fetcher_payload = HttpFetcher::new(rpc_url.clone());
+    let mut fetcher_payload = HttpFetcher::with_deadline(
+        rpc_url.clone(),
+        Some(std::time::Instant::now() + content_budget),
+    );
     let (r, hydrate_err) = match hydrate_payloads(&j, &mut fetcher_payload, payload_limit) {
         Ok(r) => (r, None),
         Err(e) => {
