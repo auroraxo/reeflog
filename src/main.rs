@@ -391,22 +391,27 @@ fn bump(v: &mut Value, key: &str) {
 /// source cannot answer either, the row stays pending and the pass is
 /// incomplete. 'missing' means "the chain does not know this", never "we
 /// could not find out".
-fn seal<F: backfill::Fetcher>(j: &Journal, f: &mut F) -> Result<Value, String> {
-    let pending = j.unsealed(150)?;
+fn seal_batch<F: backfill::Fetcher>(
+    j: &Journal,
+    f: &mut F,
+    after_seq: i64,
+) -> Result<(Value, i64, i64), String> {
+    let pending = j.unsealed_after(after_seq, 150)?;
     let mut promoted = json!({"finalized":0,"confirmed":0,"error":0,"missing":0,"undecided":0});
     if pending.is_empty() {
-        return Ok(promoted);
+        return Ok((promoted, after_seq, 0));
     }
+    let sigs: Vec<String> = pending.iter().map(|(_, s)| s.clone()).collect();
     let result = f.call(
         "getSignatureStatuses",
-        json!([pending.clone(), {"searchTransactionHistory": true}]),
+        json!([sigs.clone(), {"searchTransactionHistory": true}]),
     )?;
     let values = result
         .get("value")
         .and_then(|v| v.as_array())
         .cloned()
         .unwrap_or_default();
-    for (sig, st) in pending.iter().zip(values.iter()) {
+    for ((_, sig), st) in pending.iter().zip(values.iter()) {
         if st.is_null() {
             // Second source: only a refusal from BOTH proves the chain does
             // not know the transaction.
@@ -455,7 +460,84 @@ fn seal<F: backfill::Fetcher>(j: &Journal, f: &mut F) -> Result<Value, String> {
         j.seal(sig, status, err_str.as_deref())?;
         bump(&mut promoted, status);
     }
-    Ok(promoted)
+    let last_seq = pending.last().map(|(s, _)| *s).unwrap_or(after_seq);
+    Ok((promoted, last_seq, pending.len() as i64))
+}
+
+/// Walk the pending set with a cursor, asking every row the journal owes a
+/// verdict for exactly once.
+///
+/// WHY A CURSOR AND NOT A WINDOW. The old pass asked for the OLDEST 150
+/// pending rows every time. A backlog longer than one batch therefore always
+/// returned the same head: rows the chain could not decide yet (or that were
+/// simply behind the head) were asked over and over while everything after
+/// them was never asked at all. The tick's own progress test made it worse —
+/// it compared the size of that window before and after the batch, and both
+/// were clamped to 150, so a backlog of 300 or more could never show
+/// progress and the tick stopped after a single batch. MEASURED 2026-11-20
+/// against a local chain sink that answers every status: with 1,000 planted
+/// pending rows, one daemon run sealed exactly the first 300 and left 700
+/// unsealed at exit 0. 150 rows drained completely, 250 drained completely
+/// (two batches: the window emptied once the tail was small), 1,000 did not.
+///
+/// The cursor form asks the rows AFTER the last one it asked, so a row the
+/// chain cannot decide no longer blocks the rows behind it, and the walk
+/// reaches the end of the pending set.
+///
+/// `complete` says the walk reached the end of the pending set — every row
+/// the journal owed a verdict for was ASKED in this pass. It does NOT mean
+/// every row was sealed: a row the chain still cannot decide stays pending
+/// on purpose (a rate limit is not a fact about the chain). `complete: false`
+/// means rows were left unasked, which is the state the old pass reported as
+/// success.
+fn seal_walk<F: backfill::Fetcher>(
+    j: &Journal,
+    f: &mut F,
+    max_batches: i64,
+) -> Result<Value, String> {
+    let mut total = json!({"finalized":0,"confirmed":0,"error":0,"missing":0,"undecided":0});
+    let mut after_seq: i64 = 0;
+    let mut batches: i64 = 0;
+    let mut asked: i64 = 0;
+    let mut complete = true;
+    loop {
+        match seal_batch(j, f, after_seq) {
+            Ok((v, last_seq, rows)) => {
+                for k in ["finalized", "confirmed", "error", "missing", "undecided"] {
+                    let n = total[k].as_i64().unwrap_or(0) + v[k].as_i64().unwrap_or(0);
+                    total[k] = Value::from(n);
+                }
+                if rows == 0 {
+                    // The end of the pending set: every row was asked.
+                    break;
+                }
+                after_seq = last_seq;
+                asked += rows;
+                batches += 1;
+            }
+            Err(e) => {
+                // A transport failure is not a count: it lives in its own key
+                // so the per-status counts stay numeric and comparable.
+                total["transport_error"] = Value::String(e);
+                complete = false;
+                break;
+            }
+        }
+        if batches >= max_batches {
+            // The bound stopped the walk. Ask whether anything is left.
+            complete = j.unsealed_after(after_seq, 1)?.is_empty();
+            break;
+        }
+    }
+    total["batches"] = Value::from(batches);
+    total["asked"] = Value::from(asked);
+    total["complete"] = Value::Bool(complete);
+    Ok(total)
+}
+
+/// One explicit seal pass over the whole pending set.
+fn seal<F: backfill::Fetcher>(j: &Journal, f: &mut F) -> Result<Value, String> {
+    seal_walk(j, f, 200)
 }
 
 /// Batched re-check of recently sealed events against the two independent
@@ -494,45 +576,22 @@ fn reorg_tick(j: &Journal, rpc_url: &str, limit: i64, lookback_slots: i64) -> Va
     }
 }
 
-/// Seal a bounded batch of pending events. Exposed for the periodic seal tick
-/// inside `start`: without it the daemon would deliver events it has never
-/// promised as final, and the reorg check would have no sealed rows to look at.
+/// Seal pending events inside the periodic tick of `start`: without it the
+/// daemon would deliver events it has never promised as final, and the reorg
+/// check would have no sealed rows to look at.
 ///
-/// The batch is drained, not just taken once: a busy program produces events
-/// faster than one batch of 150 rows covers, and a seal tick that only ever
-/// sealed the first 150 pending rows would fall behind the stream forever.
-/// The drain is bounded so a single tick cannot run unbounded against a
-/// rate-limited endpoint.
+/// The daemon's per-tick face of the seal pass: the same walk as the CLI
+/// and the shutdown pass, but bounded per tick (20 batches) so one sick
+/// backlog cannot monopolize the scheduler — the next tick continues from
+/// the cursor, because pending rows that got no verdict stay pending. The
+/// walk's `complete` flag survives: when the bound stopped it, the pass
+/// says so instead of silently looking done.
 fn seal_tick(j: &Journal, rpc_url: &str) -> Value {
     let mut fetcher = HttpFetcher::new(rpc_url.to_string());
-    let mut total = json!({"finalized":0,"confirmed":0,"error":0,"missing":0,"undecided":0});
-    let mut batches = 0;
-    loop {
-        let before = j.unsealed(150).map(|v| v.len()).unwrap_or(0);
-        if before == 0 || batches >= 20 {
-            break;
-        }
-        match seal(j, &mut fetcher) {
-            Ok(v) => {
-                for k in ["finalized", "confirmed", "error", "missing", "undecided"] {
-                    let n = total[k].as_i64().unwrap_or(0) + v[k].as_i64().unwrap_or(0);
-                    total[k] = Value::from(n);
-                }
-            }
-            Err(e) => {
-                total["error"] = Value::String(e.to_string());
-                break;
-            }
-        }
-        batches += 1;
-        // Nothing changed: the batch was refused or already sealed. Stop
-        // instead of spinning on the same rows.
-        let after = j.unsealed(150).map(|v| v.len()).unwrap_or(0);
-        if after >= before {
-            break;
-        }
+    match seal_walk(j, &mut fetcher, 20) {
+        Ok(v) => v,
+        Err(e) => json!({"transport_error": e, "complete": false}),
     }
-    total
 }
 
 // ---------------------------------------------------------------------------
@@ -1841,12 +1900,23 @@ fn run_seal(args: &[String]) {
     let mut fetcher = HttpFetcher::new(rpc_url);
     let promoted = seal(&j, &mut fetcher).unwrap_or_else(|e| die(e));
     let c = j.counts().unwrap_or_else(|e| die(e));
+    let complete = promoted["complete"].as_bool() == Some(true);
     println!("{}", serde_json::to_string_pretty(&json!({
         "seal_pass": promoted,
         "events": c.total, "finalized": c.finalized, "confirmed": c.confirmed,
         "error": c.errored, "missing": c.missing, "unsealed": c.unsealed,
         "reverted": c.reverted,
     })).unwrap());
+    if !complete {
+        // The pass did not reach the end of the pending set: rows are still
+        // UNASKED, and a pass that did not ask everything cannot report
+        // itself as done. Same contract as `verify` and `hydrate`: exit 3
+        // means "the work is unfinished", not "the command failed".
+        eprintln!(
+            "reeflog: seal pass INCOMPLETE — the journal still holds rows this pass did not ask"
+        );
+        std::process::exit(3);
+    }
 }
 
 /// Re-check sealed events against two independent sources and record the
@@ -3265,6 +3335,92 @@ mod tests {
         assert_eq!(c.finalized, 1);
         assert_eq!(c.missing, 1);
         assert_eq!(c.unsealed, 1, "sigTrap is still unsealed for the next pass");
+    }
+
+    /// A backlog longer than one batch must be walked to its end.
+    ///
+    /// MEASURED 2026-11-20 against the published v0.7.41 tree (the binary a
+    /// stranger installs): with 1,000 planted pending rows and a chain that
+    /// answers every status, one pass sealed exactly the first 300 and left
+    /// 700 unsealed. The cause was structural, not a slow endpoint: the pass
+    /// asked for the OLDEST 150 pending rows every time, so the head was
+    /// re-asked forever while everything behind it was never asked at all,
+    /// and the tick's progress test compared two window sizes that were both
+    /// clamped to 150 — a backlog of 300+ could never show progress.
+    #[test]
+    fn seal_walks_a_backlog_longer_than_one_batch() {
+        let j = tmp("seal-drain");
+        for i in 0..1_000 {
+            j.append(&format!("sig{i:05}"), 1_000 + i, None, None, "ws").unwrap();
+        }
+        let mut chain = FakeChain::default();
+        for i in 0..1_000 {
+            chain
+                .status
+                .insert(format!("sig{i:05}"), Some("finalized".into()));
+        }
+
+        let r = seal(&j, &mut chain).unwrap();
+        assert_eq!(r["finalized"], 1_000, "every row in the backlog was asked");
+        assert_eq!(r["complete"], json!(true), "the walk reached the end");
+        assert!(r["batches"].as_i64().unwrap_or(0) >= 7, "more than one batch");
+        let c = j.counts().unwrap();
+        assert_eq!(c.unsealed, 0, "no row is left unsealed");
+    }
+
+    /// A row the chain cannot decide must not block the rows behind it.
+    ///
+    /// The head-block shape: the FIRST pending row never gets a verdict (the
+    /// chain cannot answer it), so a windowed pass re-asks that row forever
+    /// and the rows behind it are never asked. The cursor form asks past it.
+    #[test]
+    fn an_undecidable_head_does_not_block_the_rows_behind_it() {
+        let j = tmp("seal-head-block");
+        for i in 0..300 {
+            j.append(&format!("sig{i:05}"), 1_000 + i, None, None, "ws").unwrap();
+        }
+        let mut chain = FakeChain::default();
+        // The head row: the status source refuses AND the second source
+        // refuses → the chain does not know it → 'missing' (a verdict).
+        chain.status.insert("sig00000".into(), None);
+        chain.tx.insert("sig00000".into(), None);
+        // The trap row: the status source refuses, the second source still
+        // serves it → NO verdict, stays pending. It must not block the tail.
+        chain.status.insert("sig00001".into(), None);
+        chain.tx.insert("sig00001".into(), Some(json!({"slot": 1001})));
+        for i in 2..300 {
+            chain
+                .status
+                .insert(format!("sig{i:05}"), Some("finalized".into()));
+        }
+
+        let r = seal(&j, &mut chain).unwrap();
+        assert_eq!(r["finalized"], 298, "the rows behind the head were asked");
+        assert_eq!(r["missing"], 1, "the double refusal is a verdict");
+        assert_eq!(r["undecided"], 1, "the trap row stayed pending");
+        assert_eq!(r["complete"], json!(true), "the walk reached the end");
+        let c = j.counts().unwrap();
+        assert_eq!(c.unsealed, 1, "only the trap row stays pending");
+        assert_eq!(c.finalized, 298);
+    }
+
+    /// The bounded daemon tick says so when the bound stopped the walk.
+    #[test]
+    fn a_bounded_walk_reports_an_incomplete_pass() {
+        let j = tmp("seal-bounded");
+        for i in 0..4_000 {
+            j.append(&format!("sig{i:05}"), 1_000 + i, None, None, "ws").unwrap();
+        }
+        let mut chain = FakeChain::default();
+        for i in 0..4_000 {
+            chain
+                .status
+                .insert(format!("sig{i:05}"), Some("finalized".into()));
+        }
+        let r = seal_walk(&j, &mut chain, 20).unwrap();
+        assert_eq!(r["batches"], 20, "the bound stopped the walk");
+        assert_eq!(r["complete"], json!(false), "an unfinished pass says so");
+        assert_eq!(r["finalized"], 3_000, "the bounded part was sealed");
     }
 }
 

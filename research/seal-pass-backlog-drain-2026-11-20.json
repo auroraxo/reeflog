@@ -1,0 +1,209 @@
+{
+  "tool": "measure-seal-pass-backlog-drain.mjs",
+  "question": "Can the seal pass drain a backlog larger than one batch, and does a row the chain cannot decide block the rows behind it?",
+  "defect": "The seal pass asked for the OLDEST 150 pending rows each time; the tick compared that window before/after (both clamped to 150) so a backlog of 300+ could never show progress, and the window never moved past undecidable head rows — rows behind a stuck head were never asked while status reported exit 0.",
+  "measuredAt": "2026-11-20T11:00:59.462Z",
+  "verdict": "seal-pass-backlog-drained",
+  "baselineDefectFaces": 3,
+  "fixedDefectFaces": 0,
+  "baselineGuards": "all pass",
+  "fixedGuards": "all pass",
+  "trees": {
+    "baseline": {
+      "source": "release binary of the tree at 5550f5b; src/ byte-identical to tag v0.7.41 (git diff v0.7.41..5550f5b -- src/ is empty)",
+      "binSha256": "5a3d514928b8d03914e3dce9bbd1e16ead61024813d70de89ccdde4348232502",
+      "binVersion": "reeflog 0.7.41",
+      "faces": {
+        "D1_daemon_drain": {
+          "pending": 1000,
+          "sealed": 300,
+          "still_unsealed": 700,
+          "rpc_batches": 2,
+          "sigs_per_batch": [
+            150,
+            150
+          ],
+          "exit": 0,
+          "defect": true
+        },
+        "D2_cli_drain": {
+          "pending": 1000,
+          "sealed": 150,
+          "still_unsealed": 850,
+          "rpc_batches": 1,
+          "sigs_per_batch": [
+            150
+          ],
+          "exit": 0,
+          "complete": null,
+          "seal_pass": {
+            "confirmed": 0,
+            "error": 0,
+            "finalized": 150,
+            "missing": 0,
+            "undecided": 0
+          },
+          "stderr": "",
+          "defect": true
+        },
+        "D3_head_block": {
+          "pending": 300,
+          "undecidable_head": 150,
+          "decidable_tail": 150,
+          "sealed": 0,
+          "still_unsealed": 300,
+          "missing": 0,
+          "rpc_batches": 1,
+          "sigs_per_batch": [
+            150
+          ],
+          "exit": 0,
+          "complete": null,
+          "seal_pass": {
+            "confirmed": 0,
+            "error": 0,
+            "finalized": 0,
+            "missing": 0,
+            "undecided": 150
+          },
+          "defect": true
+        }
+      },
+      "guards": {
+        "G1_one_batch_drains": {
+          "pending": 150,
+          "sealed": 150,
+          "still_unsealed": 0,
+          "exit": 0,
+          "pass": true
+        },
+        "G2_two_source_holds": {
+          "rows": 10,
+          "sealed": 0,
+          "missing": 0,
+          "still_unsealed": 10,
+          "exit": 0,
+          "rpc_batches": 1,
+          "pass": true
+        },
+        "G3_dead_is_not_a_pass": {
+          "rows": 10,
+          "sealed": 0,
+          "still_unsealed": 10,
+          "exit": 1,
+          "stdout_has_summary": false,
+          "stderr": "reeflog: error: getSignatureStatuses: http status 500",
+          "refused_calls": 1,
+          "pass": true
+        }
+      }
+    },
+    "fixed": {
+      "source": "this tree",
+      "binSha256": "d10d8692bed03594849376878799a96e96673f01afd8570876d4404f3e96b250",
+      "binVersion": "reeflog 0.7.41",
+      "faces": {
+        "D1_daemon_drain": {
+          "pending": 1000,
+          "sealed": 1000,
+          "still_unsealed": 0,
+          "rpc_batches": 7,
+          "sigs_per_batch": [
+            150,
+            150,
+            150,
+            150,
+            150,
+            150,
+            100
+          ],
+          "exit": 0,
+          "defect": false
+        },
+        "D2_cli_drain": {
+          "pending": 1000,
+          "sealed": 1000,
+          "still_unsealed": 0,
+          "rpc_batches": 7,
+          "sigs_per_batch": [
+            150,
+            150,
+            150,
+            150,
+            150,
+            150,
+            100
+          ],
+          "exit": 0,
+          "complete": true,
+          "seal_pass": {
+            "asked": 1000,
+            "batches": 7,
+            "complete": true,
+            "confirmed": 0,
+            "error": 0,
+            "finalized": 1000,
+            "missing": 0,
+            "undecided": 0
+          },
+          "stderr": "",
+          "defect": false
+        },
+        "D3_head_block": {
+          "pending": 300,
+          "undecidable_head": 150,
+          "decidable_tail": 150,
+          "sealed": 150,
+          "still_unsealed": 150,
+          "missing": 0,
+          "rpc_batches": 2,
+          "sigs_per_batch": [
+            150,
+            150
+          ],
+          "exit": 0,
+          "complete": true,
+          "seal_pass": {
+            "asked": 300,
+            "batches": 2,
+            "complete": true,
+            "confirmed": 0,
+            "error": 0,
+            "finalized": 150,
+            "missing": 0,
+            "undecided": 150
+          },
+          "defect": false
+        }
+      },
+      "guards": {
+        "G1_one_batch_drains": {
+          "pending": 150,
+          "sealed": 150,
+          "still_unsealed": 0,
+          "exit": 0,
+          "pass": true
+        },
+        "G2_two_source_holds": {
+          "rows": 10,
+          "sealed": 0,
+          "missing": 0,
+          "still_unsealed": 10,
+          "exit": 0,
+          "rpc_batches": 1,
+          "pass": true
+        },
+        "G3_dead_is_not_a_pass": {
+          "rows": 10,
+          "sealed": 0,
+          "still_unsealed": 10,
+          "exit": 3,
+          "stdout_has_summary": true,
+          "stderr": "reeflog: seal pass INCOMPLETE — the journal still holds rows this pass did not ask",
+          "refused_calls": 1,
+          "pass": true
+        }
+      }
+    }
+  }
+}

@@ -1143,17 +1143,32 @@ impl Journal {
 
     /// Signatures still awaiting a seal decision (never sealed, or parked at
     /// 'confirmed' awaiting promotion to 'finalized').
-    pub fn unsealed(&self, limit: i64) -> Result<Vec<String>, String> {
+    /// The pending signatures AFTER a seq position, oldest first, bounded.
+    ///
+    /// `unsealed` answers "the oldest 150 rows that still owe a verdict";
+    /// this answers "the next 150 after where the last batch stopped". The
+    /// seal pass needs the second shape to walk a backlog longer than one
+    /// batch: the windowed shape always returns the same FIRST rows, so a
+    /// head region the chain cannot decide yet blocked every later row from
+    /// ever being asked, and the tick's own progress test (two window
+    /// sizes, both clamped at 150) could not see real progress. Measured
+    /// 2026-11-20: with 1,000 planted pending rows and a chain that answers
+    /// every status, one daemon run sealed exactly the first 300 — 700 rows
+    /// stayed unsealed at exit because every batch re-fetched the same
+    /// head. The cursor form walks past what it just asked.
+    pub fn unsealed_after(&self, after_seq: i64, limit: i64) -> Result<Vec<(i64, String)>, String> {
         let mut stmt = self
             .db
             .prepare(
-                "SELECT signature FROM events
-                 WHERE seal_status IS NULL OR seal_status = 'confirmed'
-                 ORDER BY seq LIMIT ?1",
+                "SELECT seq, signature FROM events
+                 WHERE seq > ?1 AND (seal_status IS NULL OR seal_status = 'confirmed')
+                 ORDER BY seq LIMIT ?2",
             )
             .map_err(|e| e.to_string())?;
         let rows = stmt
-            .query_map(params![limit], |r| r.get::<_, String>(0))
+            .query_map(params![after_seq, limit], |r| {
+                Ok((r.get::<_, i64>(0)?, r.get::<_, String>(1)?))
+            })
             .map_err(|e| e.to_string())?;
         let mut out = Vec::new();
         for row in rows {
@@ -2253,11 +2268,25 @@ mod tests {
         let j = tmp("seal");
         j.append("a", 10, None, None, "ws").unwrap();
         j.append("b", 11, None, None, "ws").unwrap();
-        let u = j.unsealed(100).unwrap();
+        let u = j.unsealed_after(0, 100).unwrap();
         assert_eq!(u.len(), 2);
+        let seq_a = u[0].0;
+        // The cursor is inclusive-exclusive: asking AFTER the seq of "a"
+        // must skip "a" and return only what came behind it — that is what
+        // lets the pass walk past rows it just asked.
+        let after_a = j.unsealed_after(seq_a, 100).unwrap();
+        assert_eq!(
+            after_a.iter().map(|(_, s)| s.clone()).collect::<Vec<_>>(),
+            vec!["b".to_string()],
+            "the cursor skips the row it stands on"
+        );
         j.seal("a", "finalized", None).unwrap();
-        let u = j.unsealed(100).unwrap();
-        assert_eq!(u, vec!["b".to_string()], "finalized leaves the pending set");
+        let u = j.unsealed_after(0, 100).unwrap();
+        assert_eq!(
+            u.iter().map(|(_, s)| s.clone()).collect::<Vec<_>>(),
+            vec!["b".to_string()],
+            "finalized leaves the pending set"
+        );
         let c = j.counts().unwrap();
         assert_eq!(c.finalized, 1);
         assert_eq!(c.unsealed, 1);
