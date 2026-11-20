@@ -85,7 +85,7 @@ test('tail --with-accounts HOLDS at an owed row: before it delivered, at/after i
   conn.prepare(
     `INSERT INTO events(signature, slot, err, logs, source, first_seen, payload_state, accounts, account_state)
      VALUES (?, ?, NULL, ?, 'ws', ?, 'held', ?, 'held')`,
-  ).run('done', 400000001, '["a"]', now, JSON.stringify({ instructions: [], accounts_flags_source: 'json' }));
+  ).run('done', 400000001, '["a"]', now, JSON.stringify({ instructions: [], accounts_flags_source: 'json', token_state: [] }));
   // seq 2: logs present, envelope still owed -> the hold row
   conn.prepare(
     `INSERT INTO events(signature, slot, err, logs, source, first_seen, payload_state)
@@ -95,7 +95,7 @@ test('tail --with-accounts HOLDS at an owed row: before it delivered, at/after i
   conn.prepare(
     `INSERT INTO events(signature, slot, err, logs, source, first_seen, payload_state, accounts, account_state)
      VALUES (?, ?, NULL, ?, 'ws', ?, 'held', ?, 'held')`,
-  ).run('behind', 400000003, '["c"]', now, JSON.stringify({ instructions: [], accounts_flags_source: 'json' }));
+  ).run('behind', 400000003, '["c"]', now, JSON.stringify({ instructions: [], accounts_flags_source: 'json', token_state: [] }));
   conn.close();
 
   const box = reeflog({ db, bin: BIN });
@@ -111,13 +111,51 @@ test('tail --with-accounts HOLDS at an owed row: before it delivered, at/after i
   const conn2 = new DatabaseSync(db);
   conn2.prepare(
     'UPDATE events SET accounts = ?, account_state = ? WHERE signature = ?',
-  ).run(JSON.stringify({ instructions: [], accounts_flags_source: 'json' }), 'held', 'owed');
+  ).run(JSON.stringify({ instructions: [], accounts_flags_source: 'json', token_state: [] }), 'held', 'owed');
   conn2.close();
 
   const after = await box.tail({ limit: 10, withAccounts: true, cursor: r.cursor });
   assert.equal(after.exitCode, EXIT.OK);
   assert.deepEqual(after.events.map((e) => e.signature), ['owed', 'behind'], 'the owed row arrives once paid, nothing lost');
   assert.equal(after.held, null);
+
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+// The completeness marker set is THREE fields, not two: an envelope with
+// instructions + flags source but NO `token_state` is HALF (the event-time
+// authority of every unchanged token account lives only there). A client
+// journal carrying such an envelope must be HELD, not delivered — and a
+// whole one must flow. This pins the marker set on the Node surface, so a
+// future marker cannot silently leave these fixtures stale again.
+test('tail --with-accounts HOLDS at a token_state-less envelope and delivers a whole one', { skip: binaryMissing }, async () => {
+  const { dir, db } = tmpJournal('tokstate');
+  const conn = new DatabaseSync(db);
+  const now = Date.now();
+  // seq 1: half envelope — instructions + flags source, NO token_state
+  conn.prepare(
+    `INSERT INTO events(signature, slot, err, logs, source, first_seen, payload_state, accounts, account_state)
+     VALUES (?, ?, NULL, ?, 'ws', ?, 'held', ?, 'held')`,
+  ).run('half', 400000001, '["a"]', now, JSON.stringify({ instructions: [], accounts_flags_source: 'json' }));
+  // seq 2: WHOLE envelope — all three markers
+  conn.prepare(
+    `INSERT INTO events(signature, slot, err, logs, source, first_seen, payload_state, accounts, account_state)
+     VALUES (?, ?, NULL, ?, 'ws', ?, 'held', ?, 'held')`,
+  ).run('whole', 400000002, '["b"]', now, JSON.stringify({ instructions: [], accounts_flags_source: 'json', token_state: [] }));
+  conn.close();
+
+  const box = reeflog({ db, bin: BIN });
+  const r = await box.tail({ limit: 10, withAccounts: true });
+  assert.equal(r.exitCode, EXIT.INCOMPLETE, 'a half envelope is exit 3 — the envelope is still owed');
+  assert.deepEqual(r.events.map((e) => e.signature), [], 'the half envelope is NOT delivered to a --with-accounts consumer');
+  assert.equal(r.cursorValue, 0, 'the cursor stays at the half envelope');
+  assert.ok(r.held, 'the hold is reported');
+  assert.equal(r.held.signature, 'half');
+
+  // plain tail is never held by the accounts queue: the same rows deliver
+  const plain = await box.tail({ limit: 10 });
+  assert.equal(plain.exitCode, EXIT.OK);
+  assert.deepEqual(plain.events.map((e) => e.signature), ['half', 'whole'], 'plain tail delivers envelopes as stored — the marker decides, not the row');
 
   fs.rmSync(dir, { recursive: true, force: true });
 });
