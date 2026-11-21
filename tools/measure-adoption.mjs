@@ -27,6 +27,12 @@
 //     consumption, unless the reply itself mentions reeflog or links an
 //     auroraxo repo (then it is a foreign reeflog reaction, still not
 //     user-one: that class stays repo-scoped to stars/forks/usage-issues).
+//     A delivery can ROT after the pulse that recorded it — reactions can
+//     then no longer be measured on it. The claimed-deliveries census
+//     (check 9b) asks every delivery this lane ever claimed, every
+//     snapshot, whether it still exists: on 2026-11-21 the agave#16654
+//     comment claimed and "round-trip verified" on 2026-11-20 turned out
+//     dead (404, 0 comments on the issue, account blocked from the repo).
 //  7. npm downloads (the distribution card requires weekly npm numbers):
 //     recorded WITH their attribution — npm counts every install and this
 //     project's own CI installs the client on every run (client.test,
@@ -382,6 +388,88 @@ for (const spec of DIST_SURFACES) {
   });
 }
 
+// ---- 9b. claimed deliveries: survive-or-not --------------------------------
+// Every delivery a distribution pulse ever claimed, re-asked EVERY run: a
+// passed proof that names a delivery URL is only evidence while the URL
+// exists. PULS-7 (2026-11-20) recorded the agave#16654 comment as posted
+// and round-trip-verified; on 2026-11-21 it was gone and the account is
+// blocked from that repo (measured in auroraxo/agave-skipped-slots-measure
+// research/delivery-status-2026-11-21.json). A DEAD delivery is a FINDING,
+// not a source failure — only a real transport/auth error fails the run.
+const CLAIMED_DELIVERIES = (
+  process.env.ADOPTION_CLAIMED_DELIVERIES ||
+  [
+    'helius-labs/laserstream-sdk#issuecomment-7016745189',
+    'helius-labs/laserstream-sdk#issuecomment-7022923160',
+    'helius-labs/laserstream-sdk#issuecomment-7027762124',
+    'helius-labs/laserstream-sdk#issuecomment-7034421932',
+    'anza-xyz/agave#issuecomment-7045265720',
+    'rpcpool/yellowstone-grpc#issuecomment-7059360753',
+  ].join(',')
+)
+  .split(',')
+  .map((s) => s.trim())
+  .filter(Boolean);
+
+function ghDelivery(args) {
+  try {
+    return {
+      body: JSON.parse(execFileSync('gh', ['api', ...args], { encoding: 'utf8', timeout: 60000 })),
+      status: 200,
+    };
+  } catch (err) {
+    const msg = String(err.message);
+    if (msg.includes('(HTTP 404)')) return { body: null, status: 404 };
+    return { body: null, status: 'error' };
+  }
+}
+
+const claimedDeliveries = [];
+for (const spec of CLAIMED_DELIVERIES) {
+  const m = spec.match(/^(.+?)#issuecomment-(\d+)$/);
+  if (!m) {
+    failures.push(`claimed delivery ${spec} is not owner/repo#issuecomment-id`);
+    continue;
+  }
+  const [, where, idStr] = m;
+  const id = Number(idStr);
+  const url = `https://github.com/${where}#issuecomment-${id}`;
+  const { body: c, status } = ghDelivery([`repos/${where}/issues/comments/${id}`]);
+  if (status === 'error') {
+    claimedDeliveries.push({ repo: where, commentId: id, url, exists: false, liveFetch: 'source-error', state: 'unverifiable', fetchedAt: startedAt });
+    failures.push(`claimed delivery ${spec} could not be fetched (source error)`);
+    continue;
+  }
+  if (status === 404 || !c || !c.user) {
+    claimedDeliveries.push({ repo: where, commentId: id, url, exists: false, liveFetch: 'http-404', fetchedAt: startedAt });
+    continue;
+  }
+  claimedDeliveries.push({
+    repo: where,
+    commentId: id,
+    url,
+    exists: true,
+    author: c.user.login,
+    createdAt: c.created_at,
+    authorMatchesOwner: c.user.login === OWNER,
+    fetchedAt: startedAt,
+  });
+}
+const aliveDeliveries = claimedDeliveries.filter((x) => x.exists);
+const deadDeliveries = claimedDeliveries.filter((x) => x.exists === false && x.state !== 'unverifiable');
+const deliveryBlock = {
+  measuredAt: startedAt,
+  rule: 'a claimed delivery is evidence only while it exists; every pulse re-asks every claim',
+  deliveries: claimedDeliveries,
+  total: claimedDeliveries.length,
+  alive: aliveDeliveries.length,
+  dead: deadDeliveries.map((x) => x.url),
+  ok: claimedDeliveries.length > 0 && claimedDeliveries.every((x) => x.state !== 'unverifiable'),
+};
+if (!deliveryBlock.ok) {
+  failures.push('claimed deliveries not fully verifiable — delivery survival has no verdict on partial evidence');
+}
+
 // The public harness: stars/forks there are harness adoption, recorded
 // separately so they can never leak into the reeflog user-one class.
 const harness = gh([`repos/${HARNESS_REPO}`], true);
@@ -487,6 +575,7 @@ const distVerdict = (() => {
 const distributionSurfacesBlock = {
   measuredAt: startedAt,
   surfaces: distributionSurfaces,
+  claimedDeliveries: deliveryBlock,
   harnessRepo,
   placements,
   reeflogCensusAtMeasurement: {
@@ -495,7 +584,7 @@ const distributionSurfacesBlock = {
     usageIssues: usageIssues.length,
   },
   verdict: distVerdict,
-  ok: distributionSurfaces.every((s) => s.state !== 'unverifiable') && placements.every((p) => p.state !== 'unverifiable') && harnessRepo.state !== 'unverifiable',
+  ok: distributionSurfaces.every((s) => s.state !== 'unverifiable') && placements.every((p) => p.state !== 'unverifiable') && harnessRepo.state !== 'unverifiable' && deliveryBlock.ok,
 };
 if (!distributionSurfacesBlock.ok) {
   failures.push('distribution surfaces not fully verifiable — no verdict on partial evidence');
@@ -574,6 +663,15 @@ for (const s of distributionSurfaces) {
     `  surface ${s.surface}: owner presented ${s.ownerPresentedAt ?? 'n/a'}, ${s.ownerComments} owner comment(s), ${s.nonOwnerRepliesAfter.length} foreign reply/replies after presentation -> ${s.classification}`
   );
 }
+for (const x of claimedDeliveries) {
+  lines.push(
+    `  delivery ${x.repo}#issuecomment-${x.commentId}: ${x.exists ? `ALIVE author=${x.author} at ${x.createdAt}` : 'DEAD (404)'}${x.authorMatchesOwner === false ? ' AUTHOR MISMATCH' : ''}`
+  );
+}
+lines.push(
+  `  delivery survival: ${deliveryBlock.alive}/${deliveryBlock.total} claimed deliver(y/ies) alive` +
+    (deliveryBlock.dead.length ? ` — DEAD: ${deliveryBlock.dead.join(', ')}` : '')
+);
 for (const p of placements) {
   lines.push(
     `  placement ${p.upstream}#${p.pr}: state=${p.state}${p.merged ? ' MERGED' : ''}, reviews=${p.reviews ?? '?'} (others ${p.reviewsByOthers ?? '?'}), foreign comments=${p.commentsByOthers ?? '?'}`
