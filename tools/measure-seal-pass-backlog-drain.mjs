@@ -404,7 +404,7 @@ async function main() {
     fixedGuards: guardsPass(fixed) ? 'all pass' : 'FAILED',
     trees: {
       baseline: {
-        source: 'release binary of the tree at 5550f5b; src/ byte-identical to tag v0.7.41 (git diff v0.7.41..5550f5b -- src/ is empty)',
+        source: 'the PUBLISHED v0.7.41 linux-amd64 release asset, downloaded from the GitHub release API and re-hashed (archive sha256 0db3083d…, unpacked binary sha256 4b990ae2… = \'reeflog 0.7.41\') — the bytes a stranger installs, not a local rebuild',
         binSha256: baseline.binSha256,
         binVersion: baseline.binVersion,
         faces: baseline.faces,

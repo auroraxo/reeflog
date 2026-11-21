@@ -2538,6 +2538,50 @@ snapshot); artifact pin `tests/seal_answer_shape_measurement.rs` 7/7
 describes the release this tree is). The v0.7.42 tag keeps the defect —
 tags are immutable.
 
+### The webhook delivery pass knows when to stop (v0.7.45)
+
+`reeflog start --seconds N --webhook-config ...` is a run of about N
+seconds. Its webhook delivery pass was not: the pass was bounded per POST
+by `timeout_ms`, but the PASS itself had no budget. `deliver_events` and
+`deliver_reorgs` looped over up to `--webhook-limit` rows synchronously
+inside the scheduler tick, and the run loop could only check its deadline
+after the pass handed control back — so the run's length was decided by
+the queue: N + backlog x per-POST cost.
+
+Measured on the **published v0.7.44 asset** (Release API digest
+`sha256:aa8b4a1c…`, binary `ead75ad9…`) against a local sink that answers
+each POST after an exact 250 ms delay (a real endpoint's latency is an
+observation; the sink makes the pass's own per-row cost the measurement):
+a 30 s run with 200 queued rows ended about 29 s late, and the overrun
+grew about 24 s when the backlog quadrupled — the queue, not the run,
+decided how long the run took. The drain commands (`webhook push`,
+`dlq replay`) were NOT the defect: their wall clock IS the delivery work
+they completed (every row answered, exit 0), which the instrument now
+pins as a guard.
+
+The fix gives the delivery pass the run's remaining time as its budget:
+
+1. the budget is checked before EVERY row, not only between ticks;
+2. a stop is a TIME SLICE, not an error: `budget_stopped` plus
+   `events_owed`/`reorgs_owed` — the run names what it did not deliver,
+   and never speaks the blocking/refusal voice;
+3. the in-flight POST is capped to the time that is left, so a request
+   that started before the deadline cannot overrun the run;
+4. the summary reports `budget_stops` and `rows_owed`;
+5. a pass that examined no row never erases a standing verdict (the
+   PULS AW behaviour holds).
+
+Gates: the two-tree instrument against the PUBLISHED v0.7.44 asset
+(`research/webhook-pass-overrun-fixed-vs-published-v0744-2026-11-21.json`,
+verdict `webhook-pass-bounded-by-the-pass-budget`, pinned by
+`tests/webhook_pass_overrun_measurement.rs` 10/10 and
+`tests/webhook_pass_budget.rs`): carrier 29 s late vs fixed ~3 s, the
+growth 24 s vs -2 s, `delivered` 98 with `budget_stops=1` and
+`rows_owed=102`, `push` 200/200 and 50/50 on BOTH sides, exit 0 on both,
+no host path. Rust full suite 99 binaries 0 failures, clippy `-D warnings`
+clean, npm 223/223, decoder ALL PASS. The published v0.7.44 asset keeps
+the defect — tags are immutable.
+
 ### A run does not outlive its own deadline (v0.7.44)
 
 `reeflog start --seconds N` was documented as a run of about N seconds.

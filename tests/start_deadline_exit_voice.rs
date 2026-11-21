@@ -95,11 +95,15 @@ fn the_deadline_artifact_names_the_verdict_and_both_sides() {
         baseline["binSha256"].as_str(),
         "the two sides must be different binaries"
     );
-    // The tree this pin lives in must be the release the measurement names.
+    // Which tree carries this pin. The artifact itself measures two
+    // IMMUTABLE published assets (v0.7.43 defect carrier vs v0.7.44 fix),
+    // so its claims do not move with the tree — only this marker does, and
+    // it is bumped with every release so a stale pin cannot hide behind an
+    // artifact that was true once.
     assert_eq!(
         tree_version(),
-        "0.7.44",
-        "this pin belongs to the v0.7.44 tree"
+        "0.7.45",
+        "this pin belongs to the v0.7.45 tree"
     );
 }
 

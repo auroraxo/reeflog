@@ -2,7 +2,7 @@
   "tool": "measure-seal-answer-shape.mjs",
   "question": "Can the seal pass honour an answer that covers fewer rows than it asked for, or does a truncated value array silently skip rows behind it while claiming the pass is complete?",
   "defect": "seal_batch (src/main.rs) zipped pending with result.value unconditionally: an answer array shorter than the request sealed the rows the answer covered and moved the walk cursor past every row it did not — those rows were never asked, and the pass still reported complete: true and exited 0. The reorg module (status_sources, src/reorg.rs) already defended this exact contract with a.len() == sigs.len(); the seal pass was the one consumer of a batched source that did not.",
-  "measuredAt": "2026-11-20T20:38:47.741Z",
+  "measuredAt": "2026-11-21T06:06:24.792Z",
   "verdict": "seal-answer-covers-request",
   "baselineDefectFaces": 3,
   "fixedDefectFaces": 0,
@@ -89,8 +89,8 @@
     },
     "fixed": {
       "source": "this tree",
-      "binSha256": "04b9110c09e04c74d0bff47b9b5482cb02726b6e89d3101a8149d6de30af7b4e",
-      "binVersion": "reeflog 0.7.44",
+      "binSha256": "d6e7a01063013e3b56c5cd3e706bf785183866e1296f5fda192ad3657e4837ac",
+      "binVersion": "reeflog 0.7.45",
       "faces": {
         "D1_cli_short_answer": {
           "pending": 10,
