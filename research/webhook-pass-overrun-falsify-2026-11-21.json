@@ -1,0 +1,139 @@
+{
+  "tool": "measure-webhook-pass-overrun.mjs",
+  "question": "Does the webhook delivery pass stay inside the run (or command) that scheduled it?",
+  "defect": "The webhook pass is bounded per POST by the target timeout_ms but has NO pass budget: deliver_events + deliver_reorgs loop over up to --webhook-limit (default 500) rows synchronously inside the scheduler tick, so the run loop cannot check its deadline until the pass hands control back — the run pays backlog x per-POST cost past its --seconds. Every signature walk was deadline-bounded in PULS BD; the webhook pass was the one scheduler consumer left. `webhook push` is a DRAIN command: its wall clock is the delivery work it completed (G3), and a stalled endpoint stops it at the first row — that is not this defect.",
+  "measuredAt": "2026-11-21T04:10:33.263Z",
+  "binVersion": "reeflog 0.7.44",
+  "binSha256": "04b9110c09e04c74d0bff47b9b5482cb02726b6e89d3101a8149d6de30af7b4e",
+  "baseline": {
+    "binVersion": "reeflog 0.7.44",
+    "binSha256": "ead75ad96c442d4fd5ff0724e717840bad26f9c359084e2ec08acb65dcb5fea2"
+  },
+  "seconds": 30,
+  "webhookEveryS": 5,
+  "delayMsPerPost": 250,
+  "limit": 200,
+  "limitSmall": 50,
+  "honestTailMs": 11250,
+  "faces": [
+    {
+      "name": "D1_the_webhook_pass_outlives_the_run_deadline_on_the_carrier_and_stays_in_budget_on_the_fixed_side",
+      "ok": false,
+      "detail": "baseline overshoot 29s vs fixed overshoot 29s (honest tail = shutdown budget 6s + one in-flight POST 250ms + exit slack) at 250ms/POST on a 200-row backlog, --seconds 30, --webhook-every 5"
+    },
+    {
+      "name": "D2_the_overrun_scales_with_the_backlog_on_the_carrier_and_not_on_the_fixed_side",
+      "ok": false,
+      "detail": "same 250ms/POST, 200 vs 50 rows: baseline overrun grows by 24s (queue expects 38s) — fixed grows by 24s (≤ honest tail 11s)"
+    },
+    {
+      "name": "G1_control_fast_endpoint_keeps_the_daemon_near_its_seconds",
+      "ok": true,
+      "detail": "--seconds 30 against a 0-delay endpoint: fixed 34s, baseline 34s (exit 0)"
+    },
+    {
+      "name": "G2_daemon_exits_zero_on_a_slow_endpoint",
+      "ok": true,
+      "detail": "exit 0 / baseline 0, killed=false"
+    },
+    {
+      "name": "G3_push_drains_every_planted_row_and_exits_zero",
+      "ok": true,
+      "detail": "push wall 51s for 200 rows = 254ms/row at 250ms/POST (the work itself); bodies 200/200 + 50/50 (baseline 200/200), exit 0"
+    },
+    {
+      "name": "G4_the_budget_does_not_starve_delivery",
+      "ok": true,
+      "detail": "daemon delivered: fixed 200, budget_stops=missing, rows_owed=missing — baseline delivered 200 (carrier pays the whole queue)"
+    }
+  ],
+  "runs": {
+    "label": "fixed",
+    "binVersion": "reeflog 0.7.44",
+    "binSha256": "04b9110c09e04c74d0bff47b9b5482cb02726b6e89d3101a8149d6de30af7b4e",
+    "daemonSlow": {
+      "ms": 58903,
+      "exit": 0,
+      "killed": false,
+      "delivered": 200,
+      "budgetStops": "missing",
+      "rowsOwed": "missing",
+      "stderrTail": ""
+    },
+    "daemonFast": {
+      "ms": 33838,
+      "exit": 0,
+      "killed": false,
+      "delivered": 200,
+      "budgetStops": "missing",
+      "rowsOwed": "missing",
+      "stderrTail": "reeflog: repair pass {\"complete\":false,\"error\":\"repair walk stopped at the run's deadline after 0 page(s) — the window below was NOT read\",\"filled\":0,\"found_missing\":0,\"pages\":0,\"truncated\":true}\n"
+    },
+    "daemonSmall": {
+      "ms": 35086,
+      "exit": 0,
+      "killed": false,
+      "delivered": 50,
+      "budgetStops": "missing",
+      "rowsOwed": "missing",
+      "stderrTail": "reeflog: repair pass {\"complete\":false,\"error\":\"repair walk stopped at the run's deadline after 0 page(s) — the window below was NOT read\",\"filled\":0,\"found_missing\":0,\"pages\":0,\"truncated\":true}\n"
+    },
+    "pushSlow": {
+      "ms": 50742,
+      "exit": 0,
+      "killed": false,
+      "deliveredBodies": 200
+    },
+    "pushSmall": {
+      "ms": 12721,
+      "exit": 0,
+      "killed": false,
+      "deliveredBodies": 50
+    }
+  },
+  "baselineRuns": {
+    "label": "baseline",
+    "binVersion": "reeflog 0.7.44",
+    "binSha256": "ead75ad96c442d4fd5ff0724e717840bad26f9c359084e2ec08acb65dcb5fea2",
+    "daemonSlow": {
+      "ms": 58906,
+      "exit": 0,
+      "killed": false,
+      "delivered": 200,
+      "budgetStops": "missing",
+      "rowsOwed": "missing",
+      "stderrTail": ""
+    },
+    "daemonFast": {
+      "ms": 33834,
+      "exit": 0,
+      "killed": false,
+      "delivered": 200,
+      "budgetStops": "missing",
+      "rowsOwed": "missing",
+      "stderrTail": "reeflog: repair pass {\"complete\":false,\"error\":\"repair walk stopped at the run's deadline after 0 page(s) — the window below was NOT read\",\"filled\":0,\"found_missing\":0,\"pages\":0,\"truncated\":true}\n"
+    },
+    "daemonSmall": {
+      "ms": 34844,
+      "exit": 0,
+      "killed": false,
+      "delivered": 50,
+      "budgetStops": "missing",
+      "rowsOwed": "missing",
+      "stderrTail": "reeflog: repair pass {\"complete\":false,\"error\":\"repair walk stopped at the run's deadline after 0 page(s) — the window below was NOT read\",\"filled\":0,\"found_missing\":0,\"pages\":0,\"truncated\":true}\n"
+    },
+    "pushSlow": {
+      "ms": 50762,
+      "exit": 0,
+      "killed": false,
+      "deliveredBodies": 200
+    },
+    "pushSmall": {
+      "ms": 12670,
+      "exit": 0,
+      "killed": false,
+      "deliveredBodies": 50
+    }
+  },
+  "verdict": "webhook-pass-overruns-the-run"
+}

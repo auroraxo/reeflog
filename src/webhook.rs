@@ -47,6 +47,7 @@ use crate::journal::{EventRow, Journal, ReorgRow};
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use std::path::Path;
+use std::time::Instant;
 
 /// Header carrying the HMAC-SHA256 of the request body, hex encoded.
 pub const SIGNATURE_HEADER: &str = "X-Reeflog-Signature";
@@ -384,6 +385,24 @@ pub trait Poster {
     /// Ok(status) for any HTTP answer the server produced, Err(message) for a
     /// transport failure (DNS, connect, timeout, TLS).
     fn post(&mut self, url: &str, body: &str, headers: &[(&str, &str)]) -> Result<u16, String>;
+
+    /// `post`, but the transport is capped to the instant `until` (PULS BF):
+    /// the scheduler's delivery pass hands control back at its budget, so the
+    /// POST in flight when the slice ends must not cost the target's FULL
+    /// timeout — only the time that was left. `None` = plain `post`.
+    /// `webhook push` and `dlq replay` are drains: they never pass a budget.
+    fn post_until(
+        &mut self,
+        url: &str,
+        body: &str,
+        headers: &[(&str, &str)],
+        until: Option<Instant>,
+    ) -> Result<u16, String> {
+        // Without a deadline this IS `post`; with one and a bounded clock the
+        // default still honours it where the concrete poster can't do better.
+        let _ = until;
+        self.post(url, body, headers)
+    }
 }
 
 /// A poster backed by `ureq`.
@@ -393,6 +412,54 @@ pub struct HttpPoster {
 
 impl Poster for HttpPoster {
     fn post(&mut self, url: &str, body: &str, headers: &[(&str, &str)]) -> Result<u16, String> {
+        self.post_with_deadline(url, body, headers, None)
+    }
+
+    fn post_until(
+        &mut self,
+        url: &str,
+        body: &str,
+        headers: &[(&str, &str)],
+        until: Option<Instant>,
+    ) -> Result<u16, String> {
+        self.post_with_deadline(url, body, headers, until)
+    }
+}
+
+impl HttpPoster {
+    /// The real transport with an optional wall-clock cap on ONE POST. The
+    /// cap can only ever SHORTEN the target's `timeout_ms`: the effective
+    /// timeout is `min(timeout_ms, time left in the slice)`, and a POST
+    /// that hits the slice cap fails like any other slow endpoint — a
+    /// transient failure the queue reports and retries. It must not look
+    /// like a refusal (the endpoint never answered) and it must not stop
+    /// the pass differently than any other transport failure would.
+    fn post_with_deadline(
+        &mut self,
+        url: &str,
+        body: &str,
+        headers: &[(&str, &str)],
+        until: Option<Instant>,
+    ) -> Result<u16, String> {
+        let eff_ms = match until {
+            None => self.timeout_ms,
+            Some(t) => {
+                let now = Instant::now();
+                if now >= t {
+                    // The slice is spent BEFORE this POST started: a
+                    // timeout_ms of 0 would be rewritten into "no answer",
+                    // so the answer is the honest one — nothing was sent.
+                    return Err("pass budget spent before the POST started".into());
+                }
+                let left = t.duration_since(now);
+                let cap = self.timeout_ms.max(1) as u128;
+                (left.as_millis().min(cap).max(1)) as u64
+            }
+        };
+        self.post_ms(url, body, headers, eff_ms)
+    }
+
+    fn post_ms(&mut self, url: &str, body: &str, headers: &[(&str, &str)], timeout_ms: u64) -> Result<u16, String> {
         // A webhook whose endpoint hangs must not hang the delivery pass: the
         // timeout turns "slow" into a transient failure the queue reports and
         // retries, instead of a stuck daemon.
@@ -404,7 +471,7 @@ impl Poster for HttpPoster {
         // got nothing, and a 301/302/303 hop carried the signature header on a
         // bodyless GET. See the 3xx branch below.
         let cfg = ureq::Agent::config_builder()
-            .timeout_global(Some(std::time::Duration::from_millis(self.timeout_ms.max(1))))
+            .timeout_global(Some(std::time::Duration::from_millis(timeout_ms.max(1))))
             .max_redirects(0)
             .build();
         let agent = ureq::Agent::new_with_config(cfg);
@@ -509,6 +576,17 @@ pub struct TargetReport {
     pub next_seq: i64,
     /// The retraction cursor after this pass.
     pub next_reorg_id: i64,
+    /// True when the pass ended because it ran OUT OF TIME, not because the
+    /// queue ended and not because a row refused it. A budget stop is a
+    /// TIME-SLICE: the rows behind it stay owed, nothing is dropped, and
+    /// the next pass (or `webhook push`) pays them. PULS BF, 2026-11-21.
+    pub budget_stopped: bool,
+    /// Rows the budget left unexamined on the EVENT queue. Zero unless the
+    /// pass ended on the budget.
+    pub events_owed: i64,
+    /// Rows the budget left unexamined on the RETRACTION queue. Zero unless
+    /// the pass ended on the budget.
+    pub reorgs_owed: i64,
     /// Events that were refused outright and moved to the dead-letter queue.
     pub dead_lettered: i64,
     /// True when the target was REFUSED before a single byte moved: its
@@ -590,6 +668,9 @@ pub fn target_refusal(target: &Target, reason: &str) -> TargetReport {
         next_seq: 0,
         next_reorg_id: 0,
         dead_lettered: 0,
+        budget_stopped: false,
+        events_owed: 0,
+        reorgs_owed: 0,
         refused: true,
     }
 }
@@ -597,12 +678,21 @@ pub fn target_refusal(target: &Target, reason: &str) -> TargetReport {
 /// Deliver events to one target, in `seq` order, stopping at the first
 /// failure.
 ///
-/// `limit` bounds how many events are attempted in one pass.
+/// `limit` bounds how many events are attempted in one pass. `budget` —
+/// when given — bounds the pass in TIME (PULS BF): a pass that runs out of
+/// time is a TIME-SLICE, not a failure. The rows behind the slice stay owed,
+/// `budget_stopped`/`events_owed` say so, the block fields stay untouched
+/// (a slice is not a refusal and not a transport failure), and the next
+/// pass (or `webhook push`) pays what is owed. The POST that is IN FLIGHT
+/// when the slice ends is capped to the time the pass has left, so one
+/// slow endpoint can cost the rest of the slice, not its full timeout on
+/// every row.
 pub fn deliver_events(
     j: &Journal,
     target: &Target,
     poster: &mut dyn Poster,
     limit: i64,
+    budget: Option<Instant>,
 ) -> Result<TargetReport, String> {
     let mut rep = TargetReport {
         target: target.id.clone(),
@@ -642,12 +732,37 @@ pub fn deliver_events(
     } else {
         j.events_after(rep.next_seq, limit)?
     };
-    if limit > 0 {
+    // The number of rows the queue OWES behind the ones this pass read: the
+    // slice's honest accounting (how many rows the pass never reached).
+    let rows_behind: i64 = match rows.last() {
+        Some(last) => j.events_after(last.seq, i64::MAX)?.len() as i64,
+        None => 0,
+    };
+    // The pass may now judge its own channel (and only its channel) — see
+    // the two rules above. BUT ONLY if it will actually EXAMINE a row: a
+    // pass that reads the queue and is then stopped by its budget before
+    // the first row examined NO row, and a phase that examines no row
+    // leaves the verdict it finds standing (PULS AW). The budget made that
+    // case reachable, so the clear is tied to the examination, not to the
+    // read.
+    let budget_spent = budget.is_some_and(|b| Instant::now() >= b);
+    if limit > 0 && !rows.is_empty() && !budget_spent {
         // The queue was read: this phase's pass may now judge its own
         // channel (and only its channel) — see the two rules above.
         j.webhook_clear_event_error(&target.id)?;
     }
+    let mut budget_stopped = false;
     for r in &rows {
+        // THE BUDGET (PULS BF): before every row, the pass asks the clock
+        // whether its slice is spent. A pass that stops here is a
+        // TIME-SLICE: the row stays owed, the cursor stays behind it, and
+        // the next pass pays it. The block fields stay EMPTY — a slice is
+        // not a refusal and not a transport failure, and it must not turn a
+        // healthy consumer into a "blocked" one in the exit voice.
+        if budget.is_some_and(|b| Instant::now() >= b) {
+            budget_stopped = true;
+            break;
+        }
         // The payload debt rule, shared with `tail` (PULS AE): a row whose
         // payload the journal still OWES (`logs` null AND no recorded
         // outcome) is a signature, not an event. Delivering it would hand
@@ -688,9 +803,24 @@ pub fn deliver_events(
             (SEQ_HEADER, seq_s.as_str()),
             (EVENT_ID_HEADER, eid.as_str()),
         ];
-        let outcome = match poster.post(&target.url, &body, &headers) {
+        // The in-flight POST is capped to the slice: at worst it costs the
+        // time that was left, never the target's full timeout again.
+        let outcome = match poster.post_until(&target.url, &body, &headers, budget) {
             Ok(status) => classify_status(status),
-            Err(e) => Attempt::Transient(e),
+            Err(e) => {
+                // THE SLICE RAN OUT DURING THIS POST (PULS BF): a POST that
+                // was capped to the pass budget and came back "too late" is
+                // the slice ending — not a transport failure. The row stays
+                // owed, no failed attempt is recorded, the queue is not
+                // blocked, and the next pass pays the row. An error that
+                // returns with time still LEFT in the slice is a real
+                // failure and keeps its established voice.
+                if budget.is_some_and(|b| Instant::now() >= b) {
+                    budget_stopped = true;
+                    break;
+                }
+                Attempt::Transient(e)
+            }
         };
         match outcome {
             Attempt::Delivered(status) => {
@@ -763,6 +893,11 @@ pub fn deliver_events(
             }
         }
     }
+    rep.budget_stopped = budget_stopped;
+    if budget_stopped {
+        let examined = rep.delivered + rep.dead_lettered + rep.failed;
+        rep.events_owed = (rows.len() as i64 - examined).max(0) + rows_behind;
+    }
     Ok(rep)
 }
 
@@ -771,11 +906,16 @@ pub fn deliver_events(
 /// Retractions are delivered even when the event queue is blocked: a
 /// retraction that arrives late can cost money, and the consumer acts on
 /// events it already received.
+///
+/// `budget` is the same TIME-SLICE contract as `deliver_events` (PULS BF):
+/// a retraction the slice cannot pay stays owed and is named, never
+/// dropped — silence is the worst outcome for a retraction.
 pub fn deliver_reorgs(
     j: &Journal,
     target: &Target,
     poster: &mut dyn Poster,
     limit: i64,
+    budget: Option<Instant>,
 ) -> Result<TargetReport, String> {
     let mut rep = TargetReport {
         target: target.id.clone(),
@@ -796,8 +936,18 @@ pub fn deliver_reorgs(
         // The queue was read: this phase's pass judges ITS OWN column and
         // only its own — an event phase must not clear this one, and a
         // `--limit 0` pass that read no row may not judge at all (PULS AW).
-        j.webhook_clear_reorg_error(&target.id)?;
+        // Same rule as the event channel under a budget: the clear belongs
+        // to a pass that EXAMINES a row, not to one that merely reads.
+        if !budget.is_some_and(|b| Instant::now() >= b) {
+            j.webhook_clear_reorg_error(&target.id)?;
+        }
         j.reorgs_after(next_reorg_id, limit)?
+    };
+    // The rows this pass's page does not cover: the slice's honest
+    // accounting, same as the event pass.
+    let rows_behind: i64 = match rows.last() {
+        Some(last) => j.reorgs_after(last.id, i64::MAX)?.len() as i64,
+        None => 0,
     };
     if limit <= 0 {
         // The budget forbids reading the queue: cursors are reported for
@@ -806,11 +956,19 @@ pub fn deliver_reorgs(
         rep.next_seq = next_seq;
         rep.next_reorg_id = next_reorg_id;
     }
+    let mut budget_stopped = false;
     for r in &rows {
         if j.webhook_delivered(&target.id, &target.url, "reorg", r.id)? {
             rep.next_reorg_id = r.id;
             j.webhook_set_state(&target.id, &target.url, rep.next_seq, rep.next_reorg_id)?;
             continue;
+        }
+        // THE BUDGET (PULS BF): a retraction the slice cannot pay stays
+        // owed — the worst outcome for a retraction is silence, so the
+        // slice never trades one for a dropped cursor.
+        if budget.is_some_and(|b| Instant::now() >= b) {
+            budget_stopped = true;
+            break;
         }
         let body = reorg_body(r);
         let sig = signature_header(&target.secret, &body);
@@ -822,9 +980,22 @@ pub fn deliver_reorgs(
             (SEQ_HEADER, seq_s.as_str()),
             (EVENT_ID_HEADER, eid.as_str()),
         ];
-        let outcome = match poster.post(&target.url, &body, &headers) {
+        // The in-flight POST is capped to the slice: at worst it costs the
+        // time that was left, never the target's full timeout again.
+        let outcome = match poster.post_until(&target.url, &body, &headers, budget) {
             Ok(status) => classify_status(status),
-            Err(e) => Attempt::Transient(e),
+            Err(e) => {
+                // THE SLICE RAN OUT DURING THIS POST (PULS BF): the same
+                // rule as the event channel — a retraction that was capped
+                // to the budget and came back late is the slice ending, not
+                // a transport failure. The retraction stays owed; no failed
+                // attempt is recorded; the queue is not blocked.
+                if budget.is_some_and(|b| Instant::now() >= b) {
+                    budget_stopped = true;
+                    break;
+                }
+                Attempt::Transient(e)
+            }
         };
         match outcome {
             Attempt::Delivered(status) => {
@@ -866,12 +1037,21 @@ pub fn deliver_reorgs(
             }
         }
     }
+    rep.budget_stopped = budget_stopped;
+    if budget_stopped {
+        let examined = rep.reorg_delivered + rep.failed;
+        rep.reorgs_owed = (rows.len() as i64 - examined).max(0) + rows_behind;
+    }
     Ok(rep)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    // Test-only: the budget arithmetic speaks in durations. Imported HERE
+    // and not at the top, because the release build does not use it and
+    // `clippy --release -D warnings` (the CI invocation) must stay clean.
+    use std::time::Duration;
 
     /// A poster that records what it was asked to send and answers from a
     /// script.
@@ -961,7 +1141,7 @@ mod tests {
         let j = tmp("signed");
         j.append("sigA", 10, None, Some(r#"["hello"]"#), "ws").unwrap();
         let mut p = ScriptedPoster::new(vec![Ok(200)]);
-        let rep = deliver_events(&j, &target("t1"), &mut p, 10).unwrap();
+        let rep = deliver_events(&j, &target("t1"), &mut p, 10, None).unwrap();
         assert_eq!(rep.delivered, 1);
         let (body, _, headers) = &p.seen[0];
         let sig = headers
@@ -978,7 +1158,7 @@ mod tests {
         let j = tmp("refused");
         j.append("sigA", 10, None, Some("[]"), "ws").unwrap();
         let mut p = ScriptedPoster::new(vec![Ok(403)]);
-        let rep = deliver_events(&j, &target("t1"), &mut p, 10).unwrap();
+        let rep = deliver_events(&j, &target("t1"), &mut p, 10, None).unwrap();
         assert_eq!(rep.delivered, 0);
         assert_eq!(rep.failed, 1);
         assert_eq!(rep.blocked_seq, Some(1));
@@ -997,14 +1177,14 @@ mod tests {
         j.append("c", 12, None, Some("[]"), "ws").unwrap();
         // First delivery 200, second 503 (transient), the rest must not run.
         let mut p = ScriptedPoster::new(vec![Ok(200), Ok(503)]);
-        let rep = deliver_events(&j, &target("t1"), &mut p, 10).unwrap();
+        let rep = deliver_events(&j, &target("t1"), &mut p, 10, None).unwrap();
         assert_eq!(rep.delivered, 1);
         assert_eq!(rep.failed, 1);
         assert_eq!(rep.blocked_seq, Some(2));
         assert_eq!(p.seen.len(), 2, "delivery must stop at the failure");
         // The next attempt starts where it stopped, not at the beginning.
         let mut p2 = ScriptedPoster::new(vec![Ok(200), Ok(200)]);
-        let rep2 = deliver_events(&j, &target("t1"), &mut p2, 10).unwrap();
+        let rep2 = deliver_events(&j, &target("t1"), &mut p2, 10, None).unwrap();
         assert_eq!(rep2.delivered, 2);
         assert_eq!(rep2.blocked_seq, None);
     }
@@ -1017,7 +1197,7 @@ mod tests {
         // cursor: the receipt is there, the cursor is not.
         j.webhook_record_delivered("t1", "http://127.0.0.1:1/hook", "event", 1, "{}").unwrap();
         let mut p = ScriptedPoster::new(vec![Ok(200)]);
-        let rep = deliver_events(&j, &target("t1"), &mut p, 10).unwrap();
+        let rep = deliver_events(&j, &target("t1"), &mut p, 10, None).unwrap();
         assert_eq!(rep.delivered, 0, "the event was already handed over");
         assert_eq!(p.seen.len(), 0, "no second POST");
         assert_eq!(rep.next_seq, 1, "the cursor caught up");
@@ -1029,13 +1209,13 @@ mod tests {
         j.append("a", 10, None, Some("[]"), "ws").unwrap();
         j.mark_reverted("a", 10, "status", "tx", "gone").unwrap();
         let mut p = ScriptedPoster::new(vec![Ok(200)]);
-        let rep = deliver_reorgs(&j, &target("t1"), &mut p, 10).unwrap();
+        let rep = deliver_reorgs(&j, &target("t1"), &mut p, 10, None).unwrap();
         assert_eq!(rep.reorg_delivered, 1);
         let body = &p.seen[0].0;
         assert!(body.contains("\"type\":\"reorg\""), "body = {body}");
         // A second pass has nothing left to say.
         let mut p2 = ScriptedPoster::new(vec![]);
-        let rep2 = deliver_reorgs(&j, &target("t1"), &mut p2, 10).unwrap();
+        let rep2 = deliver_reorgs(&j, &target("t1"), &mut p2, 10, None).unwrap();
         assert_eq!(rep2.reorg_delivered, 0);
     }
 
@@ -1045,10 +1225,10 @@ mod tests {
         j.append("a", 10, None, Some("[]"), "ws").unwrap();
         j.mark_reverted("a", 10, "status", "tx", "gone").unwrap();
         let mut p = ScriptedPoster::new(vec![Ok(500)]);
-        let rep = deliver_events(&j, &target("t1"), &mut p, 10).unwrap();
+        let rep = deliver_events(&j, &target("t1"), &mut p, 10, None).unwrap();
         assert_eq!(rep.blocked_seq, Some(1));
         let mut p2 = ScriptedPoster::new(vec![Ok(200)]);
-        let rep2 = deliver_reorgs(&j, &target("t1"), &mut p2, 10).unwrap();
+        let rep2 = deliver_reorgs(&j, &target("t1"), &mut p2, 10, None).unwrap();
         assert_eq!(rep2.reorg_delivered, 1, "a retraction must not wait behind a hole");
     }
 
@@ -1097,18 +1277,18 @@ mod tests {
         t.dead_letter_after = 3;
         // First refusal: the event stays owed, the queue is blocked.
         let mut p = ScriptedPoster::new(vec![Ok(403)]);
-        let rep = deliver_events(&j, &t, &mut p, 10).unwrap();
+        let rep = deliver_events(&j, &t, &mut p, 10, None).unwrap();
         assert_eq!(rep.dead_lettered, 0);
         assert_eq!(rep.blocked_seq, Some(1));
         assert_eq!(rep.next_seq, 0, "the cursor must not move on the first refusal");
         // Second refusal: still blocked, still no dead letter.
         let mut p = ScriptedPoster::new(vec![Ok(403)]);
-        let rep = deliver_events(&j, &t, &mut p, 10).unwrap();
+        let rep = deliver_events(&j, &t, &mut p, 10, None).unwrap();
         assert_eq!(rep.dead_lettered, 0);
         assert_eq!(rep.blocked_seq, Some(1));
         // Third refusal = the configured threshold: now it is a verdict.
         let mut p = ScriptedPoster::new(vec![Ok(403)]);
-        let rep = deliver_events(&j, &t, &mut p, 10).unwrap();
+        let rep = deliver_events(&j, &t, &mut p, 10, None).unwrap();
         assert_eq!(rep.dead_lettered, 1, "the third refusal moves it to the dead-letter queue");
         assert_eq!(rep.blocked_seq, None, "the queue is not blocked any more");
         assert_eq!(rep.next_seq, 1, "the cursor moves past the quarantined event");
@@ -1124,7 +1304,7 @@ mod tests {
         let mut t = target("t1");
         t.dead_letter_after = 1;
         let mut p = ScriptedPoster::new(vec![Ok(403)]);
-        let rep = deliver_events(&j, &t, &mut p, 10).unwrap();
+        let rep = deliver_events(&j, &t, &mut p, 10, None).unwrap();
         assert_eq!(rep.dead_lettered, 1);
         let rows = j.webhook_dead_letters("t1", 10).unwrap();
         assert_eq!(rows.len(), 1);
@@ -1152,7 +1332,7 @@ mod tests {
         // 503 is transient: retried forever, never quarantined.
         let mut p = ScriptedPoster::new(vec![Ok(503), Ok(503), Ok(503)]);
         for _ in 0..3 {
-            let rep = deliver_events(&j, &t, &mut p, 10).unwrap();
+            let rep = deliver_events(&j, &t, &mut p, 10, None).unwrap();
             assert_eq!(rep.dead_lettered, 0, "a 5xx is an outage, not a verdict");
             assert_eq!(rep.blocked_seq, Some(1));
         }
@@ -1168,7 +1348,7 @@ mod tests {
         let mut t = target("t1");
         t.dead_letter_after = 1;
         let mut p = ScriptedPoster::new(vec![Ok(403)]);
-        let rep = deliver_reorgs(&j, &t, &mut p, 10).unwrap();
+        let rep = deliver_reorgs(&j, &t, &mut p, 10, None).unwrap();
         assert_eq!(rep.reorg_delivered, 0);
         assert_eq!(rep.blocked_reorg_id, Some(1), "a late retraction must not be skipped");
         assert_eq!(j.webhook_dead_letter_count("t1").unwrap(), 0);
@@ -1183,7 +1363,7 @@ mod tests {
         t.dead_letter_after = 1;
         // The target refuses the first event and accepts the second.
         let mut p = ScriptedPoster::new(vec![Ok(403), Ok(200)]);
-        let rep = deliver_events(&j, &t, &mut p, 10).unwrap();
+        let rep = deliver_events(&j, &t, &mut p, 10, None).unwrap();
         assert_eq!(rep.dead_lettered, 1);
         assert_eq!(rep.delivered, 1, "the event behind the dead letter is delivered");
         assert_eq!(rep.next_seq, 2);
@@ -1202,5 +1382,101 @@ mod tests {
             signature_header("k", &b),
             "and therefore the same signature"
         );
+    }
+
+    /// The BUDGET (PULS BF): a pass that runs out of TIME is a time-slice,
+    /// not a failure. The rows behind the slice stay owed, the cursor stays
+    /// behind them, and the block fields stay EMPTY — a slice must not turn
+    /// a healthy consumer into a blocked one (that would change the exit
+    /// voice of a run that is merely slow).
+    #[test]
+    fn a_spent_budget_stops_the_pass_and_names_the_owed_rows() {
+        let j = tmp("budgetspent");
+        j.append("a", 10, None, Some("[]"), "ws").unwrap();
+        j.append("b", 11, None, Some("[]"), "ws").unwrap();
+        j.append("c", 12, None, Some("[]"), "ws").unwrap();
+        // A budget that is ALREADY spent: the pass may not examine a row.
+        let mut p = ScriptedPoster::new(vec![Ok(200), Ok(200), Ok(200)]);
+        let rep = deliver_events(
+            &j,
+            &target("t1"),
+            &mut p,
+            10,
+            Some(Instant::now() - Duration::from_secs(1)),
+        )
+        .unwrap();
+        assert!(rep.budget_stopped, "the pass must confess it ran out of time");
+        assert_eq!(rep.delivered, 0, "no row may be delivered without time");
+        assert_eq!(rep.events_owed, 3, "all three rows stay owed");
+        assert!(!rep.blocked(), "a time-slice is not a block");
+        assert_eq!(rep.blocked_seq, None);
+        assert_eq!(rep.blocked_error, None);
+        assert_eq!(rep.failed, 0, "a time-slice is not a failed attempt");
+        // No byte may leave without time.
+        assert!(p.seen.is_empty(), "no byte may leave without time");
+        // Nothing reached the endpoint and the cursor did not move: the
+        // state row may not even exist yet (no delivery ever happened),
+        // and if it exists its cursor must still be behind the owed rows.
+        let cursor = j.webhook_state("t1").unwrap().map(|(s, _)| s).unwrap_or(0);
+        assert_eq!(cursor, 0, "the cursor stays behind the owed rows");
+    }
+
+    /// A budget that is spent leaves the STANDING VERDICT standing: a pass
+    /// that examines no row may not clear the reason the journal remembers
+    /// (the PULS AW rule — the budget made this case reachable).
+    #[test]
+    fn a_spent_budget_leaves_the_standing_verdict_alone() {
+        let j = tmp("budgetverdict");
+        j.append("a", 10, None, Some("[]"), "ws").unwrap();
+        // A refused endpoint leaves a standing reason on the event channel.
+        let mut p1 = ScriptedPoster::new(vec![Ok(403)]);
+        let first = deliver_events(&j, &target("t1"), &mut p1, 10, None).unwrap();
+        assert!(first.blocked(), "the refusal is the standing verdict");
+        // A pass with no time left must not erase it.
+        let mut p2 = ScriptedPoster::new(vec![Ok(200)]);
+        let second = deliver_events(
+            &j,
+            &target("t1"),
+            &mut p2,
+            10,
+            Some(Instant::now() - Duration::from_secs(1)),
+        )
+        .unwrap();
+        assert!(second.budget_stopped);
+        let reason = j.webhook_summary("t1").unwrap().last_error;
+        assert!(
+            reason.is_some(),
+            "a pass that examined no row must not clear the standing verdict"
+        );
+    }
+
+    /// The budget must not starve delivery: a pass with time left delivers
+    /// and then reports what it did NOT reach.
+    #[test]
+    fn a_budget_with_time_left_delivers_and_reports_the_rest() {
+        let j = tmp("budgettime");
+        for i in 0..4 {
+            j.append(
+                &format!("sig{i}"),
+                10 + i,
+                None,
+                Some("[]"),
+                "ws",
+            )
+            .unwrap();
+        }
+        let mut p = ScriptedPoster::new(vec![Ok(200), Ok(200), Ok(200), Ok(200)]);
+        let rep = deliver_events(
+            &j,
+            &target("t1"),
+            &mut p,
+            10,
+            Some(Instant::now() + Duration::from_secs(30)),
+        )
+        .unwrap();
+        assert_eq!(rep.delivered, 4, "time left means the rows are delivered");
+        assert!(!rep.budget_stopped, "the queue ended, not the clock");
+        assert_eq!(rep.events_owed, 0, "nothing is owed behind a drained page");
+        assert!(!rep.blocked());
     }
 }

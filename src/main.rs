@@ -824,6 +824,12 @@ async fn run_start(args: &[String]) {
     let mut webhook_delivered = 0i64;
     let mut webhook_blocked = 0i64;
     let mut webhook_dead_lettered = 0i64;
+    // PULS BF: how many delivery passes ended on their TIME budget, and how
+    // many rows those slices left owed. A slice is reported, never silently
+    // kept: `budget_stops > 0` with `rows_owed > 0` says the queue is
+    // healthy but slower than this run can pay, and the next pass owes them.
+    let mut webhook_budget_stops = 0i64;
+    let mut webhook_rows_owed = 0i64;
     let deadline = Instant::now() + Duration::from_secs(seconds);
 
     // Gap 1: anything since this journal's last event (previous run or crash).
@@ -994,13 +1000,27 @@ async fn run_start(args: &[String]) {
             next_webhook = next_due(webhook_every_s);
             if let Some(targets) = &webhook_cfg {
                 webhook_passes += 1;
+                // The pass's TIME budget (PULS BF): the time left until the
+                // RUN's own deadline. One slow consumer must not extend the
+                // run it was scheduled into — the same rule PULS BD gave
+                // every signature walk. The budget bounds the WHOLE pass:
+                // every target, both channels, one slice. A pass that ends
+                // on the budget is a TIME-SLICE, not a failure: the rows it
+                // did not reach stay owed, the summary names them
+                // (budget_stops / rows_owed), and the next due pass pays
+                // them. `webhook push` is the drain and stays unbudgeted.
+                let budget = Some(deadline);
                 for t in targets {
                     let mut poster = webhook::HttpPoster { timeout_ms: t.timeout_ms };
                     // Events first, then retractions: a retraction must not
                     // wait behind a blocked event queue.
-                    match webhook::deliver_events(&j, t, &mut poster, webhook_limit) {
+                    match webhook::deliver_events(&j, t, &mut poster, webhook_limit, budget) {
                         Ok(r) => {
                             webhook_delivered += r.delivered;
+                            webhook_rows_owed += r.events_owed;
+                            if r.budget_stopped {
+                                webhook_budget_stops += 1;
+                            }
                             if r.dead_lettered > 0 {
                                 // A quarantine is not a delivery, and it is
                                 // not a crash either: say what happened and
@@ -1039,9 +1059,13 @@ async fn run_start(args: &[String]) {
                         }
                         Err(e) => eprintln!("reeflog: webhook {}: {e}", t.id),
                     }
-                    match webhook::deliver_reorgs(&j, t, &mut poster, webhook_limit) {
+                    match webhook::deliver_reorgs(&j, t, &mut poster, webhook_limit, budget) {
                         Ok(r) => {
                             webhook_delivered += r.reorg_delivered;
+                            webhook_rows_owed += r.reorgs_owed;
+                            if r.budget_stopped {
+                                webhook_budget_stops += 1;
+                            }
                             if let Some(reorg) = r.blocked_reorg_id {
                                 webhook_blocked += 1;
                                 // A retraction is the one message whose
@@ -1548,6 +1572,12 @@ async fn run_start(args: &[String]) {
             "delivered": webhook_delivered,
             "blocked_passes": webhook_blocked,
             "dead_lettered": webhook_dead_lettered,
+            // A pass stopped by its own time budget is a time-slice, not a
+            // failure: the rows it did not reach are owed to the next pass
+            // (or to `webhook push`), and the summary must say so rather
+            // than print a green `delivered` over a queue it never finished.
+            "budget_stops": webhook_budget_stops,
+            "rows_owed": webhook_rows_owed,
         },
         "journal": {
             "events": c.total, "with_err": c.with_err,
@@ -2477,7 +2507,7 @@ fn run_webhook_push(args: &[String]) {
                 };
                 // Events first, then retractions: a retraction must never wait
                 // behind a blocked event queue.
-                let mut rep = match webhook::deliver_events(&j, t, &mut poster, limit) {
+                let mut rep = match webhook::deliver_events(&j, t, &mut poster, limit, None) {
                     Ok(r) => r,
                     Err(e) => die(format!("webhook {}: {e}", t.id)),
                 };
@@ -2485,7 +2515,7 @@ fn run_webhook_push(args: &[String]) {
                 // blocked (a retraction is the one message whose lateness can
                 // cost money) — but never for a target the binding refused:
                 // for that target no channel may move at all.
-                match webhook::deliver_reorgs(&j, t, &mut poster, limit) {
+                match webhook::deliver_reorgs(&j, t, &mut poster, limit, None) {
                     Ok(r) => {
                         rep.reorg_delivered = r.reorg_delivered;
                         rep.failed += r.failed;
