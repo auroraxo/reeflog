@@ -2582,6 +2582,30 @@ no host path. Rust full suite 99 binaries 0 failures, clippy `-D warnings`
 clean, npm 223/223, decoder ALL PASS. The published v0.7.44 asset keeps
 the defect — tags are immutable.
 
+**After the release, on the published bytes.** v0.7.45 shipped
+(2026-11-21; linux archive `sha256:24b71dc0…` == the Release API digest,
+unpacked binary `25d1990d…` = `reeflog 0.7.45`), and the same instrument
+was run again with BOTH sides being released assets —
+`research/webhook-pass-overrun-published-v0745-2026-11-21.json`, verdict
+`webhook-pass-bounded-by-the-pass-budget`, pinned by
+`tests/webhook_pass_overrun_published_v0745.rs` 9/9 (falsified: a
+tampered verdict, a tampered sha256 and a silenced slice turn three faces
+RED; restoring the artifact turns them green byte-identically). The
+published carrier (`ead75ad9…` = `reeflog 0.7.44`) ends 29 s late on the
+200-row backlog and still carries no slice fields (`budget_stops` and
+`rows_owed` recorded as absent, never as 0); the published fix
+(`25d1990d…`) ends 3 s late, grows -2 s instead of +24 s when the
+backlog quadruples, and hands over 98 rows with `budget_stops=1` and
+`rows_owed=102`. `push` still drains 200/200 and 50/50 on both sides.
+The three channels were measured on the same bytes: registry channel
+`registry-consistent` with 0 defects, client pin delivery
+`DELIVERED-TO-THE-PIN` 6/6 (manifest 0.7.45 == crate 0.7.45 == tag
+v0.7.45; API digest `24b71dc0…` == the sidecar; disk binary
+`25d1990d…` == `--version`), and the live user-zero harness 13/13 in an
+EMPTY app (digest verified BEFORE installation, 120 s live against
+mainnet-beta, 7,017 real events, cursor resume, CLI parity, refusal
+voice, `verify` exit 3, held row named).
+
 ### A run does not outlive its own deadline (v0.7.44)
 
 `reeflog start --seconds N` was documented as a run of about N seconds.
